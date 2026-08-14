@@ -1,0 +1,12 @@
+# 忽略本地/开发文件（不进公开仓库）
+node_modules/
+backups/
+.dsh/
+*.log
+.DS_Store
+
+# 内部文档与测试（含个人路径/决策，不进社区仓库）
+SPEC.md
+test-apply.mjs
+test-http.mjs
+test-client.mjs

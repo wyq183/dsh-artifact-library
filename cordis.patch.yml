@@ -1,0 +1,14 @@
+# dsh-artifact-library — 产物库插件（artifact library for the dsh web profile）
+#
+# 提供：
+#   - 模型工具：register_artifact / artifact_list / artifact_get /
+#     artifact_update / artifact_trash / artifact_restore / artifact_stats
+#   - HTTP API：/ext/artifacts*（JSON 数据 + 管理操作）
+#   - 管理页面：/ext/artifact-library/（列表/卡片/项目三视图、预览、筛选、排序、星级、备注、回收站）
+# 数据存于 ~/.dsh/artifact-library/artifacts.json
+
+- insert:
+    - id: artifact-library
+      name: '@dsh-external/dsh-artifact-library'
+      config:
+        dataDir: !!js process.env.DSH_ARTIFACT_LIBRARY_DIR

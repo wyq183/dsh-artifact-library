@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>产物库 · DeepSeek Harness</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2a3242;
+    --fg:#e6edf3; --dim:#8b98a9; --acc:#4da3ff; --acc2:#79c0ff;
+    --warm:#ffb86c; --star:#ffd166; --ok:#3fb950; --danger:#f85149;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--fg);font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif;padding:20px;max-width:1200px;margin:0 auto}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+  header h1{font-size:20px;font-weight:700;letter-spacing:.5px}
+  header h1 .dot{color:var(--acc2)}
+  .stats{display:flex;gap:10px;flex-wrap:wrap}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px 12px;font-size:12px;color:var(--dim)}
+  .stat b{color:var(--fg)}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  input,select,button{background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:7px 12px;font-size:13px;outline:none}
+  input:focus,select:focus{border-color:var(--acc)}
+  button{cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--acc)}
+  button.primary{background:var(--acc);border-color:var(--acc);color:#04121f;font-weight:600}
+  button.primary:hover{background:var(--acc2)}
+  button.danger{color:var(--danger);border-color:var(--danger)}
+  button.ghost{background:transparent}
+  .grow{flex:1}
+  .view-switch{display:flex;gap:4px}
+  .view-switch button{padding:6px 14px}
+  .view-switch button.active{background:var(--acc);border-color:var(--acc);color:#04121f;font-weight:600}
+  .sep{width:1px;height:24px;background:var(--line)}
+  /* 卡片视图 */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:.15s}
+  .card:hover{border-color:var(--acc);transform:translateY(-2px)}
+  .thumb{height:130px;background:var(--panel2);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer}
+  .thumb img{width:100%;height:100%;object-fit:cover}
+  .thumb .ico{font-size:34px;opacity:.5}
+  .card-body{padding:12px;display:flex;flex-direction:column;gap:6px;flex:1}
+  .card-title{font-weight:600;word-break:break-all}
+  .card-summary{color:var(--dim);font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card-meta{font-size:11px;color:var(--dim);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .badge{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:1px 8px;font-size:11px}
+  .badge.warm{border-color:var(--warm);color:var(--warm)}
+  .badge.archived{color:var(--dim)}
+  .card-actions{margin-top:auto;display:flex;gap:6px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--line)}
+  .card-actions button{font-size:12px;padding:4px 10px}
+  /* 列表视图 */
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+  th{color:var(--dim);font-weight:600;font-size:12px;background:var(--panel2)}
+  tr:hover td{background:var(--panel2)}
+  td .mini-thumb{width:52px;height:36px;object-fit:cover;border-radius:6px;display:block;background:var(--panel2)}
+  /* 项目视图 */
+  .group{margin-bottom:18px}
+  .group h3{font-size:15px;margin-bottom:10px;color:var(--acc2);display:flex;align-items:center;gap:8px}
+  .group h3 .count{color:var(--dim);font-size:12px}
+  .stars{color:var(--star);cursor:pointer;letter-spacing:2px;user-select:none}
+  /* 预览 */
+  #lightbox{position:fixed;inset:0;background:rgba(5,8,14,.92);display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;z-index:99;padding:30px}
+  #lightbox img{max-width:90vw;max-height:80vh;border-radius:8px}
+  #lightbox pre{max-width:90vw;max-height:70vh;overflow:auto;background:var(--panel);padding:16px;border-radius:8px;white-space:pre-wrap;word-break:break-all}
+  #lightbox video{max-width:90vw;max-height:70vh}
+  #lightbox .close{position:absolute;top:18px;right:24px;font-size:26px;cursor:pointer;color:var(--dim)}
+  #lightbox .meta{color:var(--dim);font-size:13px;max-width:80vw;text-align:center}
+  .lb-stage{position:relative;max-width:90vw;max-height:76vh;overflow:hidden;background:rgba(0,0,0,.4);border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:grab}
+  .lb-stage.dragging{cursor:grabbing}
+  .lb-stage img{max-width:88vw;max-height:72vh;transition:transform .08s ease-out;user-select:none;-webkit-user-drag:none}
+  .lb-stage.dragging img{transition:none}
+  .lb-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center}
+  .lb-controls button{font-size:12px;padding:3px 12px}
+  .lb-controls .pct{font-size:12px;color:var(--dim);min-width:52px;text-align:center}
+  .lb-rate{display:flex;gap:10px;align-items:center;color:var(--dim);font-size:13px}
+  .lb-rate input[type=range]{width:200px;accent-color:var(--acc)}
+  .lb-rate b{color:var(--fg);min-width:44px;text-align:center}
+  /* 弹窗 */
+  .modal{position:fixed;inset:0;background:rgba(5,8,14,.75);display:none;align-items:center;justify-content:center;z-index:98;padding:20px}
+  .modal.open{display:flex}
+  .modal-box{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:100%;max-width:560px;max-height:86vh;overflow:auto;padding:22px}
+  .modal-box h2{font-size:16px;margin-bottom:16px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;color:var(--dim);margin-bottom:4px}
+  .field input,.field textarea,.field select{width:100%}
+  .field textarea{resize:vertical;min-height:60px}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+  .empty{color:var(--dim);text-align:center;padding:50px 0}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 18px;font-size:13px;display:none;z-index:100}
+  .toast.show{display:block}
+  .notes-line{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  .trash-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>🐋 产物库 <span class="dot">· DeepSeek Harness</span></h1>
+  <div class="stats" id="stats"></div>
+  <div class="grow"></div>
+  <button class="primary" onclick="openRegister()">＋ 登记产物</button>
+  <button onclick="openImport()">📥 导入文件夹</button>
+  <button onclick="location.href=API+'/export'">📦 导出备份</button>
+  <button onclick="refineProject()" title="精化当前所选项目下所有待精化条目">⚡ 精化项目</button>
+  <button onclick="refineFolder()" title="精化所有文件夹导入的待精化条目">⚡ 精化文件夹</button>
+  <button class="primary" onclick="startRefineSession()" title="新开/复用精化会话，立即精化全部待精化条目">🚀 立即精炼</button>
+  <button onclick="openSettings()">⚙️ 设置</button>
+  <button class="ghost" id="trashBtn" onclick="toggleTrash()">🗑️ 回收站</button>
+</header>
+
+<div id="selBar" class="trash-bar" style="display:none">
+  <span class="badge" style="color:var(--acc2);border-color:var(--acc2)">已选 <b id="selCount">0</b> 项</span>
+  <button class="primary" onclick="refineSelected()">⚡ 立即精化所选</button>
+  <button onclick="batchTrash()">🗑️ 批量回收</button>
+  <button onclick="batchProject()">📁 批量改项目</button>
+  <button onclick="batchTags()">🏷️ 批量加标签</button>
+  <button onclick="selectAllPending()">全选待精化</button>
+  <button onclick="clearSel()">清除选择</button>
+</div>
+
+<div class="toolbar">
+  <input class="grow" id="q" placeholder="搜索标题 / 摘要 / 正文 / 文件名…" oninput="debouncedReload()">
+  <select id="fKind" onchange="reload()"><option value="">全部</option><option value="deliverable">产出</option><option value="reference">资料</option></select>
+  <select id="fRefine" onchange="reload()"><option value="">全部状态</option><option value="1">待精化</option><option value="0">已精化</option></select>
+  <select id="fProject" onchange="reload()"><option value="">全部项目</option></select>
+  <select id="fType" onchange="reload()"><option value="">全部类型</option></select>
+  <select id="fTag" onchange="reload()"><option value="">全部标签</option></select>
+  <select id="fSort" onchange="reload()">
+    <option value="created_desc">最新登记</option>
+    <option value="created_asc">最早登记</option>
+    <option value="updated_desc">最近更新</option>
+    <option value="stars_desc">星级最高</option>
+    <option value="size_desc">文件最大</option>
+    <option value="name_asc">名称 A→Z</option>
+  </select>
+  <div class="sep"></div>
+  <div class="view-switch">
+    <button data-v="list" onclick="setView('list')">列表</button>
+    <button data-v="card" class="active" onclick="setView('card')">卡片</button>
+    <button data-v="project" onclick="setView('project')">项目</button>
+  </div>
+</div>
+
+<div id="missBar" class="trash-bar" style="display:none">
+  <span class="badge danger">⚠️ 有 <b>0</b> 条登记的文件已不在原位置，可在 ⚙️ 设置里「🧹 立即整理一次」刷新</span>
+</div>
+
+<div id="trashBar" class="trash-bar" style="display:none">
+  <span class="badge danger">回收站：恢复或永久删除</span>
+  <button onclick="emptyTrash()" class="danger">清空回收站</button>
+</div>
+
+<main id="content"></main>
+
+<div id="lightbox" onclick="if(event.target===this)closeLb()">
+  <div class="close" onclick="closeLb()">✕</div>
+  <div id="lbBody"></div>
+  <div class="meta" id="lbMeta"></div>
+</div>
+
+<div class="modal" id="regModal">
+  <div class="modal-box">
+    <h2 id="regTitle">登记产物</h2>
+    <div class="field"><label>文件路径（绝对路径，必填）</label><input id="r_path" placeholder="C:\Users\..."></div>
+    <div class="field"><label>标题</label><input id="r_title" placeholder="缺省用文件名"></div>
+    <div class="field"><label>摘要（做了什么、解决什么问题）</label><textarea id="r_summary"></textarea></div>
+    <div class="field"><label>所属项目</label><input id="r_project" placeholder="例如：小琪形象 / dsh-browser"></div>
+    <div class="field"><label>交付物类别</label><input id="r_deliverable" placeholder="报告 / 原型 / 安装包 / 设计稿…"></div>
+    <div class="field"><label>类型</label>
+      <select id="r_type">
+        <option value="document">document</option><option value="image">image</option>
+        <option value="audio">audio</option><option value="video">video</option>
+        <option value="code">code</option><option value="archive">archive</option>
+        <option value="other">other</option>
+      </select>
+    </div>
+    <div class="field"><label>标签（逗号分隔）</label><input id="r_tags" placeholder="可爱, 设计稿"></div>
+    <div class="field"><label>备注</label><textarea id="r_notes"></textarea></div>
+    <div class="modal-actions">
+      <button onclick="closeModal('regModal')">取消</button>
+      <button class="primary" onclick="submitRegister()">登记</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="importModal">
+  <div class="modal-box">
+    <h2>📥 导入文件夹（资料）</h2>
+    <div class="field"><label>文件夹路径（绝对路径）</label><input id="i_dir" placeholder="C:\path\to\folder"></div>
+    <div class="field"><label>项目名（留空则用文件夹名）</label><input id="i_project" placeholder="可选"></div>
+    <div class="field" style="color:var(--dim);font-size:12px">扫描该文件夹下所有文件，作为「资料」导入；目录名/父目录名自动当项目与标签；文本文件会本地抽取正文供全文检索。<b>全程本地完成，绝不上传任何内容。</b></div>
+    <div class="modal-actions">
+      <button onclick="closeModal('importModal')">取消</button>
+      <button class="primary" onclick="submitImport()">开始导入</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="settingsModal">
+  <div class="modal-box">
+    <h2>⚙️ 设置</h2>
+    <div class="field"><label><input type="checkbox" id="s_auto" style="width:auto;margin-right:8px">自动采集（会话产出文件自动进库）</label></div>
+    <div class="field"><label><input type="checkbox" id="s_clean" style="width:auto;margin-right:8px">定时整理（去重/刷新文件状态）</label></div>
+    <div class="field"><label>整理频率（天）</label><input id="s_days" type="number" min="1" max="365"></div>
+    <div class="field" style="color:var(--dim);font-size:12px">下次整理时间：<span id="s_next">—</span></div>
+    <div class="modal-actions">
+      <button onclick="cleanupNow()">🧹 立即整理一次</button>
+      <button onclick="closeModal('settingsModal')">取消</button>
+      <button class="primary" onclick="submitSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="editModal">
+  <div class="modal-box">
+    <h2>编辑产物</h2>
+    <div class="field"><label>标题</label><input id="e_title"></div>
+    <div class="field"><label>摘要</label><textarea id="e_summary"></textarea></div>
+    <div class="field"><label>所属项目</label><input id="e_project"></div>
+    <div class="field"><label>交付物类别</label><input id="e_deliverable"></div>
+    <div class="field"><label>类型</label><select id="e_type">
+      <option>document</option><option>image</option><option>audio</option><option>video</option><option>code</option><option>archive</option><option>other</option>
+    </select></div>
+    <div class="field"><label>标签（逗号分隔）</label><input id="e_tags"></div>
+    <div class="field"><label>引用资料 ID（逗号分隔，产出用了哪些资料）</label><input id="e_refs" placeholder="art_xxx, art_yyy" oninput="updateRefNames()"><div id="e_refs_names" style="font-size:12px;color:var(--acc2);margin-top:4px"></div></div>
+    <div class="field"><label>备注</label><textarea id="e_notes"></textarea></div>
+    <div class="modal-actions">
+      <button onclick="closeModal('editModal')">取消</button>
+      <button class="primary" onclick="submitEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '/ext/artifacts'
+let state = { view: 'card', trash: false, items: [], categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {} }
+
+const $ = (id) => document.getElementById(id)
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+const fmtSize = (b) => b > 1048576 ? (b/1048576).toFixed(1)+' MB' : b > 1024 ? (b/1024).toFixed(0)+' KB' : b+' B'
+const fmtDate = (ts) => ts ? new Date(ts*1000).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—'
+
+async function api(url, opts = {}) {
+  const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts })
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.status) }
+  return r.json()
+}
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200) }
+
+async function reload() {
+  try {
+    const p = new URLSearchParams({ sort: $('fSort').value })
+    if (state.trash) p.set('status', 'trashed')
+    const q = $('q').value.trim(); if (q) p.set('q', q)
+    const kd = $('fKind').value; if (kd) p.set('kind', kd)
+    const rf = $('fRefine').value; if (rf) p.set('refine', rf)
+    const pr = $('fProject').value; if (pr) p.set('project', pr)
+    const ty = $('fType').value; if (ty) p.set('artifact_type', ty)
+    const tg = $('fTag').value; if (tg) p.set('tag', tg)
+    state.items = await api(API + '?' + p)
+    render()
+  } catch (e) {
+    $('content').innerHTML = `<div class="empty">❌ 加载失败：${esc(e.message)}（检查插件是否已安装并重启 dsh web）</div>`
+  }
+}
+const debouncedReload = (() => { let t; return () => { clearTimeout(t); t = setTimeout(reload, 300) } })()
+
+// id → 标题 索引（用于显示"引用了哪些资料"）
+async function refreshRefIndex() {
+  try { const all = await api(API + '?limit=500'); state.refIndex = {}; for (const r of all) state.refIndex[r.id] = r.title } catch { /* 忽略 */ }
+}
+function refNames(ids) { return (ids || []).map((id) => state.refIndex[id] || id).filter(Boolean) }
+
+async function loadMeta() {
+  const [cats, stats] = await Promise.all([api(API + '/categories'), api(API + '/stats')])
+  state.categories = cats; state.stats = stats
+  $('fProject').innerHTML = '<option value="">全部项目</option>' + cats.projects.map((x) => `<option>${esc(x)}</option>`).join('')
+  $('fType').innerHTML = '<option value="">全部类型</option>' + cats.types.map((x) => `<option>${esc(x)}</option>`).join('')
+  $('fTag').innerHTML = '<option value="">全部标签</option>' + cats.tags.map((x) => `<option>${esc(x)}</option>`).join('')
+  $('stats').innerHTML =
+    `<div class="stat">共 <b>${stats.total}</b> 件</div>` +
+    `<div class="stat">待精化 <b>${stats.pendingRefine || 0}</b></div>` +
+    `<div class="stat">归档 <b>${stats.archived}</b></div>` +
+    `<div class="stat">回收站 <b>${stats.trashed}</b></div>`
+  // 缺失文件提醒
+  const miss = stats.missingFiles || 0
+  const warn = $('missBar')
+  if (warn) { warn.style.display = miss ? 'flex' : 'none'; if (warn.querySelector('b')) warn.querySelector('b').textContent = miss }
+}
+// 撤销式 toast：消息 + [撤销] 按钮，几秒后消失
+let undoHandle = null
+function undoToast(msg, undoFn) {
+  const t = $('toast')
+  t.innerHTML = `${esc(msg)} <button class="primary" style="margin-left:10px;padding:3px 10px" onclick="(async()=>{try{await undoFn();toast('✅ 已撤销')}catch(e){toast('❌ 撤销失败：'+e.message)}finally{clearTimeout(undoHandle)}})()">撤销</button>`
+  t.classList.add('show')
+  clearTimeout(undoHandle)
+  undoHandle = setTimeout(() => t.classList.remove('show'), 6000)
+}
+function setView(v) { state.view = v; document.querySelectorAll('.view-switch button').forEach((b) => b.classList.toggle('active', b.dataset.v === v)); render() }
+function toggleTrash() { state.trash = !state.trash; $('trashBar').style.display = state.trash ? 'flex' : 'none'; $('trashBtn').classList.toggle('primary', state.trash); reload() }
+async function emptyTrash() { if (!confirm('永久删除回收站内全部产物？')) return; const ids = state.items.map((r) => r.id); for (const id of ids) await api(API + '/' + id, { method: 'DELETE' }); toast('回收站已清空'); reload() }
+
+function starsHtml(r) {
+  let h = '<span class="stars" title="点击打分">'
+  for (let i = 1; i <= 5; i++) h += `<span onclick="event.stopPropagation();setStars('${r.id}',${i})">${i <= r.stars ? '★' : '☆'}</span>`
+  return h + '</span>'
+}
+async function setStars(id, n) { await api(API + '/' + id, { method: 'PATCH', body: JSON.stringify({ stars: n }) }); toast(`★ ${n}`); reload() }
+
+function typeIcon(t) { return { image: '🖼️', audio: '🎵', video: '🎬', document: '📄', code: '💻', archive: '📦' }[t] || '📎' }
+
+function previewHtml(r) {
+  if (!r.exists) return '<span class="ico" title="文件缺失">🚫</span>'
+  if (r.mime_type.startsWith('image/')) return `<img src="${API}/${r.id}/file" alt="">`
+  return `<span class="ico">${typeIcon(r.artifact_type)}</span>`
+}
+
+function cardHtml(r) {
+  return `<div class="card">
+    <div class="thumb" onclick="openPreview('${r.id}')">${previewHtml(r)}</div>
+    <div class="card-body">
+      <div class="card-title"><input type="checkbox" class="alf-sel" onchange="toggleSel('${r.id}', this.checked)" ${state.selected.has(r.id) ? 'checked' : ''} style="width:auto;margin-right:6px;accent-color:var(--acc)">${esc(r.title)}</div>
+      ${r.summary ? `<div class="card-summary">${esc(r.summary)}</div>` : ''}
+      <div class="card-meta">
+        <span class="badge${r.artifact_type === 'image' ? ' warm' : ''}">${typeIcon(r.artifact_type)} ${esc(r.artifact_type)}</span>
+        ${r.kind === 'reference' ? '<span class="badge">📚 资料</span>' : ''}
+        ${r.needsRefine ? '<span class="badge" style="color:var(--warm);border-color:var(--warm)">' + (r.refineRequested ? '⚡ 优先精化' : '待精化') + '</span>' : ''}
+        ${r.project ? `<span class="badge">${esc(r.project)}</span>` : ''}
+        ${r.status === 'archived' ? '<span class="badge archived">归档</span>' : ''}
+        <span>${fmtSize(r.size_bytes)}</span>
+      </div>
+      ${starsHtml(r)}
+      ${r.notes ? `<div class="notes-line" title="${esc(r.notes)}">📝 ${esc(r.notes)}</div>` : ''}
+      ${r.references && r.references.length ? `<div class="notes-line" title="${esc(refNames(r.references).join(', '))}">📚 资料: ${esc(refNames(r.references).join(', '))}</div>` : ''}
+      <div class="card-actions">
+        <button onclick="openPreview('${r.id}')">👁️ 预览</button>
+        <button onclick="openEdit('${r.id}')">✏️ 编辑</button>
+        <button onclick="openFolder('${r.id}')">📂 文件夹</button>
+        <button onclick="copyPath('${r.id}')">📋 路径</button>
+        ${state.trash
+          ? `<button onclick="restoreOne('${r.id}')">↩️ 恢复</button><button class="danger" onclick="delOne('${r.id}')">🗑️ 删除</button>`
+          : `<button class="danger" onclick="trashOne('${r.id}')">🗑️</button>`}
+      </div>
+    </div>
+  </div>`
+}
+
+function listHtml(r) {
+  return `<tr>
+    <td>${r.mime_type.startsWith('image/') && r.exists ? `<img class="mini-thumb" src="${API}/${r.id}/file">` : `<span style="font-size:18px">${typeIcon(r.artifact_type)}</span>`}</td>
+    <td><b>${esc(r.title)}</b><br><span style="color:var(--dim);font-size:11px">${esc(r.path)}</span></td>
+    <td>${esc(r.project || '—')}</td>
+    <td>${starsHtml(r)}</td>
+    <td>${fmtSize(r.size_bytes)}</td>
+    <td>${fmtDate(r.created_at)}</td>
+    <td style="white-space:nowrap">
+      <button onclick="openPreview('${r.id}')">预览</button>
+      <button onclick="openEdit('${r.id}')">编辑</button>
+      ${state.trash
+        ? `<button onclick="restoreOne('${r.id}')">恢复</button><button class="danger" onclick="delOne('${r.id}')">删除</button>`
+        : `<button class="danger" onclick="trashOne('${r.id}')">回收</button>`}
+    </td>
+  </tr>`
+}
+
+function render() {
+  const c = $('content')
+  if (!state.items.length) {
+    const hasFilter = $('q').value || $('fKind').value || $('fRefine').value || $('fProject').value || $('fType').value || $('fTag').value
+    c.innerHTML = `<div class="empty">${state.trash ? '🗑️ 回收站是空的' : hasFilter ? '🔍 没有符合筛选条件的结果，试试清空筛选' : '✨ 库还是空的<br><br>点右上角「登记产物」手动登记，或让 Agent 调用 register_artifact；<br>也可以「📥 导入文件夹」把一批资料批量收进来'}</div>`
+    return
+  }
+  if (state.view === 'list') {
+    c.innerHTML = `<table><thead><tr><th></th><th>产物</th><th>项目</th><th>星级</th><th>大小</th><th>登记时间</th><th>操作</th></tr></thead><tbody>${state.items.map(listHtml).join('')}</tbody></table>`
+  } else if (state.view === 'project') {
+    const groups = {}
+    for (const r of state.items) (groups[r.project || '(未分类)'] = groups[r.project || '(未分类)'] || []).push(r)
+    c.innerHTML = Object.entries(groups).map(([p, items]) =>
+      `<div class="group"><h3>📁 ${esc(p)} <span class="count">${items.length} 件</span></h3><div class="cards">${items.map(cardHtml).join('')}</div></div>`).join('')
+  } else {
+    c.innerHTML = `<div class="cards">${state.items.map(cardHtml).join('')}</div>`
+  }
+}
+
+let zoom = { s: 1, x: 0, y: 0 }
+function applyZoom() { const img = $('lbImg'); if (img) img.style.transform = `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.s})`; const pct = $('zoomPct'); if (pct) pct.textContent = Math.round(zoom.s * 100) + '%' }
+function zoomBy(f) { zoom.s = Math.max(0.2, Math.min(8, zoom.s * f)); applyZoom() }
+function zoomReset() { zoom = { s: 1, x: 0, y: 0 }; applyZoom() }
+function zoomActual() { zoom = { s: 1, x: 0, y: 0 }; applyZoom() }
+function setRate(v) { const av = $('lbAudio') || $('lbVideo'); if (av) av.playbackRate = Number(v); const el = $('lbRateVal'); if (el) el.textContent = Number(v).toFixed(2) + 'x' }
+
+async function openPreview(id) {
+  const r = await api(API + '/' + id)
+  const lb = $('lightbox'); const body = $('lbBody'); const meta = $('lbMeta')
+  body.innerHTML = ''
+  meta.innerHTML = `<b>${esc(r.title)}</b> · <a href="javascript:void(0)" style="color:var(--acc2)" onclick="openFolder('${r.id}')" title="在文件管理器中打开">${esc(r.path)}</a><br>${esc(r.summary || '')}${r.references && r.references.length ? '<br>📚 用了资料: ' + esc(refNames(r.references).join('、')) : ''}`
+  zoomReset()
+  if (!r.exists) body.innerHTML = '<div class="empty">🚫 文件缺失：' + esc(r.path) + '</div>'
+  else if (r.mime_type.startsWith('image/')) {
+    body.innerHTML =
+      `<div class="lb-stage" id="lbStage"><img id="lbImg" src="${API}/${id}/file" alt=""></div>
+       <div class="lb-controls">
+         <button onclick="zoomBy(1.25)">🔍＋</button>
+         <button onclick="zoomBy(0.8)">🔍－</button>
+         <button onclick="zoomReset()">适应</button>
+         <button onclick="zoomActual()">1:1</button>
+         <span class="pct" id="zoomPct">100%</span>
+         <span style="color:var(--dim);font-size:12px">滚轮缩放 · 拖拽平移 · 双击复位</span>
+       </div>`
+    const stage = $('lbStage'); const img = $('lbImg')
+    const drag = { on: false, sx: 0, sy: 0, ox: 0, oy: 0, pid: null }
+    stage.addEventListener('wheel', (e) => { e.preventDefault(); const f = e.deltaY < 0 ? 1.15 : 0.87; zoom.s = Math.max(0.2, Math.min(8, zoom.s * f)); applyZoom() }, { passive: false })
+    // Pointer Events + 指针捕获：窗口外松开也能收到 pointerup，且监听器随 stage 销毁无泄漏
+    stage.addEventListener('pointerdown', (e) => {
+      drag.on = true; drag.pid = e.pointerId; drag.sx = e.clientX; drag.sy = e.clientY; drag.ox = zoom.x; drag.oy = zoom.y
+      stage.classList.add('dragging')
+      try { stage.setPointerCapture(e.pointerId) } catch { /* ignore */ }
+    })
+    stage.addEventListener('pointermove', (e) => {
+      if (!drag.on || e.pointerId !== drag.pid) return
+      zoom.x = drag.ox + (e.clientX - drag.sx)
+      zoom.y = drag.oy + (e.clientY - drag.sy)
+      applyZoom()
+    })
+    stage.addEventListener('pointerup', (e) => { if (e.pointerId !== drag.pid) return; drag.on = false; stage.classList.remove('dragging') })
+    stage.addEventListener('pointercancel', (e) => { if (e.pointerId !== drag.pid) return; drag.on = false; stage.classList.remove('dragging') })
+    // 双击复位/放大：挂在 stage（指针捕获会把合成事件重定向到捕获目标，挂 img 收不到）
+    stage.addEventListener('dblclick', () => { zoom.s > 1.05 ? zoomReset() : zoomBy(2) })
+  }
+  else if (r.mime_type.startsWith('video/')) {
+    body.innerHTML = `<video controls id="lbVideo" src="${API}/${id}/file"></video>
+      <div class="lb-rate"><span>⏩ 倍速</span><input type="range" min="0.5" max="2" step="0.05" value="1" oninput="setRate(this.value)"><b id="lbRateVal">1.00x</b></div>`
+  }
+  else if (r.mime_type.startsWith('audio/')) {
+    body.innerHTML = `<audio controls id="lbAudio" src="${API}/${id}/file"></audio>
+      <div class="lb-rate"><span>⏩ 倍速</span><input type="range" min="0.5" max="2" step="0.05" value="1" oninput="setRate(this.value)"><b id="lbRateVal">1.00x</b></div>`
+  }
+  else { const t = await fetch(API + '/' + id + '/file').then((x) => x.text()).catch(() => '(无法读取)'); body.innerHTML = `<pre>${esc(t.slice(0, 20000))}</pre>` }
+  lb.style.display = 'flex'
+}
+function closeLb() { $('lightbox').style.display = 'none'; zoomReset() }
+
+function openRegister() { $('regTitle').textContent = '登记产物'; ['r_path','r_title','r_summary','r_project','r_deliverable','r_tags','r_notes'].forEach((i) => $(i).value = ''); $('regModal').classList.add('open') }
+function openImport() { $('i_dir').value = ''; $('i_project').value = ''; $('importModal').classList.add('open') }
+async function openSettings() {
+  try {
+    const s = await api(API + '/settings')
+    $('s_auto').checked = s.autoCollect
+    $('s_clean').checked = s.cleanupEnabled
+    $('s_days').value = s.cleanupIntervalDays
+    $('s_next').textContent = s.lastCleanupAt ? new Date((s.lastCleanupAt + s.cleanupIntervalDays * 86400) * 1000).toLocaleString('zh-CN') : '（尚未整理，开启后首轮到期即整理）'
+    $('settingsModal').classList.add('open')
+  } catch (e) { toast('❌ ' + e.message) }
+}
+async function cleanupNow() {
+  try { const r = await api(API + '/cleanup-now', { method: 'POST' }); toast(`🧹 整理完成：去重 ${r.deduped}、刷新 ${r.refreshed}、缺失 ${r.missing}`) } catch (e) { toast('❌ ' + e.message) }
+}
+async function submitSettings() {
+  try {
+    const r = await api(API + '/settings', { method: 'PUT', body: JSON.stringify({ autoCollect: $('s_auto').checked, cleanupEnabled: $('s_clean').checked, cleanupIntervalDays: Number($('s_days').value) || 7 }) })
+    toast('✅ 设置已保存'); closeModal('settingsModal'); reload()
+  } catch (e) { toast('❌ ' + e.message) }
+}
+async function submitImport() {
+  const dir = $('i_dir').value.trim(); const project = $('i_project').value.trim()
+  if (!dir) return toast('请输入文件夹路径')
+  try { const r = await api(API + '/import', { method: 'POST', body: JSON.stringify({ dir, project }) }); toast(`✅ 导入 ${r.count} 个文件（跳过 ${r.skipped} 个重复）到「${r.project}」`); closeModal('importModal'); await refreshRefIndex(); reload() } catch (e) { toast('❌ ' + e.message) }
+}
+async function submitRegister() {
+  const body = {
+    path: $('r_path').value.trim(), title: $('r_title').value.trim(), summary: $('r_summary').value.trim(),
+    project: $('r_project').value.trim(), deliverable: $('r_deliverable').value.trim(), artifact_type: $('r_type').value,
+    tags: $('r_tags').value.split(',').map((s) => s.trim()).filter(Boolean), notes: $('r_notes').value.trim(),
+  }
+  if (!body.path) return toast('路径必填')
+  try { const rec = await api(API, { method: 'POST', body: JSON.stringify(body) }); toast(`✅ 已登记 ${rec.id}`); closeModal('regModal'); reload() } catch (e) { toast('❌ ' + e.message) }
+}
+let editId = null
+async function openEdit(id) { const r = await api(API + '/' + id); editId = id; $('e_title').value = r.title || ''; $('e_summary').value = r.summary || ''; $('e_project').value = r.project || ''; $('e_deliverable').value = r.deliverable || ''; $('e_type').value = r.artifact_type || 'other'; $('e_tags').value = (r.tags || []).join(', '); const refs = r.references || []; $('e_refs').value = refs.join(', '); updateRefNames(); $('e_notes').value = r.notes || ''; $('editModal').classList.add('open') }
+function updateRefNames() {
+  const names = $('e_refs').value.split(',').map((s) => s.trim()).filter(Boolean).map((id) => { const t = refIndex[id]; return t ? `${t} (${id})` : `${id}（未找到）` })
+  $('e_refs_names').textContent = names.length ? '📚 ' + names.join('；') : ''
+}
+async function submitEdit() {
+  const body = { title: $('e_title').value.trim(), summary: $('e_summary').value.trim(), project: $('e_project').value.trim(), deliverable: $('e_deliverable').value.trim(), artifact_type: $('e_type').value, tags: $('e_tags').value.split(',').map((s) => s.trim()).filter(Boolean), references: $('e_refs').value.split(',').map((s) => s.trim()).filter(Boolean), notes: $('e_notes').value.trim() }
+  try { await api(API + '/' + editId, { method: 'PATCH', body: JSON.stringify(body) }); toast('✅ 已保存'); closeModal('editModal'); reload() } catch (e) { toast('❌ ' + e.message) }
+}
+function closeModal(id) { $(id).classList.remove('open') }
+async function openFolder(id) { try { await api(API + '/' + id + '/open', { method: 'POST' }); toast('📂 已在文件管理器中打开') } catch (e) { toast('❌ ' + e.message) } }
+
+// === 选择 + 立即精化 ===
+function toggleSel(id, on) { on ? state.selected.add(id) : state.selected.delete(id); updateSelBar() }
+function updateSelBar() { const n = state.selected.size; $('selBar').style.display = n ? 'flex' : 'none'; $('selCount').textContent = n }
+function clearSel() { state.selected.clear(); updateSelBar(); render() }
+function selectAllPending() { state.items.filter((r) => r.needsRefine).forEach((r) => state.selected.add(r.id)); updateSelBar(); render() }
+async function refineSelected() {
+  const ids = [...state.selected]
+  if (!ids.length) return toast('请先勾选条目')
+  try { const r = await api(API + '/refine-request', { method: 'POST', body: JSON.stringify({ ids }) }); toast(`⚡ 已标记 ${r.marked} 条优先精化，下次会话 AI 优先处理`); state.selected.clear(); updateSelBar(); reload() } catch (e) { toast('❌ ' + e.message) }
+}
+async function startRefineSession(opts = {}) {
+  try {
+    const r = await api(API + '/refine-session', { method: 'POST', body: JSON.stringify(opts) })
+    if (!r.ok) return toast('❌ ' + (r.error || '启动失败'))
+    toast(`🚀 已派发给精化会话 ${r.sessionId.slice(0, 8)}…，共 ${r.pendingCount} 条待精化`)
+    state.selected.clear(); updateSelBar(); reload()
+  } catch (e) { toast('❌ ' + e.message) }
+}
+async function refineProject() {
+  const pr = $('fProject').value
+  if (!pr) return toast('请先在筛选里选择一个项目')
+  try { const r = await api(API + '/refine-request', { method: 'POST', body: JSON.stringify({ project: pr }) }); toast(`⚡ 已标记项目「${pr}」${r.marked} 条优先精化`); reload() } catch (e) { toast('❌ ' + e.message) }
+}
+async function refineFolder() {
+  try { const r = await api(API + '/refine-request', { method: 'POST', body: JSON.stringify({ folder: true }) }); toast(`⚡ 已标记文件夹导入的 ${r.marked} 条优先精化`); reload() } catch (e) { toast('❌ ' + e.message) }
+}
+async function copyPath(id) { const r = await api(API + '/' + id); try { await navigator.clipboard.writeText(r.path); toast('📋 路径已复制') } catch { prompt('复制路径：', r.path) } }
+async function trashOne(id) { await api(API + '/' + id + '/trash', { method: 'POST' }); undoToast('🗑️ 已移入回收站', async () => { await api(API + '/' + id + '/restore', { method: 'POST' }); reload() }); reload() }
+async function restoreOne(id) { await api(API + '/' + id + '/restore', { method: 'POST' }); toast('✅ 已恢复'); reload() }
+async function delOne(id) {
+  const r = await api(API + '/' + id)
+  if (!confirm('永久删除该记录？（文件本身不动）')) return
+  await api(API + '/' + id, { method: 'DELETE' })
+  undoToast('🗑️ 已永久删除', async () => {
+    await api(API, { method: 'POST', body: JSON.stringify({ path: r.path, title: r.title, summary: r.summary, project: r.project, deliverable: r.deliverable, artifact_type: r.artifact_type, tags: r.tags, notes: r.notes, status: r.status, kind: r.kind, stars: r.stars }) })
+    reload()
+  })
+  reload()
+}
+
+// === 批量操作 ===
+async function batchTrash() {
+  const ids = [...state.selected]; if (!ids.length) return toast('请先勾选条目')
+  for (const id of ids) await api(API + '/' + id + '/trash', { method: 'POST' })
+  toast(`🗑️ 已回收 ${ids.length} 条（可到回收站恢复）`); state.selected.clear(); updateSelBar(); reload()
+}
+async function batchProject() {
+  const ids = [...state.selected]; if (!ids.length) return toast('请先勾选条目')
+  const project = prompt('把这些条目归到哪个项目？', $('fProject').value || '')
+  if (project === null) return
+  for (const id of ids) await api(API + '/' + id, { method: 'PATCH', body: JSON.stringify({ project }) })
+  toast(`📁 已把 ${ids.length} 条归入「${project}」`); state.selected.clear(); updateSelBar(); reload()
+}
+async function batchTags() {
+  const ids = [...state.selected]; if (!ids.length) return toast('请先勾选条目')
+  const tagStr = prompt('要追加的标签（逗号分隔）：', '')
+  if (!tagStr) return
+  const newTags = tagStr.split(',').map((s) => s.trim()).filter(Boolean)
+  for (const id of ids) {
+    const r = await api(API + '/' + id)
+    const merged = [...(r.tags || []), ...newTags.filter((t) => !(r.tags || []).includes(t))]
+    await api(API + '/' + id, { method: 'PATCH', body: JSON.stringify({ tags: merged }) })
+  }
+  toast(`🏷️ 已为 ${ids.length} 条追加标签`); state.selected.clear(); updateSelBar(); reload()
+}
+
+// === 快捷键 ===
+document.addEventListener('keydown', (e) => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')
+  if (e.key === 'Escape') { closeLb(); closeModal('regModal'); closeModal('editModal'); closeModal('importModal'); closeModal('settingsModal'); return }
+  if (typing) return
+  if (e.key === '/') { e.preventDefault(); $('q').focus(); return }
+  if (e.key === 'n' || e.key === 'N') { openRegister(); return }
+  if (e.key === 'g' || e.key === 'G') { toggleTrash(); return }
+  if (e.key === '1') { setView('list'); return }
+  if (e.key === '2') { setView('card'); return }
+  if (e.key === '3') { setView('project'); return }
+})
+;(async () => { try { await loadMeta(); await refreshRefIndex(); await reload() } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
+</script>
+</body>
+</html>
