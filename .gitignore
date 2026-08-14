@@ -10,3 +10,5 @@ SPEC.md
 test-apply.mjs
 test-http.mjs
 test-client.mjs
+
+lib/*.bak
