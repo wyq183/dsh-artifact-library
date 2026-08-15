@@ -178,6 +178,12 @@
 <div class="modal" id="regModal">
   <div class="modal-box">
     <h2 id="regTitle">登记产物</h2>
+    <div class="field"><label>类型</label>
+      <select id="r_kind" onchange="regKindHint()">
+        <option value="deliverable">📦 产出（自己做的作品/文件）</option>
+        <option value="reference">📚 资料（参考/素材/收藏）</option>
+      </select>
+    </div>
     <div class="field"><label>文件路径（绝对路径，必填）</label><input id="r_path" placeholder="C:\Users\..."></div>
     <div class="field"><label>标题</label><input id="r_title" placeholder="缺省用文件名"></div>
     <div class="field"><label>摘要（做了什么、解决什么问题）</label><textarea id="r_summary"></textarea></div>
@@ -265,6 +271,7 @@
     <div class="field"><label>引用资料 ID（逗号分隔，产出用了哪些资料）</label><input id="e_refs" placeholder="art_xxx, art_yyy" oninput="updateRefNames()"><div id="e_refs_names" style="font-size:12px;color:var(--acc2);margin-top:4px"></div></div>
     <div class="field"><label>💡 相关建议（自动扫描库里可能相关的产出/资料，点击填入引用）</label>
       <div id="e_related" style="font-size:12px"><button type="button" onclick="loadRelated()">扫描相关条目</button></div></div>
+    <div class="field"><label>星级（点击设置 0-5）</label><div id="e_stars"></div></div>
     <div class="field"><label>备注</label><textarea id="e_notes"></textarea></div>
     <div class="modal-actions">
       <button onclick="closeModal('editModal')">取消</button>
@@ -277,7 +284,7 @@
 
 <script>
 const API = '/ext/artifacts'
-let state = { view: 'card', trash: false, items: [], categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {} }
+let state = { view: 'card', trash: false, items: [], categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60 }
 
 const $ = (id) => document.getElementById(id)
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
@@ -302,6 +309,7 @@ async function reload() {
     const ty = $('fType').value; if (ty) p.set('artifact_type', ty)
     const tg = $('fTag').value; if (tg) p.set('tag', tg)
     state.items = await api(API + '?' + p)
+    state.page = 1
     render()
   } catch (e) {
     $('content').innerHTML = `<div class="empty">❌ 加载失败：${esc(e.message)}（检查插件是否已安装并重启 dsh web）</div>`
@@ -311,7 +319,7 @@ const debouncedReload = (() => { let t; return () => { clearTimeout(t); t = setT
 
 // id → 标题 索引（用于显示"引用了哪些资料"）
 async function refreshRefIndex() {
-  try { const all = await api(API + '?limit=500'); state.refIndex = {}; for (const r of all) state.refIndex[r.id] = r.title } catch { /* 忽略 */ }
+  try { const all = await api(API + '?limit=5000'); state.refIndex = {}; for (const r of all) state.refIndex[r.id] = r.title } catch { /* 忽略 */ }
 }
 function refNames(ids) { return (ids || []).map((id) => state.refIndex[id] || id).filter(Boolean) }
 
@@ -398,6 +406,7 @@ function listHtml(r) {
     <td>${starsHtml(r)}</td>
     <td>${fmtSize(r.size_bytes)}</td>
     <td>${fmtDate(r.created_at)}</td>
+    <td>${r.session_id ? `<span class="hint" title="${esc(r.session_id)}">${esc(r.session_id.slice(0, 14))}</span>` : '—'}</td>
     <td style="white-space:nowrap">
       <button onclick="openPreview('${r.id}')">预览</button>
       <button onclick="openEdit('${r.id}')">编辑</button>
@@ -415,17 +424,22 @@ function render() {
     c.innerHTML = `<div class="empty">${state.trash ? '🗑️ 回收站是空的' : hasFilter ? '🔍 没有符合筛选条件的结果，试试清空筛选' : '✨ 库还是空的<br><br>点右上角「登记产物」手动登记，或让 Agent 调用 register_artifact；<br>也可以「📥 导入文件夹」把一批资料批量收进来'}</div>`
     return
   }
+  // 分页：每页 pageSize 条，末尾「加载更多」
+  const visible = state.items.slice(0, state.page * state.pageSize)
+  const more = state.items.length > visible.length
+  const moreBtn = more ? `<div style="text-align:center;margin:18px 0"><button onclick="loadMore()" style="padding:8px 24px">加载更多（还剩 ${state.items.length - visible.length} 条）</button></div>` : `<div class="hint" style="text-align:center;margin:14px 0">共 ${state.items.length} 条</div>`
   if (state.view === 'list') {
-    c.innerHTML = `<table><thead><tr><th></th><th>产物</th><th>项目</th><th>星级</th><th>大小</th><th>登记时间</th><th>操作</th></tr></thead><tbody>${state.items.map(listHtml).join('')}</tbody></table>`
+    c.innerHTML = `<table><thead><tr><th></th><th>产物</th><th>项目</th><th>星级</th><th>大小</th><th>登记时间</th><th>来源会话</th><th>操作</th></tr></thead><tbody>${visible.map(listHtml).join('')}</tbody></table>${moreBtn}`
   } else if (state.view === 'project') {
     const groups = {}
-    for (const r of state.items) (groups[r.project || '(未分类)'] = groups[r.project || '(未分类)'] || []).push(r)
+    for (const r of visible) (groups[r.project || '(未分类)'] = groups[r.project || '(未分类)'] || []).push(r)
     c.innerHTML = Object.entries(groups).map(([p, items]) =>
-      `<div class="group"><h3>📁 ${esc(p)} <span class="count">${items.length} 件</span></h3><div class="cards">${items.map(cardHtml).join('')}</div></div>`).join('')
+      `<div class="group"><h3>📁 ${esc(p)} <span class="count">${items.length} 件</span></h3><div class="cards">${items.map(cardHtml).join('')}</div></div>`).join('') + moreBtn
   } else {
-    c.innerHTML = `<div class="cards">${state.items.map(cardHtml).join('')}</div>`
+    c.innerHTML = `<div class="cards">${visible.map(cardHtml).join('')}</div>${moreBtn}`
   }
 }
+function loadMore() { state.page++; render() }
 
 let zoom = { s: 1, x: 0, y: 0 }
 function applyZoom() { const img = $('lbImg'); if (img) img.style.transform = `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.s})`; const pct = $('zoomPct'); if (pct) pct.textContent = Math.round(zoom.s * 100) + '%' }
@@ -485,7 +499,9 @@ async function openPreview(id) {
 }
 function closeLb() { $('lightbox').style.display = 'none'; zoomReset() }
 
-function openRegister() { $('regTitle').textContent = '登记产物'; ['r_path','r_title','r_summary','r_project','r_deliverable','r_tags','r_notes'].forEach((i) => $(i).value = ''); $('regModal').classList.add('open') }
+function openRegister() { $('regTitle').textContent = '登记产物'; ['r_path','r_title','r_summary','r_project','r_deliverable','r_tags','r_notes'].forEach((i) => $(i).value = ''); $('r_kind').value = 'deliverable'; regKindHint(); $('regModal').classList.add('open') }
+// 登记时选择产出/资料：资料默认不填「交付物类别」
+function regKindHint() { const isRef = $('r_kind').value === 'reference'; $('r_deliverable').disabled = isRef; if (isRef && !$('r_deliverable').value) { } }
 function openImport() { $('i_dir').value = ''; $('i_project').value = ''; $('importModal').classList.add('open') }
 async function openSettings() {
   try {
@@ -516,12 +532,17 @@ async function submitRegister() {
     path: $('r_path').value.trim(), title: $('r_title').value.trim(), summary: $('r_summary').value.trim(),
     project: $('r_project').value.trim(), deliverable: $('r_deliverable').value.trim(), artifact_type: $('r_type').value,
     tags: $('r_tags').value.split(',').map((s) => s.trim()).filter(Boolean), notes: $('r_notes').value.trim(),
+    kind: $('r_kind').value,
   }
   if (!body.path) return toast('路径必填')
-  try { const rec = await api(API, { method: 'POST', body: JSON.stringify(body) }); toast(`✅ 已登记 ${rec.id}`); closeModal('regModal'); reload() } catch (e) { toast('❌ ' + e.message) }
+  try { const rec = await api(API, { method: 'POST', body: JSON.stringify(body) }); toast(`✅ 已登记${body.kind === 'reference' ? '资料' : '产出'} ${rec.id}`); closeModal('regModal'); reload() } catch (e) { toast('❌ ' + e.message) }
 }
 let editId = null
-async function openEdit(id) { const r = await api(API + '/' + id); editId = id; $('e_title').value = r.title || ''; $('e_summary').value = r.summary || ''; $('e_project').value = r.project || ''; $('e_deliverable').value = r.deliverable || ''; $('e_type').value = r.artifact_type || 'other'; $('e_tags').value = (r.tags || []).join(', '); const refs = r.references || []; $('e_refs').value = refs.join(', '); updateRefNames(); $('e_notes').value = r.notes || ''; $('e_related').innerHTML = '<button type="button" onclick="loadRelated()">扫描相关条目</button>'; $('editModal').classList.add('open') }
+let editStars = 0
+function renderEditStars() {
+  $('e_stars').innerHTML = `<span style="cursor:pointer;font-size:20px;letter-spacing:4px" onclick="event.stopPropagation()">${[1,2,3,4,5].map((i) => `<span onclick="editStars=${i};renderEditStars()" style="color:${i <= editStars ? 'var(--star)' : 'var(--dim)'}">★</span>`).join('')}</span><span class="hint" style="margin-left:10px">${editStars || '未评级'}</span>`
+}
+async function openEdit(id) { const r = await api(API + '/' + id); editId = id; editStars = r.stars || 0; $('e_title').value = r.title || ''; $('e_summary').value = r.summary || ''; $('e_project').value = r.project || ''; $('e_deliverable').value = r.deliverable || ''; $('e_type').value = r.artifact_type || 'other'; $('e_tags').value = (r.tags || []).join(', '); const refs = r.references || []; $('e_refs').value = refs.join(', '); updateRefNames(); renderEditStars(); $('e_notes').value = r.notes || ''; $('e_related').innerHTML = '<button type="button" onclick="loadRelated()">扫描相关条目</button>'; $('editModal').classList.add('open') }
 // C1：扫描库里可能相关的条目，点击填入引用
 async function loadRelated() {
   const box = $('e_related')
@@ -546,7 +567,7 @@ function updateRefNames() {
   $('e_refs_names').textContent = names.length ? '📚 ' + names.join('；') : ''
 }
 async function submitEdit() {
-  const body = { title: $('e_title').value.trim(), summary: $('e_summary').value.trim(), project: $('e_project').value.trim(), deliverable: $('e_deliverable').value.trim(), artifact_type: $('e_type').value, tags: $('e_tags').value.split(',').map((s) => s.trim()).filter(Boolean), references: $('e_refs').value.split(',').map((s) => s.trim()).filter(Boolean), notes: $('e_notes').value.trim() }
+  const body = { title: $('e_title').value.trim(), summary: $('e_summary').value.trim(), project: $('e_project').value.trim(), deliverable: $('e_deliverable').value.trim(), artifact_type: $('e_type').value, tags: $('e_tags').value.split(',').map((s) => s.trim()).filter(Boolean), references: $('e_refs').value.split(',').map((s) => s.trim()).filter(Boolean), notes: $('e_notes').value.trim(), stars: editStars }
   try { await api(API + '/' + editId, { method: 'PATCH', body: JSON.stringify(body) }); toast('✅ 已保存'); closeModal('editModal'); reload() } catch (e) { toast('❌ ' + e.message) }
 }
 function closeModal(id) { $(id).classList.remove('open') }
@@ -596,14 +617,17 @@ async function runSemantic() {
   } catch (e) { box.innerHTML = `<div class="hint">❌ ${esc(e.message)}</div>` }
 }
 function gotoSemHit(id) {
+  // 直接打开预览看内容，比编辑弹窗更直观
   closeModal('semanticModal')
-  // 切回列表视图并定位：简单做法是跳到编辑弹窗看详情
-  openEdit(id)
+  openPreview(id)
 }
 
 // === v0.3：整理建议单（C2）===
 async function openCleanupSuggest() {
   $('cleanupModal').classList.add('open')
+  await refreshCleanupBody()
+}
+async function refreshCleanupBody() {
   const box = $('cleanupBody')
   box.innerHTML = '<div class="hint">扫描中…</div>'
   try {
@@ -637,7 +661,7 @@ async function applyDedup(keepId, dupIdsCsv) {
   try {
     for (const id of dupIds) await api(API + '/' + id, { method: 'PATCH', body: JSON.stringify({ status: 'archived' }) })
     toast(`✅ 已归档 ${dupIds.length} 条重复，保留 ${keepId.slice(0, 8)}…`)
-    openCleanupSuggest(); reload()
+    await refreshCleanupBody(); reload()
   } catch (e) { toast('❌ ' + e.message) }
 }
 async function copyPath(id) { const r = await api(API + '/' + id); try { await navigator.clipboard.writeText(r.path); toast('📋 路径已复制') } catch { prompt('复制路径：', r.path) } }
@@ -692,7 +716,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '2') { setView('card'); return }
   if (e.key === '3') { setView('project'); return }
 })
-;//(async () => { try { await loadMeta(); await refreshRefIndex(); await reload() } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
+;//(async () => { try { await Promise.all([loadMeta(), refreshRefIndex(), reload()]) } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
 </script>
 </body>
 </html>
