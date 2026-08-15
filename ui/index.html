@@ -716,7 +716,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '2') { setView('card'); return }
   if (e.key === '3') { setView('project'); return }
 })
-;//(async () => { try { await Promise.all([loadMeta(), refreshRefIndex(), reload()]) } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
+;(async () => { try { await Promise.all([loadMeta(), refreshRefIndex(), reload()]) } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
 </script>
 </body>
 </html>
