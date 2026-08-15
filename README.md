@@ -53,6 +53,12 @@ dsh plugin --profile web add github:wyq183/dsh-artifact-library
 - 全文索引、导入、导出、语义搜索全部**本地完成**，零外传
 - 无遥测、无上报
 
+## 🛡️ 安全边界 Security（v0.3.1）
+
+- **敏感路径防护**：凭据/密钥类文件名（`credentials`/`creds`/`secret`/`token`/`api key`/`.env`/`.pem`/`.key`/`id_rsa` 等）与凭据目录（`.ssh`/`.gnupg`/`.aws`/`.azure`/`.kube`/`.docker`/`.npmrc`）下的文件，登记与导入一律拒绝，防止密钥泄露进全文索引与文件接口
+- **来源限制**：`/ext/artifacts` 的**文件内容读取（`/:id/file`、单条记录、`/export`）与全部写操作仅限本机回环（127.0.0.1）**；局域网来源（`host: 0.0.0.0` 绑定）只读浏览不含文件正文的元数据（列表/搜索/统计/建议）。局域网内预览/编辑/登记/回收等操作用不了，属预期行为——安全优先
+- 数据文件 `~/.dsh/artifact-library/` 为本地 JSON，含全文索引，注意本机文件权限
+
 ## ⚖️ License
 
 [MIT](LICENSE)

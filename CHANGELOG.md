@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.1 (2026-08-15)
+
+**安全加固（审查修复）：**
+
+- **高危 · 未授权访问**：`webServer` 无鉴权中间件，profile 可能绑定 `0.0.0.0` 供局域网访问——修复后 `/ext/artifacts` 的**文件内容读取（/file、单条含正文、/export）与一切写操作（登记/导入/回收/删除/设置/精化/explorer 打开）仅限本机回环来源**；局域网来源只放行不含文件正文的只读元数据（列表/搜索/分类/统计/建议/设置只读）
+- **高危 · 任意路径登记**：`register()` 增加敏感路径防护（与导入同规则）——凭据/密钥文件名（credentials/creds/secret/token/api key/.env/.pem/.key/id_rsa 等）与凭据目录（.ssh/.gnupg/.aws/.azure/.kube/.docker/.npmrc）下的文件一律拒绝进库，堵死「登记任意本地文件 → /file 下载」链
+- **中 · 大目录导入 O(n²)**：`importFolder` 改为批量登记 + 一次性落盘（deferSave），不再逐文件全量重写 artifacts.json
+- **低 · artifact_search 正文片段**：命中正文内容时按 id 取单条记录回填 contentIndex，片段不再只显示摘要
+- **低 · 精化会话自愈**：`refineSessionId` 复用失败（会话被删/失效）时自动清缓存，下次重新创建，不再永久失败
+- **低 · 引用一致性**：`update` 写入 references 时剔除不存在/已回收/自引用的 id
+
+**测试**：test-http 新增 9 项（敏感文件名/凭据目录拒绝、局域网 403 矩阵、引用清理）；全量回归通过。
+
 ## 0.3.0 (2026-08-15)
 
 **平台特性集成 —— 让 AI 自己用库：**

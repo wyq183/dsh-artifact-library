@@ -1,7 +1,7 @@
 {
   "name": "@dsh-external/dsh-artifact-library",
   "description": "DSH 产物库：登记/管理/检索 DeepSeek Harness 产出物，AI 自动分类与连线（工具 + 存储 + Web 管理页 + 产物库助手会话）。Artifact library for DeepSeek Harness.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": false,
   "type": "module",
   "main": "lib/index.js",
