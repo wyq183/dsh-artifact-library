@@ -497,7 +497,13 @@ async function openPreview(id) {
   else { const t = await fetch(API + '/' + id + '/file').then((x) => x.text()).catch(() => '(无法读取)'); body.innerHTML = `<pre>${esc(t.slice(0, 20000))}</pre>` }
   lb.style.display = 'flex'
 }
-function closeLb() { $('lightbox').style.display = 'none'; zoomReset() }
+function closeLb() {
+  // 关闭即停止播放：清空预览区会释放正在播放的 audio/video 元素（否则 display:none 时媒体仍在后台播）
+  const body = $('lbBody')
+  if (body) body.innerHTML = ''
+  $('lightbox').style.display = 'none'
+  zoomReset()
+}
 
 function openRegister() { $('regTitle').textContent = '登记产物'; ['r_path','r_title','r_summary','r_project','r_deliverable','r_tags','r_notes'].forEach((i) => $(i).value = ''); $('r_kind').value = 'deliverable'; regKindHint(); $('regModal').classList.add('open') }
 // 登记时选择产出/资料：资料默认不填「交付物类别」
