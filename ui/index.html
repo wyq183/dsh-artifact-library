@@ -92,6 +92,20 @@
   .toast.show{display:block}
   .notes-line{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
   .trash-bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+  /* v0.3：语义搜索 / 整理建议 / 相关建议 */
+  .sem-hit{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:.15s}
+  .sem-hit:hover{border-color:var(--acc)}
+  .sem-hit .t{font-weight:600}
+  .sem-hit .m{color:var(--dim);font-size:12px;margin-top:2px}
+  .sem-hit .k{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:0 8px;font-size:11px;color:var(--acc2);margin-right:4px}
+  .sugg-item{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:8px}
+  .sugg-item .grow{flex:1}
+  .sugg-item .why{color:var(--dim);font-size:12px}
+  .cleanup-group{margin-bottom:14px}
+  .cleanup-group h4{font-size:13px;color:var(--acc2);margin-bottom:8px}
+  .cleanup-item{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:13px}
+  .cleanup-item .grow{flex:1}
+  .hint{color:var(--dim);font-size:12px}
 </style>
 </head>
 <body>
@@ -105,6 +119,9 @@
   <button onclick="refineProject()" title="精化当前所选项目下所有待精化条目">⚡ 精化项目</button>
   <button onclick="refineFolder()" title="精化所有文件夹导入的待精化条目">⚡ 精化文件夹</button>
   <button class="primary" onclick="startRefineSession()" title="新开/复用精化会话，立即精化全部待精化条目">🚀 立即精炼</button>
+  <button onclick="openAssistant()" title="新开/复用「产物库助手」会话，用自然语言问库">🤖 问产物库助手</button>
+  <button onclick="openSemantic()" title="用一句话描述找产出/资料">🔍 语义搜索</button>
+  <button onclick="openCleanupSuggest()" title="看看库里有啥值得整理的">🧹 整理建议</button>
   <button onclick="openSettings()">⚙️ 设置</button>
   <button class="ghost" id="trashBtn" onclick="toggleTrash()">🗑️ 回收站</button>
 </header>
@@ -212,6 +229,29 @@
   </div>
 </div>
 
+<div class="modal" id="semanticModal">
+  <div class="modal-box">
+    <h2>🔍 语义搜索</h2>
+    <div class="field"><label>用一句话描述你想找的东西（不用记文件名）</label>
+      <input id="s_q" placeholder="例如：上次那个视频素材 / 番茄的封面图 / 写插件时的调研文档" onkeydown="if(event.key==='Enter')runSemantic()"></div>
+    <div class="modal-actions">
+      <button onclick="closeModal('semanticModal')">取消</button>
+      <button class="primary" onclick="runSemantic()">搜索</button>
+    </div>
+    <div id="semResults" style="margin-top:14px"></div>
+  </div>
+</div>
+
+<div class="modal" id="cleanupModal">
+  <div class="modal-box">
+    <h2>🧹 整理建议</h2>
+    <div id="cleanupBody" class="hint" style="padding:10px 0">扫描中…</div>
+    <div class="modal-actions">
+      <button onclick="closeModal('cleanupModal')">关闭</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="editModal">
   <div class="modal-box">
     <h2>编辑产物</h2>
@@ -224,6 +264,8 @@
     </select></div>
     <div class="field"><label>标签（逗号分隔）</label><input id="e_tags"></div>
     <div class="field"><label>引用资料 ID（逗号分隔，产出用了哪些资料）</label><input id="e_refs" placeholder="art_xxx, art_yyy" oninput="updateRefNames()"><div id="e_refs_names" style="font-size:12px;color:var(--acc2);margin-top:4px"></div></div>
+    <div class="field"><label>💡 相关建议（自动扫描库里可能相关的产出/资料，点击填入引用）</label>
+      <div id="e_related" style="font-size:12px"><button type="button" onclick="loadRelated()">扫描相关条目</button></div></div>
     <div class="field"><label>备注</label><textarea id="e_notes"></textarea></div>
     <div class="modal-actions">
       <button onclick="closeModal('editModal')">取消</button>
@@ -329,6 +371,7 @@ function cardHtml(r) {
         ${r.kind === 'reference' ? '<span class="badge">📚 资料</span>' : ''}
         ${r.needsRefine ? '<span class="badge" style="color:var(--warm);border-color:var(--warm)">' + (r.refineRequested ? '⚡ 优先精化' : '待精化') + '</span>' : ''}
         ${r.project ? `<span class="badge">${esc(r.project)}</span>` : ''}
+        ${r.session_id ? `<span class="badge" title="来源会话：${esc(r.session_id)}">🎬 ${esc(r.session_id.slice(0, 14))}</span>` : ''}
         ${r.status === 'archived' ? '<span class="badge archived">归档</span>' : ''}
         <span>${fmtSize(r.size_bytes)}</span>
       </div>
@@ -479,7 +522,26 @@ async function submitRegister() {
   try { const rec = await api(API, { method: 'POST', body: JSON.stringify(body) }); toast(`✅ 已登记 ${rec.id}`); closeModal('regModal'); reload() } catch (e) { toast('❌ ' + e.message) }
 }
 let editId = null
-async function openEdit(id) { const r = await api(API + '/' + id); editId = id; $('e_title').value = r.title || ''; $('e_summary').value = r.summary || ''; $('e_project').value = r.project || ''; $('e_deliverable').value = r.deliverable || ''; $('e_type').value = r.artifact_type || 'other'; $('e_tags').value = (r.tags || []).join(', '); const refs = r.references || []; $('e_refs').value = refs.join(', '); updateRefNames(); $('e_notes').value = r.notes || ''; $('editModal').classList.add('open') }
+async function openEdit(id) { const r = await api(API + '/' + id); editId = id; $('e_title').value = r.title || ''; $('e_summary').value = r.summary || ''; $('e_project').value = r.project || ''; $('e_deliverable').value = r.deliverable || ''; $('e_type').value = r.artifact_type || 'other'; $('e_tags').value = (r.tags || []).join(', '); const refs = r.references || []; $('e_refs').value = refs.join(', '); updateRefNames(); $('e_notes').value = r.notes || ''; $('e_related').innerHTML = '<button type="button" onclick="loadRelated()">扫描相关条目</button>'; $('editModal').classList.add('open') }
+// C1：扫描库里可能相关的条目，点击填入引用
+async function loadRelated() {
+  const box = $('e_related')
+  box.innerHTML = '<span class="hint">扫描中…</span>'
+  try {
+    const r = await api(API + '/' + editId + '/related')
+    if (!r.links || !r.links.length) { box.innerHTML = '<span class="hint">暂无明显的相关条目，可继续积累。</span>'; return }
+    box.innerHTML = r.links.map((l) => `<div class="sugg-item">
+      <div class="grow">${l.kind === 'reference' ? '📚' : '📦'} ${esc(l.title)} <span class="why">${esc(l.reason)}</span></div>
+      <button type="button" onclick="addRef('${l.id}')">＋引用</button>
+    </div>`).join('')
+  } catch (e) { box.innerHTML = `<span class="hint">❌ ${esc(e.message)}</span>` }
+}
+function addRef(id) {
+  const cur = $('e_refs').value.split(',').map((s) => s.trim()).filter(Boolean)
+  if (!cur.includes(id)) cur.push(id)
+  $('e_refs').value = cur.join(', ')
+  updateRefNames()
+}
 function updateRefNames() {
   const names = $('e_refs').value.split(',').map((s) => s.trim()).filter(Boolean).map((id) => { const t = refIndex[id]; return t ? `${t} (${id})` : `${id}（未找到）` })
   $('e_refs_names').textContent = names.length ? '📚 ' + names.join('；') : ''
@@ -516,6 +578,77 @@ async function refineProject() {
 }
 async function refineFolder() {
   try { const r = await api(API + '/refine-request', { method: 'POST', body: JSON.stringify({ folder: true }) }); toast(`⚡ 已标记文件夹导入的 ${r.marked} 条优先精化`); reload() } catch (e) { toast('❌ ' + e.message) }
+}
+
+// === v0.3：产物库助手会话（P3）===
+async function openAssistant() {
+  try {
+    const r = await api(API + '/assistant-session', { method: 'POST' })
+    if (!r.ok) return toast('❌ ' + (r.error || '启动失败'))
+    toast(`🤖 已${r.reused ? '复用' : '创建'}产物库助手会话（${r.sessionId.slice(0, 8)}…），请到会话列表打开「产物库助手」提问`)
+  } catch (e) { toast('❌ ' + e.message) }
+}
+
+// === v0.3：语义搜索（B1）===
+function openSemantic() { $('s_q').value = ''; $('semResults').innerHTML = ''; $('semanticModal').classList.add('open'); setTimeout(() => $('s_q').focus(), 50) }
+async function runSemantic() {
+  const q = $('s_q').value.trim()
+  if (!q) return toast('请输入描述')
+  const box = $('semResults')
+  box.innerHTML = '<div class="hint">搜索中…</div>'
+  try {
+    const r = await api(API + '/search?q=' + encodeURIComponent(q) + '&limit=12')
+    if (!r.hits || !r.hits.length) { box.innerHTML = '<div class="hint">没有找到相关内容，换个说法试试。</div>'; return }
+    box.innerHTML = r.hits.map((h, i) => `<div class="sem-hit" onclick="gotoSemHit('${h.id}')">
+      <div class="t">${i + 1}. ${h.kind === 'reference' ? '📚' : '📦'} ${esc(h.title)} <span class="k">${esc(h.project)}</span><span class="k">相关度 ${h.score}</span>${h.needsRefine ? '<span class="k" style="color:var(--warm)">待精化</span>' : ''}</div>
+      <div class="m">命中词：${esc(h.matched.join('、'))}${h.summary ? '<br>' + esc(h.summary.slice(0, 120)) : ''}</div>
+    </div>`).join('')
+  } catch (e) { box.innerHTML = `<div class="hint">❌ ${esc(e.message)}</div>` }
+}
+function gotoSemHit(id) {
+  closeModal('semanticModal')
+  // 切回列表视图并定位：简单做法是跳到编辑弹窗看详情
+  openEdit(id)
+}
+
+// === v0.3：整理建议单（C2）===
+async function openCleanupSuggest() {
+  $('cleanupModal').classList.add('open')
+  const box = $('cleanupBody')
+  box.innerHTML = '<div class="hint">扫描中…</div>'
+  try {
+    const s = await api(API + '/suggest-cleanup')
+    const html = []
+    html.push(`<div class="cleanup-group"><h4>🔁 重复记录（${s.duplicates.length} 组）</h4>`)
+    if (!s.duplicates.length) html.push('<div class="hint">无重复</div>')
+    for (const d of s.duplicates.slice(0, 8)) {
+      html.push(`<div class="cleanup-item"><div class="grow">${esc(d.path.split(/[\\/]/).pop())}<br><span class="hint">保留 ${esc(d.keepTitle)}，重复 ${d.dupIds.length} 条</span></div><button onclick="applyDedup('${d.keepId}','${d.dupIds.join(',')}')">归档重复</button></div>`)
+    }
+    html.push('</div>')
+    html.push(`<div class="cleanup-group"><h4>🚫 文件缺失（${s.missing.length} 条）</h4>`)
+    if (!s.missing.length) html.push('<div class="hint">无缺失</div>')
+    for (const m of s.missing.slice(0, 6)) {
+      html.push(`<div class="cleanup-item"><div class="grow">${esc(m.title)}<br><span class="hint">${esc(m.path)}</span></div><button onclick="trashOne('${m.id}')">回收</button></div>`)
+    }
+    html.push('</div>')
+    html.push(`<div class="cleanup-group"><h4>⚡ 待精化（${s.unrefinedCount} 条）</h4>`)
+    if (!s.unrefinedCount) html.push('<div class="hint">全部已精化 ✨</div>')
+    else html.push(`<div class="hint">共 ${s.unrefinedCount} 条缺摘要/标签，可点右上角「🚀 立即精炼」交给 AI 补全。</div>`)
+    html.push('</div>')
+    html.push(`<div class="cleanup-group"><h4>🗄️ 僵尸项目（${s.staleProjects.length} 个，仅提示）</h4>`)
+    if (!s.staleProjects.length) html.push('<div class="hint">无</div>')
+    for (const p of s.staleProjects.slice(0, 5)) html.push(`<div class="cleanup-item"><div class="grow">${esc(p.project)}（${p.count} 条全部归档）</div></div>`)
+    html.push('</div>')
+    box.innerHTML = html.join('')
+  } catch (e) { box.innerHTML = `<div class="hint">❌ ${esc(e.message)}</div>` }
+}
+async function applyDedup(keepId, dupIdsCsv) {
+  const dupIds = dupIdsCsv.split(',').filter(Boolean)
+  try {
+    for (const id of dupIds) await api(API + '/' + id, { method: 'PATCH', body: JSON.stringify({ status: 'archived' }) })
+    toast(`✅ 已归档 ${dupIds.length} 条重复，保留 ${keepId.slice(0, 8)}…`)
+    openCleanupSuggest(); reload()
+  } catch (e) { toast('❌ ' + e.message) }
 }
 async function copyPath(id) { const r = await api(API + '/' + id); try { await navigator.clipboard.writeText(r.path); toast('📋 路径已复制') } catch { prompt('复制路径：', r.path) } }
 async function trashOne(id) { await api(API + '/' + id + '/trash', { method: 'POST' }); undoToast('🗑️ 已移入回收站', async () => { await api(API + '/' + id + '/restore', { method: 'POST' }); reload() }); reload() }
@@ -560,7 +693,7 @@ async function batchTags() {
 // === 快捷键 ===
 document.addEventListener('keydown', (e) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')
-  if (e.key === 'Escape') { closeLb(); closeModal('regModal'); closeModal('editModal'); closeModal('importModal'); closeModal('settingsModal'); return }
+  if (e.key === 'Escape') { closeLb(); closeModal('regModal'); closeModal('editModal'); closeModal('importModal'); closeModal('settingsModal'); closeModal('semanticModal'); closeModal('cleanupModal'); return }
   if (typing) return
   if (e.key === '/') { e.preventDefault(); $('q').focus(); return }
   if (e.key === 'n' || e.key === 'N') { openRegister(); return }
@@ -569,7 +702,19 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '2') { setView('card'); return }
   if (e.key === '3') { setView('project'); return }
 })
-;(async () => { try { await loadMeta(); await refreshRefIndex(); await reload() } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
+;//(async () => { try { await loadMeta(); await refreshRefIndex(); await reload() } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
+
+// P3：从侧边栏「问产物库」跳转过来时带 ?assistant=sessionId，提示用户去会话列表打开
+;(async () => {
+  try {
+    const sp = new URLSearchParams(location.search)
+    const sid = sp.get('assistant')
+    if (sid) {
+      toast(`🤖 产物库助手会话已就绪（${sid.slice(0, 8)}…），请到会话列表打开「产物库助手」提问`)
+      history.replaceState(null, '', location.pathname)
+    }
+  } catch { /* 忽略 */ }
+})()
 </script>
 </body>
 </html>
