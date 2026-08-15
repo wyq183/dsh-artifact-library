@@ -12,3 +12,6 @@ test-http.mjs
 test-client.mjs
 
 lib/*.bak
+
+# 发布包（GitHub Release asset，不进源码仓库）
+*.zip

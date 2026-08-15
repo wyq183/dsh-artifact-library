@@ -1,5 +1,9 @@
 # 🐋 dsh-artifact-library · DSH 产物库
 
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-green)
+![Platform](https://img.shields.io/badge/platform-DeepSeek%20Harness-4F46E5)
+
 **DeepSeek Harness 的「作品柜 + 资料柜」**：自动采集 AI 产出、AI 自动分类整理、跨会话全文检索复用、项目级总览。本地优先，数据绝不出本机。
 
 **The "deliverable vault + reference shelf" for DeepSeek Harness**: auto-collect AI outputs, AI-organize them, full-text search across sessions, and per-project overview. Local-first — your data never leaves the machine.
@@ -47,3 +51,7 @@ dsh plugin --profile web add github:wyq183/dsh-artifact-library
 ## ⚖️ License
 
 [MIT](LICENSE)
+
+## 📜 更新日志 Changelog
+
+详见 [CHANGELOG.md](CHANGELOG.md)（v0.2.0：自动采集 / AI 精化 / 资料库 / 全文检索 / 定时整理）。
