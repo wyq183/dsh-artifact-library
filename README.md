@@ -37,7 +37,7 @@ dsh plugin --profile web add github:wyq183/dsh-artifact-library
 
 ## 🚀 使用 Usage
 
-- **管理页**：`http://127.0.0.1:3080/ext/artifact-library/`（侧边栏 🐋 入口）
+- **管理页**：侧边栏 🐋「产物库」按钮，或访问 `<dsh web 地址>/ext/artifact-library/`（默认 `http://127.0.0.1:3080/ext/artifact-library/`）
 - **语义搜索**：管理页 🔍 按钮，或让任意会话的 AI 用 `artifact_find`
 - **AI 连线**：编辑产物时点「扫描相关条目」，或让 AI 用 `artifact_suggest_links`
 - **整理建议**：管理页 🧹 按钮，或让 AI 用 `artifact_suggest_cleanup`

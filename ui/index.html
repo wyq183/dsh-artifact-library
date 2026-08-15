@@ -187,7 +187,7 @@
     <div class="field"><label>文件路径（绝对路径，必填）</label><input id="r_path" placeholder="C:\Users\..."></div>
     <div class="field"><label>标题</label><input id="r_title" placeholder="缺省用文件名"></div>
     <div class="field"><label>摘要（做了什么、解决什么问题）</label><textarea id="r_summary"></textarea></div>
-    <div class="field"><label>所属项目</label><input id="r_project" placeholder="例如：小琪形象 / dsh-browser"></div>
+    <div class="field"><label>所属项目</label><input id="r_project" placeholder="例如：项目A / 项目B（留空则未分类）"></div>
     <div class="field"><label>交付物类别</label><input id="r_deliverable" placeholder="报告 / 原型 / 安装包 / 设计稿…"></div>
     <div class="field"><label>类型</label>
       <select id="r_type">
@@ -238,7 +238,7 @@
   <div class="modal-box">
     <h2>🔍 语义搜索</h2>
     <div class="field"><label>用一句话描述你想找的东西（不用记文件名）</label>
-      <input id="s_q" placeholder="例如：上次那个视频素材 / 番茄的封面图 / 写插件时的调研文档" onkeydown="if(event.key==='Enter')runSemantic()"></div>
+      <input id="s_q" placeholder="例如：上次那个视频素材 / 给项目做的那张封面图 / 写插件时的调研文档" onkeydown="if(event.key==='Enter')runSemantic()"></div>
     <div class="modal-actions">
       <button onclick="closeModal('semanticModal')">取消</button>
       <button class="primary" onclick="runSemantic()">搜索</button>
