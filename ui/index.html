@@ -119,7 +119,6 @@
   <button onclick="refineProject()" title="精化当前所选项目下所有待精化条目">⚡ 精化项目</button>
   <button onclick="refineFolder()" title="精化所有文件夹导入的待精化条目">⚡ 精化文件夹</button>
   <button class="primary" onclick="startRefineSession()" title="新开/复用精化会话，立即精化全部待精化条目">🚀 立即精炼</button>
-  <button onclick="openAssistant()" title="新开/复用「产物库助手」会话，用自然语言问库">🤖 问产物库助手</button>
   <button onclick="openSemantic()" title="用一句话描述找产出/资料">🔍 语义搜索</button>
   <button onclick="openCleanupSuggest()" title="看看库里有啥值得整理的">🧹 整理建议</button>
   <button onclick="openSettings()">⚙️ 设置</button>
@@ -580,15 +579,6 @@ async function refineFolder() {
   try { const r = await api(API + '/refine-request', { method: 'POST', body: JSON.stringify({ folder: true }) }); toast(`⚡ 已标记文件夹导入的 ${r.marked} 条优先精化`); reload() } catch (e) { toast('❌ ' + e.message) }
 }
 
-// === v0.3：产物库助手会话（P3）===
-async function openAssistant() {
-  try {
-    const r = await api(API + '/assistant-session', { method: 'POST' })
-    if (!r.ok) return toast('❌ ' + (r.error || '启动失败'))
-    toast(`🤖 已${r.reused ? '复用' : '创建'}产物库助手会话（${r.sessionId.slice(0, 8)}…），请到会话列表打开「产物库助手」提问`)
-  } catch (e) { toast('❌ ' + e.message) }
-}
-
 // === v0.3：语义搜索（B1）===
 function openSemantic() { $('s_q').value = ''; $('semResults').innerHTML = ''; $('semanticModal').classList.add('open'); setTimeout(() => $('s_q').focus(), 50) }
 async function runSemantic() {
@@ -703,18 +693,6 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '3') { setView('project'); return }
 })
 ;//(async () => { try { await loadMeta(); await refreshRefIndex(); await reload() } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
-
-// P3：从侧边栏「问产物库」跳转过来时带 ?assistant=sessionId，提示用户去会话列表打开
-;(async () => {
-  try {
-    const sp = new URLSearchParams(location.search)
-    const sid = sp.get('assistant')
-    if (sid) {
-      toast(`🤖 产物库助手会话已就绪（${sid.slice(0, 8)}…），请到会话列表打开「产物库助手」提问`)
-      history.replaceState(null, '', location.pathname)
-    }
-  } catch { /* 忽略 */ }
-})()
 </script>
 </body>
 </html>
