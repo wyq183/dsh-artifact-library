@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.4 (2026-09-05)
+
+**兼容 DSH 0.1.2-rc.1（apiProxy 移除）：**
+
+- **插件可重新加载**：`inject` 移除已被 DSH 删除的 `apiProxy` 服务，改为注入 `sessionController` / `workspaceController`，解决「pending (waiting for service: apiProxy) → 插件树加载失败 → 产物库不可用」
+- **「立即精炼」改用新 Host API**：`ctx.apiProxy.workspace.create/sessions.create/sessions.prompt`（RPC `{payload}` 形状）迁移到 `ctx.workspaceController.create({path})` / `ctx.sessionController.create({workspaceId})` / `ctx.sessionController.rename(...)` / `ctx.sessionController.prompt({requestId,...}, signal)`
+- 精化会话标题在新 API 下改为 best-effort rename，失败不阻断精化
+
+**测试：**
+
+- `test-apply.mjs` 同步更新为 `sessionController` / `workspaceController` mock，覆盖「首次创建 + 二次复用 + prompt 带 signal」路径
+
 ## 0.3.3 (2026-08-15)
 
 **Bug 修复：**
