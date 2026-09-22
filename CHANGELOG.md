@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.0 (2026-09-22)
+
+**新增 · 精炼可临时指定模型（不影响部署默认）：**
+
+- 「🚀 立即精炼」改为弹窗：可选本次精炼使用的模型（按 provider 分组的下拉，数据来自 `sessionController.modelCatalog()`）
+- 实现：精炼时 `sessionController.selectModel({ sessionId, provider, model })` 给精炼会话设定模型。该 API 会顺手把选择写进**部署默认**，因此派发后立即用 `ctx.agentDefaultModel.saveSelection(原值)` 把默认恢复——只恢复默认，不动精炼会话自己的选择（`selectForNextRequest`），**其它会话完全不受影响**
+- 上次选用的模型记入 `meta.refineModelLast`，仅作弹窗预选，绝不自动应用
+- 新增 `GET /ext/artifacts/model-catalog`（host 侧转发 `sessionController.modelCatalog()`；局域网只读放行）
+
+**新增 · 设置面板可配置项（3 项 → 9 项）：**
+
+| 设置项 | 默认 | 范围 |
+|---|---|---|
+| 每轮自动采集上限 | 20 | 1–500 |
+| 整理前自动备份 | 开 | 开关 |
+| 备份保留份数 | 10 | 1–100 |
+| 精炼每批条数 | 20 | 1–200 |
+| 单文件导入上限（MB） | 50 | 1–2048 |
+| 语义搜索默认条数 | 20 | 1–200 |
+
+- 数值项在 `updateSettings` 统一夹取范围，越界值自动收敛
+- 采集上限 / 备份份数 / 导入上限 / 搜索条数原先硬编码，现均从设置读取（改完立即生效）
+
+**测试：** test-apply 增「临时模型生效且部署默认已恢复」断言；test-http 增设置往返 / 越界夹取 / 模型目录端点；四个测试文件全绿。
+
 ## 0.3.5 (2026-09-22)
 
 **修复「整理不收敛」+「精化判定失准」（P0）：**
