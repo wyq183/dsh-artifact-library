@@ -118,7 +118,7 @@
   <button onclick="location.href=API+'/export'">📦 导出备份</button>
   <button onclick="refineProject()" title="精化当前所选项目下所有待精化条目">⚡ 精化项目</button>
   <button onclick="refineFolder()" title="精化所有文件夹导入的待精化条目">⚡ 精化文件夹</button>
-  <button class="primary" onclick="startRefineSession()" title="新开/复用精化会话，立即精化全部待精化条目">🚀 立即精炼</button>
+  <button class="primary" onclick="openRefineModal()" title="新开/复用精化会话，可临时指定模型，立即精化全部待精化条目">🚀 立即精炼</button>
   <button onclick="openSemantic()" title="用一句话描述找产出/资料">🔍 语义搜索</button>
   <button onclick="openCleanupSuggest()" title="看看库里有啥值得整理的">🧹 整理建议</button>
   <button onclick="openSettings()">⚙️ 设置</button>
@@ -159,7 +159,7 @@
 </div>
 
 <div id="missBar" class="trash-bar" style="display:none">
-  <span class="badge danger">⚠️ 有 <b>0</b> 条登记的文件已不在原位置，可在 ⚙️ 设置里「🧹 立即整理一次」刷新</span>
+  <span class="badge danger">⚠️ 有 <b>0</b> 条登记的文件已不在原位置（整理只能刷新状态、找不回文件；可在「🧹 整理建议」里归档或删除记录）</span>
 </div>
 
 <div id="trashBar" class="trash-bar" style="display:none">
@@ -223,13 +223,32 @@
   <div class="modal-box">
     <h2>⚙️ 设置</h2>
     <div class="field"><label><input type="checkbox" id="s_auto" style="width:auto;margin-right:8px">自动采集（会话产出文件自动进库）</label></div>
+    <div class="field"><label>每轮自动采集上限（条）</label><input id="s_maxturn" type="number" min="1" max="500"></div>
     <div class="field"><label><input type="checkbox" id="s_clean" style="width:auto;margin-right:8px">定时整理（去重/刷新文件状态）</label></div>
     <div class="field"><label>整理频率（天）</label><input id="s_days" type="number" min="1" max="365"></div>
+    <div class="field"><label><input type="checkbox" id="s_backup" style="width:auto;margin-right:8px">整理前自动备份</label></div>
+    <div class="field"><label>备份保留份数</label><input id="s_keep" type="number" min="1" max="100"></div>
     <div class="field" style="color:var(--dim);font-size:12px">下次整理时间：<span id="s_next">—</span></div>
+    <div class="field"><label>精炼每批条数</label><input id="s_batch" type="number" min="1" max="200"></div>
+    <div class="field"><label>单文件导入上限（MB）</label><input id="s_maxmb" type="number" min="1" max="2048"></div>
+    <div class="field"><label>语义搜索默认条数</label><input id="s_slimit" type="number" min="1" max="200"></div>
     <div class="modal-actions">
       <button onclick="cleanupNow()">🧹 立即整理一次</button>
       <button onclick="closeModal('settingsModal')">取消</button>
       <button class="primary" onclick="submitSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="refineModal">
+  <div class="modal-box">
+    <h2>🚀 立即精炼</h2>
+    <div class="field"><label>本次精炼使用的模型</label>
+      <select id="r_model"><option value="">（用部署默认模型）</option></select></div>
+    <div class="field" style="color:var(--dim);font-size:12px">临时指定，只作用于本次精炼会话；<b>不改动部署默认模型</b>，也不影响其它会话。</div>
+    <div class="modal-actions">
+      <button onclick="closeModal('refineModal')">取消</button>
+      <button class="primary" onclick="submitRefineModal()">开始精炼</button>
     </div>
   </div>
 </div>
@@ -513,8 +532,14 @@ async function openSettings() {
   try {
     const s = await api(API + '/settings')
     $('s_auto').checked = s.autoCollect
+    $('s_maxturn').value = s.maxPerTurn
     $('s_clean').checked = s.cleanupEnabled
     $('s_days').value = s.cleanupIntervalDays
+    $('s_backup').checked = s.backupOnCleanup
+    $('s_keep').value = s.backupKeep
+    $('s_batch').value = s.refineBatchSize
+    $('s_maxmb').value = s.importMaxSizeMB
+    $('s_slimit').value = s.searchLimit
     $('s_next').textContent = s.lastCleanupAt ? new Date((s.lastCleanupAt + s.cleanupIntervalDays * 86400) * 1000).toLocaleString('zh-CN') : '（尚未整理，开启后首轮到期即整理）'
     $('settingsModal').classList.add('open')
   } catch (e) { toast('❌ ' + e.message) }
@@ -524,7 +549,17 @@ async function cleanupNow() {
 }
 async function submitSettings() {
   try {
-    const r = await api(API + '/settings', { method: 'PUT', body: JSON.stringify({ autoCollect: $('s_auto').checked, cleanupEnabled: $('s_clean').checked, cleanupIntervalDays: Number($('s_days').value) || 7 }) })
+    const r = await api(API + '/settings', { method: 'PUT', body: JSON.stringify({
+      autoCollect: $('s_auto').checked,
+      maxPerTurn: Number($('s_maxturn').value),
+      cleanupEnabled: $('s_clean').checked,
+      cleanupIntervalDays: Number($('s_days').value),
+      backupOnCleanup: $('s_backup').checked,
+      backupKeep: Number($('s_keep').value),
+      refineBatchSize: Number($('s_batch').value),
+      importMaxSizeMB: Number($('s_maxmb').value),
+      searchLimit: Number($('s_slimit').value),
+    }) })
     toast('✅ 设置已保存'); closeModal('settingsModal'); reload()
   } catch (e) { toast('❌ ' + e.message) }
 }
@@ -589,6 +624,32 @@ async function refineSelected() {
   if (!ids.length) return toast('请先勾选条目')
   try { const r = await api(API + '/refine-request', { method: 'POST', body: JSON.stringify({ ids }) }); toast(`⚡ 已标记 ${r.marked} 条优先精化，下次会话 AI 优先处理`); state.selected.clear(); updateSelBar(); reload() } catch (e) { toast('❌ ' + e.message) }
 }
+async function openRefineModal() {
+  try {
+    const [s, cat] = await Promise.all([api(API + '/settings'), api(API + '/model-catalog').catch(() => null)])
+    const sel = $('r_model')
+    sel.innerHTML = '<option value="">（用部署默认模型）</option>'
+    for (const g of ((cat && cat.groups) || [])) {
+      const og = document.createElement('optgroup')
+      og.label = g.name || g.id
+      for (const m of (g.models || [])) {
+        const o = document.createElement('option')
+        o.value = g.id + '/' + m.id
+        o.textContent = m.name || m.id
+        og.appendChild(o)
+      }
+      sel.appendChild(og)
+    }
+    if (s.refineModelLast) sel.value = s.refineModelLast
+    $('refineModal').classList.add('open')
+  } catch (e) { toast('❌ ' + e.message) }
+}
+async function submitRefineModal() {
+  const v = $('r_model').value
+  const opts = v ? { provider: v.slice(0, v.indexOf('/')), model: v.slice(v.indexOf('/') + 1) } : {}
+  closeModal('refineModal')
+  await startRefineSession(opts)
+}
 async function startRefineSession(opts = {}) {
   try {
     const r = await api(API + '/refine-session', { method: 'POST', body: JSON.stringify(opts) })
@@ -647,8 +708,12 @@ async function refreshCleanupBody() {
     html.push('</div>')
     html.push(`<div class="cleanup-group"><h4>🚫 文件缺失（${s.missing.length} 条）</h4>`)
     if (!s.missing.length) html.push('<div class="hint">无缺失</div>')
+    else {
+      html.push('<div class="hint">文件已不在原位置：整理只能刷新状态、找不回文件。确认不要了可归档记录（文件本身不动）。</div>')
+      html.push('<div class="cleanup-item"><div class="grow">批量处理</div><button onclick="archiveMissing()">归档全部缺失记录</button></div>')
+    }
     for (const m of s.missing.slice(0, 6)) {
-      html.push(`<div class="cleanup-item"><div class="grow">${esc(m.title)}<br><span class="hint">${esc(m.path)}</span></div><button onclick="trashOne('${m.id}')">回收</button></div>`)
+      html.push(`<div class="cleanup-item"><div class="grow">${esc(m.title)}<br><span class="hint">${esc(m.path)}</span></div><button onclick="archiveOne('${m.id}')">归档</button><button onclick="trashOne('${m.id}')">回收</button></div>`)
     }
     html.push('</div>')
     html.push(`<div class="cleanup-group"><h4>⚡ 待精化（${s.unrefinedCount} 条）</h4>`)
@@ -667,6 +732,23 @@ async function applyDedup(keepId, dupIdsCsv) {
   try {
     for (const id of dupIds) await api(API + '/' + id, { method: 'PATCH', body: JSON.stringify({ status: 'archived' }) })
     toast(`✅ 已归档 ${dupIds.length} 条重复，保留 ${keepId.slice(0, 8)}…`)
+    await refreshCleanupBody(); reload()
+  } catch (e) { toast('❌ ' + e.message) }
+}
+async function archiveOne(id) {
+  try {
+    await api(API + '/' + id, { method: 'PATCH', body: JSON.stringify({ status: 'archived' }) })
+    toast('✅ 已归档该记录（文件本身不动）')
+    await refreshCleanupBody(); reload()
+  } catch (e) { toast('❌ ' + e.message) }
+}
+async function archiveMissing() {
+  try {
+    const s = await api(API + '/suggest-cleanup')
+    const ids = (s.missing || []).map((m) => m.id)
+    if (!ids.length) return toast('没有缺失记录')
+    for (const id of ids) await api(API + '/' + id, { method: 'PATCH', body: JSON.stringify({ status: 'archived' }) })
+    toast(`✅ 已归档 ${ids.length} 条缺失记录（文件本身不动）`)
     await refreshCleanupBody(); reload()
   } catch (e) { toast('❌ ' + e.message) }
 }
@@ -713,7 +795,7 @@ async function batchTags() {
 // === 快捷键 ===
 document.addEventListener('keydown', (e) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')
-  if (e.key === 'Escape') { closeLb(); closeModal('regModal'); closeModal('editModal'); closeModal('importModal'); closeModal('settingsModal'); closeModal('semanticModal'); closeModal('cleanupModal'); return }
+  if (e.key === 'Escape') { closeLb(); closeModal('regModal'); closeModal('editModal'); closeModal('importModal'); closeModal('settingsModal'); closeModal('refineModal'); closeModal('semanticModal'); closeModal('cleanupModal'); return }
   if (typing) return
   if (e.key === '/') { e.preventDefault(); $('q').focus(); return }
   if (e.key === 'n' || e.key === 'N') { openRegister(); return }

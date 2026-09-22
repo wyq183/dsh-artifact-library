@@ -1,9 +1,10 @@
-// v0.3.5 修复回归测试：整理收敛 / 精化判定 / 优先标记清除 / 统计口径
+// 修复回归测试：整理收敛 / 精化判定 / 优先标记清除 / 统计口径 / 目录不误报缺失
 // 临时目录，不碰真实库。
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { ArtifactStore, isActiveRecord } from './lib/store.js'
+import { runCleanup } from './lib/cleanup.js'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alf-fixes-test-'))
 let ok = true
@@ -49,6 +50,16 @@ check('stats.total 含归档（4 条未回收）', s.total === 4)
 check('★ stats.activeCount 排除归档（2 条有效）', s.activeCount === 2)
 check('stats.archived=2', s.archived === 2)
 
+// ── 目录型记录不被误报为「文件缺失」─────────────────────────
+const dirPath = path.join(dir, 'a-dir')
+fs.mkdirSync(dirPath, { recursive: true })
+const rd = store.register({ path: dirPath, title: '一个目录', summary: 's', tags: ['t'], project: 'proj' })
+check('登记目录：exists=true 且 is_dir=true', rd.exists === true && rd.is_dir === true)
+rd.exists = false // 模拟被旧逻辑（用 isFile 判定）误标成缺失
+runCleanup(store)
+check('★ 整理后目录记录被修正为「存在」（不再误报缺失）', rd.exists === true && rd.is_dir === true)
+check('★ 缺失统计不含目录', store.stats().missingFiles === 0)
+
 fs.rmSync(dir, { recursive: true, force: true })
-console.log(ok ? '\n✅ v0.3.5 修复回归全部通过' : '\n❌ v0.3.5 修复回归存在失败')
+console.log(ok ? '\n✅ 修复回归全部通过' : '\n❌ 修复回归存在失败')
 process.exit(ok ? 0 : 1)
