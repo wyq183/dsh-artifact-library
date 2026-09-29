@@ -1,7 +1,7 @@
 # 🐋 dsh-artifact-library · DSH 产物库
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Version](https://img.shields.io/badge/version-0.6.0-green)
+![Version](https://img.shields.io/badge/version-0.7.0-green)
 ![Platform](https://img.shields.io/badge/platform-DeepSeek%20Harness-4F46E5)
 
 **DeepSeek Harness 的「作品柜 + 资料柜 + 工作台」**：自动采集 AI 产出、AI 自动分类整理、一句话语义检索、AI 替你连线。本地优先，数据绝不出本机。
@@ -12,6 +12,7 @@
 
 | 能力 | 说明 |
 |---|---|
+| **本地文件管理器**（v0.7.0 新增） | 内置 [Everything](https://www.voidtools.com/) 引擎（MIT，见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)），**毫秒级**本地文件搜索：Everything 语法（`ext:psd` · `dm:today` · `size:>10mb` · `path:项目`），命中项可一键登记为产物。索引范围**严格限定**在「DSH 工作区 + 已登记产出所在目录」，**不索引全盘**，全部本地完成 |
 | **自动采集** | 订阅会话事件，AI 每轮产出的文件自动进库，并记录**来源会话**（可回看诞生过程）|
 | **AI 整理分类** | 自动采集后标记「待精化」，会话内模型主动补全摘要/标签/项目；或点「立即精炼」开专属精化会话批量处理 |
 | **一句话语义搜索** | `artifact_find` / 管理页 🔍 语义搜索：用自然语言描述（「上次那个视频素材」）就能找回，自动拆词加权打分 |
@@ -38,6 +39,7 @@ dsh plugin --profile web add github:wyq183/dsh-artifact-library
 ## 🚀 使用 Usage
 
 - **原生面板（v0.6.0 起，推荐）**：左侧栏 🐋「产物库」图标 → 主区整块打开产物库面板。原生 React 渲染，跟随 DSH 主题：统计条、搜索、kind/状态/项目/排序筛选、卡片·列表·项目三视图、详情抽屉（图片/文本/音视频内联预览）、星级、编辑、回收站/恢复、文件管理器定位、复制路径
+- **文件搜索（v0.7.0）**：面板顶部视图切换点「文件」→ 首次点「启动文件索引」（拉起内置 Everything 并建立索引，首次可能需几十秒）→ 之后输入关键词即时出结果。索引范围会在界面上如实显示；命中项可一键「登记」进产物库
 - **完整管理页**：侧栏脚部「产物库 · 网页版」，或访问 `<dsh web 地址>/ext/artifact-library/`（默认 `http://127.0.0.1:3080/ext/artifact-library/`）。**登记 / 导入文件夹 / 精炼 / 语义搜索 / 整理建议**目前仍在此页（第二期搬进原生面板）
 - **语义搜索**：管理页 🔍 按钮，或让任意会话的 AI 用 `artifact_find`
 - **AI 连线**：编辑产物时点「扫描相关条目」，或让 AI 用 `artifact_suggest_links`
@@ -65,6 +67,20 @@ dsh plugin --profile web add github:wyq183/dsh-artifact-library
 [MIT](LICENSE)
 
 ## 📜 更新日志 Changelog
+
+### v0.7.0（2026-09-30）· 本地文件管理器（P1 索引层）
+
+- **内置 Everything 引擎**（`vendor/everything/`：Everything 1.5.0.1423b 便携版 + ES 1.1.0.38，均 MIT）
+- **索引范围严格限定**：DSH 工作区 + 已登记产出所在目录 + 用户额外目录；
+  实现方式 `auto_include_fixed_volumes=0` + 清空卷列表 + `folders=` 白名单。
+  实测：限定前入库 3,217,522 条 / 库 118 MB → 限定后 6 条 / 库 **422 bytes**
+- **独立实例** `DSHArtifacts`：与用户自己装的 Everything 完全隔离，不改不卸不干扰
+- **懒启动**：不搜索就不启动任何进程；关闭走官方 `-exit`（强杀会丢范围配置）
+- 新增 HTTP 路由 `/ext/artifacts/files*`（搜索 / status / start / stop），
+  **仅限本机回环访问**（局域网来源 403）
+- 面板新增「文件」视图：Everything 语法搜索、命中统计、一键登记为产物、复制目录
+- 离线自验 24 项 + 路由 harness 10 项，全绿；含三条硬断言：
+  **范围外路径零泄漏** · **中文文件名不乱码** · **全盘可见量受控**
 
 ### v0.6.0（2026-09-30）· 搬进 DSH UI 第一期
 

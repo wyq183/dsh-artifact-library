@@ -1,10 +1,23 @@
 {
   "name": "@dsh-external/dsh-artifact-library",
-  "description": "DSH 产物库：登记/管理/检索 DeepSeek Harness 产出物，AI 自动分类与连线（工具 + 存储 + Web 管理页 + 产物库助手会话）。Artifact library for DeepSeek Harness.",
-  "version": "0.6.0",
+  "description": "DSH 产物库 + 本地文件管理器：登记/管理/检索 DSH 产出物，内置 Everything 引擎提供毫秒级本地文件搜索（索引范围严格限定在工作区与已登记目录）。Artifact library and local file manager for DeepSeek Harness.",
+  "version": "0.7.0",
   "private": false,
   "type": "module",
   "main": "lib/index.js",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "artifact-library",
+    "file-manager",
+    "everything",
+    "local-search"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wyq183/dsh-artifact-library.git"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
@@ -26,8 +39,10 @@
   "files": [
     "lib",
     "ui",
+    "vendor",
     "cordis.patch.yml",
     "README.md",
+    "THIRD-PARTY-NOTICES.md",
     "LICENSE"
   ],
   "dependencies": {
