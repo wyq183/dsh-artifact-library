@@ -9,3 +9,13 @@ _night-backup-*/
 node_modules/
 dist/
 *.log
+
+# Everything 运行时产物（ini/db/状态由插件运行时生成，不进版本库）
+vendor/everything/Everything-*.ini
+vendor/everything/Everything-*.ini.backup
+vendor/everything/Everything-*.db
+lib/index/tmp/
+
+# 自验产生的数据
+selftest-data/
+selftest-scope/
