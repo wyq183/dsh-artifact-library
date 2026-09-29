@@ -202,7 +202,7 @@ function build(view, detail) {
   return components;
 }
 
-for (const view of ['card', 'list', 'project']) {
+for (const view of ['card', 'list', 'project', 'files', 'dir']) {
   check('渲染主面板 view=' + view, () => {
     const components = build(view, null);
     assert(typeof components['main'] === 'function', 'main 组件缺失');
