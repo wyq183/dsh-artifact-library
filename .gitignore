@@ -1,0 +1,11 @@
+# 夜间工作备份目录（不进版本库）
+_night-backup-*/
+
+# 历史手改备份
+*.bak-*
+*.snapshot
+
+# 依赖与产物
+node_modules/
+dist/
+*.log
