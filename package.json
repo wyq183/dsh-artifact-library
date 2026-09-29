@@ -40,6 +40,7 @@
     "lib",
     "ui",
     "vendor",
+    "docs",
     "cordis.patch.yml",
     "README.md",
     "THIRD-PARTY-NOTICES.md",
