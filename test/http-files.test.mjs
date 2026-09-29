@@ -109,6 +109,7 @@ const engine = makeEngine()
 const deps = {
   fileIndex: engine,
   resolveIndexScope: async () => ['C:\\ws'],
+  assertInScope: async (p) => ({ ok: true, path: p }),
 }
 
 await (async () => {
@@ -185,6 +186,45 @@ await (async () => {
   const rListNoDir = await call(deps, 'GET', '/ext/artifacts/files/list')
   check('GET files/list 缺 dir → 400', () => {
     assert(rListNoDir.statusCode === 400, '状态码 ' + rListNoDir.statusCode)
+  })
+
+  // ── P2-c 文件操作：只测拒绝分支（成功分支会真启动 explorer）──────────────
+  const depsOutOfScope = {
+    fileIndex: engine,
+    resolveIndexScope: async () => ['C:\\ws'],
+    assertInScope: async () => ({ ok: false, error: '路径不在索引范围内（只允许工作区与已登记产出目录）' }),
+  }
+  const depsNoGuard = {
+    fileIndex: engine,
+    resolveIndexScope: async () => ['C:\\ws'],
+  }
+
+  const rRevNoPath = await call(deps, 'POST', '/ext/artifacts/files/reveal')
+  check('POST files/reveal 缺 path → 400', () => {
+    assert(rRevNoPath.statusCode === 400, '状态码 ' + rRevNoPath.statusCode)
+  })
+
+  const outside = encodeURIComponent('C:\\Windows\\notepad.exe')
+  const rRevOut = await call(depsOutOfScope, 'POST', '/ext/artifacts/files/reveal?path=' + outside)
+  check('★ POST files/reveal 范围外路径 → 403（安全闸门）', () => {
+    assert(rRevOut.statusCode === 403, '状态码 ' + rRevOut.statusCode + ' body=' + rRevOut.body)
+    assert(rRevOut.json().error.indexOf('不在索引范围内') >= 0, '错误文案: ' + rRevOut.body)
+  })
+
+  const rOpenOut = await call(depsOutOfScope, 'POST', '/ext/artifacts/files/open?path=' + outside)
+  check('★ POST files/open 范围外路径 → 403', () => {
+    assert(rOpenOut.statusCode === 403, '状态码 ' + rOpenOut.statusCode)
+  })
+
+  const missing = encodeURIComponent('C:\\ws\\__definitely_not_here__.txt')
+  const rMissing = await call(deps, 'POST', '/ext/artifacts/files/open?path=' + missing)
+  check('POST files/open 范围内但文件不存在 → 404', () => {
+    assert(rMissing.statusCode === 404, '状态码 ' + rMissing.statusCode + ' body=' + rMissing.body)
+  })
+
+  const rNoGuard = await call(depsNoGuard, 'POST', '/ext/artifacts/files/reveal?path=' + encodeURIComponent('C:\\ws\\a.txt'))
+  check('★ 没挂 assertInScope → 403（默认拒绝，不是默认放行）', () => {
+    assert(rNoGuard.statusCode === 403, '状态码 ' + rNoGuard.statusCode + ' body=' + rNoGuard.body)
   })
 
   const r10 = await call(deps, 'GET', '/ext/artifacts/files')
