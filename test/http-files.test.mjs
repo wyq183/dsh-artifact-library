@@ -78,6 +78,20 @@ function makeEngine() {
       return { ok: true, query: args.query, rows: [{ path: 'C:\\ws\\a.txt', name: 'a.txt', size: 1 }], total: 1, elapsedMs: 3 }
     },
     shutdown: async () => { calls.push(['shutdown']) },
+    listDir: async (dir, opts) => {
+      calls.push(['listDir', dir, opts])
+      return {
+        ok: true,
+        dir,
+        entries: [
+          { path: dir + '\\sub', name: 'sub', isDirectory: true, size: 0 },
+          { path: dir + '\\a.txt', name: 'a.txt', isDirectory: false, size: 3 },
+        ],
+        dirCount: 1,
+        fileCount: 1,
+        elapsedMs: 2,
+      }
+    },
   }
 }
 
@@ -156,6 +170,21 @@ await (async () => {
   check('回归：普通记录路由仍走 store.get', () => {
     assert(r9.statusCode === 200, '状态码 ' + r9.statusCode)
     assert(r9.body.includes('STORE-GOT-IT'), '应走 store.get: ' + r9.body)
+  })
+
+  const rList = await call(deps, 'GET', '/ext/artifacts/files/list?dir=' + encodeURIComponent('C:\\ws'))
+  check('GET files/list → 200，dir 透传，返回目录/文件计数', () => {
+    assert(rList.statusCode === 200, '状态码 ' + rList.statusCode)
+    const body = rList.json()
+    assert(body.ok === true, 'body: ' + rList.body)
+    assert(body.dirCount === 1 && body.fileCount === 1, '计数不对: ' + rList.body)
+    const listCall = engine.calls.filter((c) => c[0] === 'listDir').pop()
+    assert(listCall && listCall[1] === 'C:\\ws', 'dir 未透传: ' + JSON.stringify(listCall))
+  })
+
+  const rListNoDir = await call(deps, 'GET', '/ext/artifacts/files/list')
+  check('GET files/list 缺 dir → 400', () => {
+    assert(rListNoDir.statusCode === 400, '状态码 ' + rListNoDir.statusCode)
   })
 
   const r10 = await call(deps, 'GET', '/ext/artifacts/files')
