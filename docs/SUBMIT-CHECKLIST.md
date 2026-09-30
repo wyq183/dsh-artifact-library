@@ -56,27 +56,29 @@ docs/screenshots/03-cards.png       卡片视图
 
 ### B3. 提交并推送这些文件
 
-目录站与 GitHub 只认**已推送**的内容。当前未提交（`git status` 实测）：
+**目录站与 GitHub 只认「已推送」的内容。**
 
-```
- M README.md                    ← 本次重写
- M package.json                 ← 本次加 peerDependencies
- M lib/client.js                ← 队友 ui-core 的改动
-?? docs/UI-SPEC-v1.md           ← 未跟踪！README 与上架材料都引用了它
-?? docs/screenshots/README.md   ← 本次新增
-?? docs/SUBMIT-CHECKLIST.md     ← 本文件
-?? lib/icons.js                 ← 队友 icon-smith 的改动
-?? test/ui-spec.test.mjs        ← 队友 ui-tester 的改动
-```
+**✅ 状态更新（2026-09-30 深夜 · lead 核过）**：
+- **全部已提交** —— 当初列的那批（`README.md` / `package.json` / `lib/client.js` /
+  `docs/UI-SPEC-v1.md` / `docs/screenshots/README.md` / `lib/icons.js` / `test/ui-spec.test.mjs`）
+  **一件不缺**（`git status -- lib/ docs/ test/` 实测为空）
+- **⚠️ 但仍未 push** —— GitHub 凭据失效（本地已攒 **54 个 commit**，**不会丢**）
+- **⇒ B3 现在的唯一动作是 `push`**（等依琪重新授权）
 
 ```sh
-git add -A
-git commit -m "docs: prepare marketplace submission materials"
 git push origin master
 ```
 
-> ⚠️ **`docs/UI-SPEC-v1.md` 尤其别漏**：它此前从未进版本库，但 README、
-> `docs/screenshots/README.md`、本清单都引用了它 —— 不推上去就是**死链**。
+> ⚠️ **为什么原版的 `git add -A` 已从本清单删掉（2026-09-30 夜）**：
+> 当晚 lead 用 `git add -A` 提交文档时，**把队友尚未提交的 `lib/client.js` 改动一起带走了** ——
+> 结果是 `git log -S __truncnote` **只会命中一笔讲文档的提交**，**没有任何一笔说明「为什么会有那段代码」**。
+> **⇒ 共享工作区禁用 `git add -A` / `commit -a`**；要提交就用
+> **`git commit --only <你自己的写入范围>`**（详见 `ARCHITECTURE.md` §8.3 第 19 条）。
+>
+> **这条警告写在这里，是因为这份清单本身差点教错人** —— 它是「答案文档」，
+> 而**文档里的命令会被照着执行**。（同晚的另一例：某处文案让用户去点一个不存在的按钮 ——
+> 见 `ARCHITECTURE.md` §8.3 第 9 条的「不要指一个找不到的按钮」。）
+
 
 ### B4. 推送后再验一次
 
