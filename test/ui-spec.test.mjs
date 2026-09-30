@@ -1,6 +1,6 @@
 /**
  * dsh-artifact-library · UI 规范回归测试
- * 把 `docs/UI-SPEC-v1.md` 里**可静态断言**的条款钉成 22 条，每条指向规范原文。
+ * 把 `docs/UI-SPEC-v1.md` 里**可静态断言**的条款钉成 25 条，每条指向规范原文。
  *
  * 为什么要有它：
  *   UI 重构（行高 110→32px、去冗余路径、token 化、按类型图标、自然序…）全靠人眼核对，
@@ -10,7 +10,7 @@
  *   · 每条断言都带 [§x.y] 条款号，失败信息写清违反了哪一条
  *   · 允许先红后绿 —— 队友改造期间失败是**预期结果**，不要为它放宽断言
  *
- * 22 条 ↔ 规范条款对照：
+ * 25 条 ↔ 规范条款对照：
  *   [§一.1]  禁止 hex 颜色（client.js）
  *   [§一.1]  禁止自造 --alf-* token
  *   [§一.5]  禁止 `from "react"` 字面量（必须走 module-loader 借宿主 React）
@@ -33,6 +33,9 @@
  *   [§11.1②] 浮层坐标必须经过视口夹取/翻转（结构选择，不测布局质量）
  *   [§11.1③] 浮层根节点必须 position:fixed（或 portal），不被 overflow 祖先裁切
  *   [§11.4]  瞬时结果走应用级 shell.overlay，且有 hasOverlay 回退判据
+ *   [实现约定] 设置面板必须由 schema 驱动（键集来自 schema.defaults、分组来自 hostEffectiveKeys）
+ *   [§六]    空态两分支：真的空 vs 被隐藏项过滤成空（两句不同的话，不是同一句兜底）
+ *   [§11.4]  导入结果如实展示 applied / ignored / errors 三类清单（不是一句「成功」）
  *
  * 运行：node test/ui-spec.test.mjs [client.js 路径]
  * 退出码：有失败 → 1
@@ -303,7 +306,7 @@ console.log(' 被测：' + CLIENT_PATH);
 console.log('       ' + (icons.exists ? ICONS_PATH : ICONS_PATH + '（尚不存在）'));
 
 // ── [1] 禁止 hex 颜色 ─────────────────────────────────────────────────────
-console.log('\n[1/22] 禁止第二套配色');
+console.log('\n[1/25] 禁止第二套配色');
 check('[§一.1]', 'lib/client.js 不出现 hex 颜色字面量', OWNER_CLIENT, () => {
   const hits = findHexColors(CLIENT_SRC);
   assert(
@@ -313,7 +316,7 @@ check('[§一.1]', 'lib/client.js 不出现 hex 颜色字面量', OWNER_CLIENT, 
 });
 
 // ── [2] 禁止自造 --alf-* token ────────────────────────────────────────────
-console.log('\n[2/22] 禁止自造 token');
+console.log('\n[2/25] 禁止自造 token');
 check('[§一.1]', '不出现自造 CSS 变量 --alf-*', OWNER_CLIENT, () => {
   const hits = [];
   const re = /--alf-[\w-]*/g;
@@ -326,7 +329,7 @@ check('[§一.1]', '不出现自造 CSS 变量 --alf-*', OWNER_CLIENT, () => {
 });
 
 // ── [3] 禁止 react 字面量 import ──────────────────────────────────────────
-console.log('\n[3/22] 客户端 React 来源');
+console.log('\n[3/25] 客户端 React 来源');
 check('[§一.5]', '不出现 `from "react"` 字面量（必须走 module-loader）', OWNER_CLIENT, () => {
   const patterns = [
     { re: /from\s*['"]react['"]/g, label: 'from "react"' },
@@ -346,7 +349,7 @@ check('[§一.5]', '不出现 `from "react"` 字面量（必须走 module-loader
 });
 
 // ── [4] 必须用官方 token ──────────────────────────────────────────────────
-console.log('\n[4/22] 官方 token 消费');
+console.log('\n[4/25] 官方 token 消费');
 check('[§2.1-2.3]', '圆角/文字/交互/描边四类 --dsw-* token 均已消费', OWNER_CLIENT, () => {
   const required = [
     ['--dsw-radius-', '§2.1 圆角（sm8/md12/lg16）'],
@@ -362,7 +365,7 @@ check('[§2.1-2.3]', '圆角/文字/交互/描边四类 --dsw-* token 均已消�
 });
 
 // ── [5] 目录行高 24~44px ──────────────────────────────────────────────────
-console.log('\n[5/22] 目录行高');
+console.log('\n[5/25] 目录行高');
 check('[§3.1/3.7]', '目录行高常量存在且落在 24~44px 区间', OWNER_CLIENT, () => {
   assert(
     CSS_TEXT.length > 0,
@@ -414,7 +417,7 @@ check('[§3.1/3.7]', '目录行高常量存在且落在 24~44px 区间', OWNER_C
 });
 
 // ── [6] lib/icons.js 契约 ─────────────────────────────────────────────────
-console.log('\n[6/22] 图标模块契约');
+console.log('\n[6/25] 图标模块契约');
 check('[§2.4/一.4]', 'lib/icons.js 导出 iconForName / FILE_TYPE_COLORS 且形状正确', OWNER_ICONS, () => {
   assert(
     icons.exists,
@@ -487,7 +490,7 @@ check('[§2.4/一.4]', 'lib/icons.js 导出 iconForName / FILE_TYPE_COLORS 且�
 });
 
 // ── [7] icons.js 颜色无 hex ───────────────────────────────────────────────
-console.log('\n[7/22] 图标颜色来源');
+console.log('\n[7/25] 图标颜色来源');
 check('[§2.4/一.1]', 'lib/icons.js 的 color 只来自官方 token（无 hex）', OWNER_ICONS, () => {
   assert(icons.exists, 'lib/icons.js 不存在 —— 无法校验 §2.4 色表');
   const hits = findHexColors(stripComments(icons.src));
@@ -509,7 +512,7 @@ check('[§2.4/一.1]', 'lib/icons.js 的 color 只来自官方 token（无 hex�
 });
 
 // ── [8] 自然序排序 ────────────────────────────────────────────────────────
-console.log('\n[8/22] 排序');
+console.log('\n[8/25] 排序');
 check('[§3.6]', '使用 Intl.Collator 自然序（numeric:true，file2 在 file10 前）', OWNER_CLIENT, () => {
   const m = /Intl\.Collator\s*\(([\s\S]{0,240}?)\)/.exec(CLIENT_SRC);
   assert(
@@ -525,7 +528,7 @@ check('[§3.6]', '使用 Intl.Collator 自然序（numeric:true，file2 在 file
 });
 
 // ── [9] 无障碍 ────────────────────────────────────────────────────────────
-console.log('\n[9/22] 无障碍');
+console.log('\n[9/25] 无障碍');
 check('[§三.3/§七]', 'aria-label / role=tree|grid / aria-current 齐备', OWNER_CLIENT, () => {
   const missing = [];
   if (!/aria-label|ariaLabel/.test(CLIENT_SRC)) {
@@ -541,7 +544,7 @@ check('[§三.3/§七]', 'aria-label / role=tree|grid / aria-current 齐备', OW
 });
 
 // ── [10] 省略号 + min-width:0 ─────────────────────────────────────────────
-console.log('\n[10/22] 长文件名省略');
+console.log('\n[10/25] 长文件名省略');
 check('[§3.1/3.2]', 'text-overflow 且目录行内含 min-width:0', OWNER_CLIENT, () => {
   assert(/text-overflow/.test(CLIENT_SRC), '完全没有 text-overflow —— 违反 §3.2「长文件名必须省略（保扩展名可见）」');
   assert(CSS_TEXT.length > 0, '在 lib/client.js 里找不到样式表数组，无法把 min-width:0 定位到目录视图行（§3.1）');
@@ -566,7 +569,7 @@ check('[§3.1/3.2]', 'text-overflow 且目录行内含 min-width:0', OWNER_CLIEN
 });
 
 // ── [11] 图标映射完整性（防静默 fallback）──────────────────────────────────
-console.log('\n[11/22] 图标映射完整性');
+console.log('\n[11/25] 图标映射完整性');
 check('[§2.4]', '映射表的值都指向已定义的图形；内联副本与 lib/icons.js 同源', OWNER_TABLES, () => {
   assert(
     TABLES.icons.table,
@@ -639,7 +642,7 @@ check('[§2.4]', '映射表的值都指向已定义的图形；内联副本与 l
 });
 
 // ── [12] data-density 不得挂到宿主 <body>/<html> ──────────────────────────
-console.log('\n[12/22] 宿主边界');
+console.log('\n[12/25] 宿主边界');
 check('[宿主边界]', 'data-density 只挂自己的容器，不碰宿主 body/html', OWNER_CLIENT, () => {
   const hits = [];
   const re = /data-density/g;
@@ -675,7 +678,7 @@ check('[宿主边界]', 'data-density 只挂自己的容器，不碰宿主 body/
 });
 
 // ── [13] 不得无兜底消费「幽灵 token」 ─────────────────────────────────────
-console.log('\n[13/22] 宿主 token 真实性');
+console.log('\n[13/25] 宿主 token 真实性');
 check('[§一.1]', '不以无 fallback 形式消费宿主未定义的 token', OWNER_CLIENT, () => {
   /**
    * 名单必须是**实证**的，不是猜的 —— 判据：在官方 bundle 全量 dump 里
@@ -708,7 +711,7 @@ check('[§一.1]', '不以无 fallback 形式消费宿主未定义的 token', OW
 });
 
 // ── [14] 虚拟滚动下的 grid 行数语义 ───────────────────────────────────────
-console.log('\n[14/22] 虚拟滚动无障碍');
+console.log('\n[14/25] 虚拟滚动无障碍');
 check('[§3.7/§七]', 'aria-rowcount 取全量、aria-rowindex 取绝对 1-based 下标', OWNER_CLIENT, () => {
   /**
    * 虚拟化后 DOM 里只有可见行，「一共多少行」「当前是第几行」只能靠 ARIA 说清楚 ——
@@ -783,7 +786,7 @@ check('[§3.7/§七]', 'aria-rowcount 取全量、aria-rowindex 取绝对 1-base
 });
 
 // ── [15] §11.1 浮层可关闭 ─────────────────────────────────────────────────
-console.log('\n[15/22] 浮层可关闭');
+console.log('\n[15/25] 浮层可关闭');
 check('[§11.1]', '右键菜单与 Ctrl+P 浮层都有 Escape 关闭路径', OWNER_CLIENT, () => {
   const problems = [];
   // §11.1①：任何浮层必须可关闭，键盘用户必须支持 Escape。
@@ -809,7 +812,7 @@ check('[§11.1]', '右键菜单与 Ctrl+P 浮层都有 Escape 关闭路径', OWN
 });
 
 // ── [16] §11.2 对话框语义 ─────────────────────────────────────────────────
-console.log('\n[16/22] 对话框语义');
+console.log('\n[16/25] 对话框语义');
 check('[§11.2]', 'role=dialog 有可访问名，且有焦点管理（打开移入 / 关闭归还）', OWNER_CLIENT, () => {
   const problems = [];
 
@@ -853,7 +856,7 @@ check('[§11.2]', 'role=dialog 有可访问名，且有焦点管理（打开移�
 });
 
 // ── [17] §11.4 错误态不清空数据（窄版）────────────────────────────────────
-console.log('\n[17/22] 错误态保留数据');
+console.log('\n[17/25] 错误态保留数据');
 check('[§11.4]', '错误路径不得清空已有列表数据', OWNER_CLIENT, () => {
   // §11.4 官方原文：「操作失败保留数据可见，绝不清空内容来显示错误」。
   // 诚实说明本条的**能力边界**：静态只能挡最直白的写法 —— catch 块里直接把行/条目
@@ -869,7 +872,7 @@ check('[§11.4]', '错误路径不得清空已有列表数据', OWNER_CLIENT, ()
 });
 
 // ── [18] §11.5 加载态 ─────────────────────────────────────────────────────
-console.log('\n[18/22] 加载态');
+console.log('\n[18/25] 加载态');
 check('[§11.5]', '列表用骨架屏，且 toast 自动隐藏是一次性定时器（不空转）', OWNER_CLIENT, () => {
   const problems = [];
 
@@ -897,7 +900,7 @@ check('[§11.5]', '列表用骨架屏，且 toast 自动隐藏是一次性定时
 });
 
 // ── [19] §11.6 快捷键宿主边界 ─────────────────────────────────────────────
-console.log('\n[19/22] 快捷键宿主边界');
+console.log('\n[19/25] 快捷键宿主边界');
 check('[§11.6]', '面板快捷键有可见性闸门，且 document keydown 监听成对增删', OWNER_CLIENT, () => {
   const problems = [];
 
@@ -921,7 +924,7 @@ check('[§11.6]', '面板快捷键有可见性闸门，且 document keydown 监�
 });
 
 // ── [20] §11.1② 浮层定位必须经过视口夹取/翻转 ─────────────────────────────
-console.log('\n[20/22] 浮层视口适配');
+console.log('\n[20/25] 浮层视口适配');
 check('[§11.1②]', '浮层坐标经过视口夹取/翻转（函数或就地），不是拿到 rect 直接就用', OWNER_CLIENT, () => {
   // 原则（lead 定的）：「运行期质量」不钉，「**结构选择**」钉。钉两条：
   //   ① 全文件**存在**夹取/翻转运算（视口尺寸 + Math.min + Math.max）；
@@ -988,7 +991,7 @@ check('[§11.1②]', '浮层坐标经过视口夹取/翻转（函数或就地）
 });
 
 // ── [21] §11.1③ 浮层根节点必须 fixed（或 portal）────────────────────────
-console.log('\n[21/22] 浮层不被裁切');
+console.log('\n[21/25] 浮层不被裁切');
 check('[§11.1③]', '浮层根节点 position:fixed（或 portal 到 body），不被 overflow 祖先裁切', OWNER_CLIENT, () => {
   // 同样是「结构选择」而非运行期质量：根容器 `.alf` 是 overflow:hidden，
   // 所以浮层要么自己 fixed（脱离文档流，不被祖先裁），要么 portal 到 body。
@@ -1014,7 +1017,7 @@ check('[§11.1③]', '浮层根节点 position:fixed（或 portal 到 body），
 });
 
 // ── [22] §11.4 瞬时结果走应用级 shell.overlay ────────────────────────────
-console.log('\n[22/22] 瞬时结果挂在活得久的地方');
+console.log('\n[22/25] 瞬时结果挂在活得久的地方');
 check('[§11.4]', 'toast 走 shell.overlay，且有 hasOverlay 回退判据', OWNER_CLIENT, () => {
   const problems = [];
   if (!/shell\.overlay/.test(CLIENT_SRC)) {
@@ -1026,6 +1029,97 @@ check('[§11.4]', 'toast 走 shell.overlay，且有 hasOverlay 回退判据', OW
     problems.push('没有 hasOverlay 之类的「浮层是否真的挂上」判据 —— §11.4 要求旧宿主（无 shell.overlay）能退回到面板内提示');
   }
   assert(problems.length === 0, problems.join('；'));
+});
+
+// ── [23] 设置面板由 schema 驱动 ──────────────────────────────────────────
+console.log('\n[23/25] 设置面板 schema 驱动');
+check('[实现约定]', '键集来自 schema.defaults、分组来自 schema.hostEffectiveKeys', OWNER_CLIENT, () => {
+  // 来源说明：这不是 UI-SPEC 条款，是 **lead 指定的实现约定**（补设置面板的覆盖缺口）。
+  // 只钉**正向**的「schema 驱动」，不做「禁止出现键名」的负判据 ——
+  // 因为中文文案表**合法地**以设置键为索引（`thumbMaxBytes: {label,…}`），
+  // 负判据会把它误伤成「硬编码键表」。正向钉住「键与分组都从 schema 来」才是要害。
+  const problems = [];
+
+  // ① **两跳追踪**：分组用的键集 ← 必须由 schema 迭代产生。
+  //    为什么要两跳：只查「有没有对 schema 变量做迭代」太松 —— 我 bite-test 时发现，
+  //    把真正喂给分组的 `keys` 换成字面量数组后，别处**残留的**迭代仍能让它通过。
+  //    所以要顺着 `list: KEYS.filter(...)` 找到 KEYS，再看 KEYS 是不是 schema 迭代出来的。
+  const schemaIds = [...CLIENT_SRC.matchAll(/(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*schema\.defaults[^;\n]*/g)].map((m) => m[1]);
+  const groupKeyIds = [...new Set([...CLIENT_SRC.matchAll(/list\s*:\s*([A-Za-z_$][\w$]*)\s*\.\s*filter\s*\(/g)].map((m) => m[1]))];
+
+  if (!schemaIds.length) problems.push('找不到从 `schema.defaults` 取值的赋值 —— 设置面板似乎没有读 schema');
+  if (!groupKeyIds.length) problems.push('找不到分组键集的用法（`list: xxx.filter(...)`）—— 无法确认键集来源');
+
+  const esc = (s) => s.replace(/\$/g, '\\$');
+  let keysFromSchema = false;
+  for (const kid of groupKeyIds) {
+    for (const sid of schemaIds) {
+      // 形态 A：KEYS = Object.keys(schemaVar)
+      if (new RegExp('(?:var|let|const)\\s+' + esc(kid) + '\\s*=\\s*Object\\.keys\\s*\\(\\s*' + esc(sid) + '\\s*\\)').test(CLIENT_SRC)) keysFromSchema = true;
+      // 形态 B：for (k in schemaVar) { … KEYS.push(k) … }
+      const loopRe = new RegExp('for\\s*\\([^)]*\\bin\\s+' + esc(sid) + '\\b[^)]*\\)', 'g');
+      let lm;
+      while ((lm = loopRe.exec(CLIENT_SRC))) {
+        const body = CLIENT_SRC.slice(lm.index, lm.index + 260);
+        if (new RegExp(esc(kid) + '\\s*\\.\\s*push\\s*\\(').test(body)) keysFromSchema = true;
+      }
+    }
+  }
+  if (schemaIds.length && groupKeyIds.length && !keysFromSchema) {
+    problems.push(
+      '分组用的键集（' + groupKeyIds.join('/') + '）不是从 `schema.defaults` 迭代出来的 —— 键集被写死了（新增设置项会不显示）'
+    );
+  }
+
+  // ② 分组必须由 `schema.hostEffectiveKeys` 分区（而不是写死两组键名）
+  const hostKeysDecl = /schema\.hostEffectiveKeys/.test(CLIENT_SRC);
+  const partitioned = /hostKeys?\s*\.\s*(?:indexOf|includes)\s*\(/.test(CLIENT_SRC) || /\bSet\s*\(\s*hostKeys?\b/.test(CLIENT_SRC);
+  if (!hostKeysDecl) problems.push('没有引用 `schema.hostEffectiveKeys` —— 分组看起来是写死的');
+  else if (!partitioned) problems.push('引用了 hostEffectiveKeys 但没有用它做成员判定 —— 分组未必按 schema 划分');
+
+  assert(problems.length === 0, '设置面板疑似脱离 schema：' + problems.join('；'));
+});
+
+// ── [24] 空态两分支 ──────────────────────────────────────────────────────
+console.log('\n[24/25] 空态两分支');
+check('[§六]', '「真的空」与「被隐藏项过滤成空」是两个分支，不是同一句兜底', OWNER_CLIENT, () => {
+  const problems = [];
+  const emptyMsg = /这个文件夹是空的/;
+  const filteredMsg = /个隐藏项被过滤/;
+  if (!emptyMsg.test(CLIENT_SRC)) problems.push('找不到「这个文件夹是空的」（§六 空目录态）');
+  if (!filteredMsg.test(CLIENT_SRC)) {
+    problems.push('找不到「N 个隐藏项被过滤」那一支 —— 被 showHidden 过滤成空时会误报「空的」，用户看不出为什么');
+  }
+  if (!/hiddenFiltered/.test(CLIENT_SRC)) problems.push('没有用到宿主回报的 `hiddenFiltered`（无法区分两种空）');
+
+  // 必须是**两个分支**：两句文案不在同一处（否则就是同一句兜底文案）
+  const m1 = emptyMsg.exec(CLIENT_SRC);
+  const m2 = filteredMsg.exec(CLIENT_SRC);
+  if (m1 && m2) {
+    const dist = Math.abs(m1.index - m2.index);
+    if (dist < 60) problems.push('两句空态文案挨在一起（相隔 ' + dist + ' 字符）—— 看起来是同一句兜底，不是两个分支');
+  }
+  // 被过滤那一支必须给出**可操作**的出口（「显示隐藏项」），否则用户只能去猜
+  if (m2 && !/显示隐藏项/.test(CLIENT_SRC)) problems.push('「被过滤成空」这一支没有「显示隐藏项」的出口');
+  assert(problems.length === 0, problems.join('；'));
+});
+
+// ── [25] 导入结果如实展示三类清单 ─────────────────────────────────────────
+console.log('\n[25/25] 导入结果如实展示');
+check('[§11.4]', 'applied / ignored / errors 三类清单一并展示', OWNER_CLIENT, () => {
+  // §11.4 的「如实」：失败/被忽略的部分不能被一句「成功」吞掉。
+  const hits = {};
+  for (const k of ['applied', 'ignored', 'errors']) {
+    hits[k] = [...CLIENT_SRC.matchAll(new RegExp('\\b' + k + '\\b', 'g'))].map((m) => m.index);
+  }
+  const missing = Object.keys(hits).filter((k) => !hits[k].length);
+  assert(
+    missing.length === 0,
+    '导入结果里没有 ' + missing.join(' / ') + ' —— §11.4 要求如实展示（只报「成功」会吞掉被忽略与出错的部分）'
+  );
+  // 三类必须在**同一处渲染**（同一段窗口内全都出现），否则可能只是散落的变量名
+  const together = hits.applied.some((a) => hits.ignored.some((b) => Math.abs(a - b) < 1200) && hits.errors.some((c) => Math.abs(a - c) < 1200));
+  assert(together, 'applied / ignored / errors 没有在同一段渲染逻辑里同时出现 —— 可能只展示了其中一类');
 });
 
 // ── 汇总 ──────────────────────────────────────────────────────────────────
