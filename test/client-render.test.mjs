@@ -128,6 +128,8 @@ function renderDir(entries, extra) {
     (extra && extra.changesAvailable !== undefined) ? extra.changesAvailable : null,   // changesAvailable（null|true|false，改动入口门控）
     (extra && extra.prefs !== undefined) ? extra.prefs : null,   // sSettings（当前设置；喂它才能验「设置真的生效」）
     null,                     // sProject（项目容器态；task-11 新增，第 8 位）
+    { ids: {}, anchor: -1 },  // sPanelSel（产物侧多选；task-13 新增，第 9 位）
+    null,                     // sArtMenu（产物右键菜单；task-13 新增，第 10 位）
     'C:\\proj', entries, (extra && extra.phase) || 'ready', '', ['C:\\proj'], { by: 'name', dir: 'asc' },
     // ⚠️ sDensity 是**手动覆盖**（null = 未覆盖 → 取设置里的值）。
     //    验「设置真的生效」必须喂 null；喂 'standard' 等于「用户行内改过」，设置会被（正确地）忽略 ——
@@ -328,7 +330,7 @@ console.log('\n── 校准护栏（见文件头维护须知）──');
 // **为什么是相等而不是 >=**：`>=` 只能发现 hook 被删；一旦有人在前面**插入**一个 hook，
 // 后面所有值整体后移，按位置喂的 states 会静默错位 —— 断言可能「用错状态也过」。
 // 相等判定会把「增删改 hook」一律变成响亮的失败，逼人重新校准。改组件 hook 结构就改这个数。
-const EXPECTED_HOOK_CALLS = 29;
+const EXPECTED_HOOK_CALLS = 31;
 console.log('  hook 调用 = ' + out.useStateCalls + ' / 期望 = ' + EXPECTED_HOOK_CALLS + ' / 状态槽位 = ' + out.stateSlots);
 check('状态队列仍与组件 hook 结构对得上（校准护栏）', () => {
   assert(
