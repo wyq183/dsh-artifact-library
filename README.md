@@ -133,20 +133,24 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
   （`ViewControl` 的 ④ 段 + 常量 `COLUMN_KEYS`）
 - **多选 + 批量**：`Ctrl/Cmd 点击`、`Shift 区间`、`空格切换`、`Ctrl+A`、`Esc`；批量
   **登记**（`batchRegister` + `undoBatch` 可一键撤销）/ 复制路径 / 打开 / 移入回收站
-- **`@` 引用**：注册官方 `inputTriggers` 来源（root 作用域，`registerSource`）；行右键「复制为 @引用」
-  复制 `@path` / `@"含空格路径"` 文本（`copyAtMention` / `formatFileMention`）。
-  ⚠️ 这是**复制引用文本**，**不是**「把引用注入输入框」——代码注释里就是这么标的
+- **`@` 引用（三条路）**：
+  ① 注册官方 `inputTriggers` 来源（root 作用域，`registerSource`）—— 走输入框的 `@` 菜单；
+  ② 行右键「**复制为 @引用**」（`copyAtMention`）复制 `@path` / `@"含空格路径"` 文本；
+  ③ **拖出去**：文件/搜索结果行、卡片、列表**都可拖拽**（`draggable` + `onDragStart`），
+  `text/plain` 放的就是 mention 文本，另附一个 `application/x-dsh-artifact` 自定义 MIME。
+  ⚠️ ②③ 都只是**产出引用文本**；**输入框会不会把它识别成引用 chip，尚未验证** ——
+  而那恰恰是唯一能证明「真的能直接引用」的证据，我们**还没拿到**。
 - **hover 操作区**：行尾按钮 hover 或 `:focus-within` 才出现，**固定 72px 占位防抖动**（样式 `__dact`）
 - **空状态承载新手引导**：不做教程弹窗，引导长在空状态里，且两个按钮都是**真路径**
 - **设置面板**：结构从 `GET /settings/schema` 读（**不写死**），含预设与导出/导入
 
 **还没做的（文档里不许写成「有」）**：
 
-- **把产物拖到聊天输入框 = 插入引用**：代码里**没有** `draggable` / `onDragStart`。
-  现有的 `onDrop` 是**反方向** —— 把系统文件拖进面板做**登记**
 - **原生面板里的导入文件夹 / 立即精炼 / 语义搜索 / 整理建议**：这 4 项**仍只在完整管理页**
   （详见 [使用](#usage) 与 [已知限制](#limits)，搬运建议见
   [docs/MIGRATION-PLAN-web-to-panel.md](docs/MIGRATION-PLAN-web-to-panel.md)）
+- **「拖出去 = 引用」是否真的生效**：代码这一半做完了（见上），
+  但**「粘到输入框会不会变成引用 chip」没人验证过** —— 别当成已完成
 
 <a id="tour-files"></a>
 ### 🗂️ 本地文件管理器（v0.7.0）
@@ -327,6 +331,11 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 > （队友在同一个文件上继续加端点，`client.js` 更是整体漂了 300+ 行）。
 > 所以判据一律用端点/符号名 —— 它们**别人也能复核**。
 > 另：唯一带 `import` 的客户端调用是 `/settings/import`（**设置导入**，与文件夹导入无关）。
+>
+> 🔬 **还有一个坑，我当场踩了**：拿「端点字符串」做判据时，**必须先把注释剥掉**。
+> 我把上面这张表写进 `client.js` 的注释后，再拿 `/suggest-cleanup` 去搜 ——
+> 立刻「命中」，差点得出「已经搬完了」的反结论。**命中的是我自己写的那句注释，不是代码。**
+> **判据本身也会被污染** —— 校验时要 `strip comments` 再搜。
 
 > 所以：**别删 `ui/index.html`**，也别删 `sidebar.footer.action` 那个入口 ——
 > 删了就等于把这 4 个功能一起删掉。等它们搬完再谈下线。
