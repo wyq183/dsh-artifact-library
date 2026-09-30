@@ -239,5 +239,38 @@ check('React 缺 hooks 时降级而非抛出', () => {
   assert(typeof mod.apply === 'function', 'exports.apply 丢失');
 });
 
+// ── 4. @ 引用来源（inputTriggers 是非契约访问器）──────────────────────────
+console.log('\n[4] @ 引用来源（旧宿主降级路径）');
+/**
+ * 为什么**成对**钉：
+ *   · 只钉「没有服务时不抛」—— 一个**从不注册**的实现也能过；
+ *   · 只钉「有服务时注册」—— 一个**不判空**的实现也能过（在新宿主上绿、旧宿主上抛）。
+ * 两半一起，才逼出正确实现：有服务就注册，没服务就优雅跳过。
+ * （日志那句「@ 来源未注册」我没钉文本 —— 太脆；行为两半才是要害。）
+ */
+function applyWithTriggers(hasService) {
+  const registered = [];
+  const service = hasService
+    ? { registerSource: (spec) => { registered.push(spec); return () => {}; } }
+    : undefined;
+  const slots = { inject: (name, factory) => factory(), register: () => () => {} };
+  const mod = factoryWith(makeReact());
+  const disposer = mod.apply({ get: (name) => (name === 'inputTriggers' ? service : slots) });
+  return { disposer, registered };
+}
+
+check('inputTriggers 存在 → 注册 @ 来源（trigger="@"）', () => {
+  const { registered } = applyWithTriggers(true);
+  assert(registered.length === 1, 'registerSource 调用次数 = ' + registered.length + '（有服务却没注册，或重复注册）');
+  assert(registered[0] && registered[0].trigger === '@', 'trigger 不是 "@"：' + JSON.stringify(registered[0]));
+  assert(typeof registered[0].name === 'string' && registered[0].name.length > 0, 'name 为空');
+});
+
+check('inputTriggers 不存在 → 不抛、返回 disposer、且不假注册', () => {
+  const { disposer, registered } = applyWithTriggers(false);
+  assert(typeof disposer === 'function', '返回值不是 disposer');
+  assert(registered.length === 0, '没有服务却报告注册了 ' + registered.length + ' 次');
+});
+
 console.log('\n结果：' + passed + ' 通过 / ' + failed + ' 失败');
 process.exit(failed ? 1 : 0);
