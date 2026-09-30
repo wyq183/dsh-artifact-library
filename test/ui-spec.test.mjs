@@ -1529,9 +1529,19 @@ function requireCssRegion(src) {
   assert(region !== null,
     '取不到 CSS 区域（start=`"." + NS + "{"` / end=`].join("\\n")` 有一个失配）'
     + ' —— 判据前提失效，请同步更新本断言（**不要放宽成全文扫描**）');
-  assert(region.length > 10000 && region.length < 120000,
-    'CSS 区域长度异常：' + region.length + ' 字符（期望 10000~120000；'
-    + '接近全文长度(~31万)说明锚点失配后回退了 —— **别放宽这条，去修锚点**）');
+  // ① 相对界：直接挡「静默回退成整份文件」——比绝对值可靠（UI 会长大，绝对值会失效）
+  assert(region.length < src.length * 0.5,
+    'CSS 区域占了全文 ' + Math.round(region.length / src.length * 100) + '%（>50%）——'
+    + ' 锚点失配后回退了。**别放宽这条，去修锚点。**');
+  // ② 非空量级
+  assert(region.length > 5000,
+    'CSS 区域过短：' + region.length + ' 字符（期望 >5000）—— 只切到一小段');
+  // ③ ★ 内容形状（**这条才真正咬得住**）：结束锚点落错时，
+  //    必然把后面的 JS 数组/函数包进来 —— 长度带区分不了这一点，形态可以。
+  const jsLeak = /\bfunction\s|\bvar\s|=>/.exec(region);
+  assert(jsLeak === null,
+    'CSS 区域里出现了 JS 语法「' + String(jsLeak && jsLeak[0]).trim() + '」——'
+    + ' 说明结束锚点落到了另一个数组/函数之后（比长度带更能咬住）');
   return region;
 }
 // 只认「看起来像 CSS 长度」的捕获 —— 否则会捞到 JS 里的 `gap: "` 之类
@@ -1584,17 +1594,42 @@ check('[§12]', '★ 对齐 = 按钮与输入框**同一套尺寸**（同高不�
 });
 
 console.log('\n[42/45] R-9 节奏刻度：padding 的每个分量都在允许集内');
-check('[§12]', '★ padding 分量都在允许集内（含 44/52 单列为结构性偏移，避免放水）', OWNER_CLIENT, () => {
+check('[§12]', '★ padding 分量都在允许集内（结构类豁免 44/52，但**有界**）', OWNER_CLIENT, () => {
   const region = requireCssRegion(CLIENT_SRC);
-  // 允许集 = 节奏刻度 + {44,52}（**结构性偏移**：覆盖层留白/头部高度，不是间距）
-  //   ⚠️ 单独列出是为了**不让它们把刻度放水** —— 否则将来 30px 也拦不住
-  const allow = ['0', '2px', '4px', '5px', '6px', '8px', '10px', '12px', '14px', '16px', '18px', '20px', '24px', '44px', '52px'];
+  // 节奏刻度 —— 间距类 padding 只允许这些
+  const scale = ['0', '2px', '4px', '5px', '6px', '8px', '10px', '12px', '14px', '16px', '18px', '20px', '24px'];
+  // 结构类豁免：44px / 52px（覆盖层留白、状态块高度）—— 它们**不是间距**。
+  //   ⚠️ 豁免必须**有界**，不是「有理由」：
+  //     · 有理由的豁免会扩散（哪天小按钮写 padding:44px 也绿）；有界的才可维护。
+  //     · 今天实测正好 2 处：__empty（空态）/ __state（状态块）。
+  const structural = ['44px', '52px'];
+  const allow = scale.concat(structural);
   const combos = allCss(CLIENT_SRC, region, /padding:([0-9][^;"}]*)/g);
   const bad = [];
+  const structuralUse = [];
   combos.forEach((v) => {
-    v.split(/\s+/).forEach((one) => { if (one && allow.indexOf(one) < 0) bad.push(v); });
+    v.split(/\s+/).forEach((one) => {
+      if (!one) return;
+      if (allow.indexOf(one) < 0) bad.push(v);
+      else if (structural.indexOf(one) >= 0) structuralUse.push(one);
+    });
   });
   assert(bad.length === 0, '不在允许集: ' + Array.from(new Set(bad)).join(' | '));
+  // 有界性之一：总次数 ≤ 2（豁免不许扩散）
+  assert(structuralUse.length <= 2,
+    '结构性豁免 44px/52px 出现 ' + structuralUse.length + ' 次（>2）——'
+    + ' **豁免扩散了**：它们只该用于覆盖层留白 / 状态块，别让它变成万能挡箭牌');
+  // 有界性之二：这两处必须落在**已声明的结构类规则**里（而不是任意控件）
+  // 实测形态（先读过源码，别猜）：`"." + NS + "__empty{…;padding:52px 20px;…}"`
+  //   → __empty 用 52px、__state 用 44px（各 1 次）
+  const inDeclared = ['__empty', '__state'].every((cls) => {
+    const idx = region.indexOf('"' + cls);
+    if (idx < 0) return false;
+    return /padding:[^;]*(?:44|52)px/.test(region.slice(idx, idx + 400));
+  });
+  assert(inDeclared,
+    '44px/52px 没有落在已声明的结构类（__empty / __state）里 ——'
+    + ' 豁免只对这些规则有效；别处写同样的值应当走刻度');
 });
 
 console.log('\n[43/45] R-9 零散间距值不再出现');
