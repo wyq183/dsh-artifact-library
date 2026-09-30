@@ -1,6 +1,6 @@
 /**
  * dsh-artifact-library · UI 规范回归测试
- * 把 `docs/UI-SPEC-v1.md` 里**可静态断言**的条款钉成 25 条，每条指向规范原文。
+ * 把 `docs/UI-SPEC-v1.md` 里**可静态断言**的条款钉成 26 条，每条指向规范原文。
  *
  * 为什么要有它：
  *   UI 重构（行高 110→32px、去冗余路径、token 化、按类型图标、自然序…）全靠人眼核对，
@@ -10,7 +10,7 @@
  *   · 每条断言都带 [§x.y] 条款号，失败信息写清违反了哪一条
  *   · 允许先红后绿 —— 队友改造期间失败是**预期结果**，不要为它放宽断言
  *
- * 25 条 ↔ 规范条款对照：
+ * 26 条 ↔ 规范条款对照：
  *   [§一.1]  禁止 hex 颜色（client.js）
  *   [§一.1]  禁止自造 --alf-* token
  *   [§一.5]  禁止 `from "react"` 字面量（必须走 module-loader 借宿主 React）
@@ -36,6 +36,8 @@
  *   [实现约定] 设置面板必须由 schema 驱动（键集来自 schema.defaults、分组来自 hostEffectiveKeys）
  *   [§六]    空态两分支：真的空 vs 被隐藏项过滤成空（两句不同的话，不是同一句兜底）
  *   [§11.4]  导入结果如实展示 applied / ignored / errors 三类清单（不是一句「成功」）
+ *   [实现约定] 客户端生效的设置键必须真的被读（防「只存不读」：面板能改、实际不生效）
+ *             键名清单从 `lib/settings.js` 的 `APPEARANCE_KEYS` 读 → 加新键会自动要求接线
  *
  * 运行：node test/ui-spec.test.mjs [client.js 路径]
  * 退出码：有失败 → 1
@@ -49,6 +51,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CLIENT_PATH = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, 'lib', 'client.js');
 const ICONS_PATH = path.join(ROOT, 'lib', 'icons.js');
+const SETTINGS_PATH = path.join(ROOT, 'lib', 'settings.js');
 
 const OWNER_CLIENT = 'ui-core（lib/client.js）';
 const OWNER_ICONS = 'icon-smith（lib/icons.js）';
@@ -306,7 +309,7 @@ console.log(' 被测：' + CLIENT_PATH);
 console.log('       ' + (icons.exists ? ICONS_PATH : ICONS_PATH + '（尚不存在）'));
 
 // ── [1] 禁止 hex 颜色 ─────────────────────────────────────────────────────
-console.log('\n[1/25] 禁止第二套配色');
+console.log('\n[1/26] 禁止第二套配色');
 check('[§一.1]', 'lib/client.js 不出现 hex 颜色字面量', OWNER_CLIENT, () => {
   const hits = findHexColors(CLIENT_SRC);
   assert(
@@ -316,7 +319,7 @@ check('[§一.1]', 'lib/client.js 不出现 hex 颜色字面量', OWNER_CLIENT, 
 });
 
 // ── [2] 禁止自造 --alf-* token ────────────────────────────────────────────
-console.log('\n[2/25] 禁止自造 token');
+console.log('\n[2/26] 禁止自造 token');
 check('[§一.1]', '不出现自造 CSS 变量 --alf-*', OWNER_CLIENT, () => {
   const hits = [];
   const re = /--alf-[\w-]*/g;
@@ -329,7 +332,7 @@ check('[§一.1]', '不出现自造 CSS 变量 --alf-*', OWNER_CLIENT, () => {
 });
 
 // ── [3] 禁止 react 字面量 import ──────────────────────────────────────────
-console.log('\n[3/25] 客户端 React 来源');
+console.log('\n[3/26] 客户端 React 来源');
 check('[§一.5]', '不出现 `from "react"` 字面量（必须走 module-loader）', OWNER_CLIENT, () => {
   const patterns = [
     { re: /from\s*['"]react['"]/g, label: 'from "react"' },
@@ -349,7 +352,7 @@ check('[§一.5]', '不出现 `from "react"` 字面量（必须走 module-loader
 });
 
 // ── [4] 必须用官方 token ──────────────────────────────────────────────────
-console.log('\n[4/25] 官方 token 消费');
+console.log('\n[4/26] 官方 token 消费');
 check('[§2.1-2.3]', '圆角/文字/交互/描边四类 --dsw-* token 均已消费', OWNER_CLIENT, () => {
   const required = [
     ['--dsw-radius-', '§2.1 圆角（sm8/md12/lg16）'],
@@ -365,7 +368,7 @@ check('[§2.1-2.3]', '圆角/文字/交互/描边四类 --dsw-* token 均已消�
 });
 
 // ── [5] 目录行高 24~44px ──────────────────────────────────────────────────
-console.log('\n[5/25] 目录行高');
+console.log('\n[5/26] 目录行高');
 check('[§3.1/3.7]', '目录行高常量存在且落在 24~44px 区间', OWNER_CLIENT, () => {
   assert(
     CSS_TEXT.length > 0,
@@ -417,7 +420,7 @@ check('[§3.1/3.7]', '目录行高常量存在且落在 24~44px 区间', OWNER_C
 });
 
 // ── [6] lib/icons.js 契约 ─────────────────────────────────────────────────
-console.log('\n[6/25] 图标模块契约');
+console.log('\n[6/26] 图标模块契约');
 check('[§2.4/一.4]', 'lib/icons.js 导出 iconForName / FILE_TYPE_COLORS 且形状正确', OWNER_ICONS, () => {
   assert(
     icons.exists,
@@ -490,7 +493,7 @@ check('[§2.4/一.4]', 'lib/icons.js 导出 iconForName / FILE_TYPE_COLORS 且�
 });
 
 // ── [7] icons.js 颜色无 hex ───────────────────────────────────────────────
-console.log('\n[7/25] 图标颜色来源');
+console.log('\n[7/26] 图标颜色来源');
 check('[§2.4/一.1]', 'lib/icons.js 的 color 只来自官方 token（无 hex）', OWNER_ICONS, () => {
   assert(icons.exists, 'lib/icons.js 不存在 —— 无法校验 §2.4 色表');
   const hits = findHexColors(stripComments(icons.src));
@@ -512,7 +515,7 @@ check('[§2.4/一.1]', 'lib/icons.js 的 color 只来自官方 token（无 hex�
 });
 
 // ── [8] 自然序排序 ────────────────────────────────────────────────────────
-console.log('\n[8/25] 排序');
+console.log('\n[8/26] 排序');
 check('[§3.6]', '使用 Intl.Collator 自然序（numeric:true，file2 在 file10 前）', OWNER_CLIENT, () => {
   const m = /Intl\.Collator\s*\(([\s\S]{0,240}?)\)/.exec(CLIENT_SRC);
   assert(
@@ -528,7 +531,7 @@ check('[§3.6]', '使用 Intl.Collator 自然序（numeric:true，file2 在 file
 });
 
 // ── [9] 无障碍 ────────────────────────────────────────────────────────────
-console.log('\n[9/25] 无障碍');
+console.log('\n[9/26] 无障碍');
 check('[§三.3/§七]', 'aria-label / role=tree|grid / aria-current 齐备', OWNER_CLIENT, () => {
   const missing = [];
   if (!/aria-label|ariaLabel/.test(CLIENT_SRC)) {
@@ -544,7 +547,7 @@ check('[§三.3/§七]', 'aria-label / role=tree|grid / aria-current 齐备', OW
 });
 
 // ── [10] 省略号 + min-width:0 ─────────────────────────────────────────────
-console.log('\n[10/25] 长文件名省略');
+console.log('\n[10/26] 长文件名省略');
 check('[§3.1/3.2]', 'text-overflow 且目录行内含 min-width:0', OWNER_CLIENT, () => {
   assert(/text-overflow/.test(CLIENT_SRC), '完全没有 text-overflow —— 违反 §3.2「长文件名必须省略（保扩展名可见）」');
   assert(CSS_TEXT.length > 0, '在 lib/client.js 里找不到样式表数组，无法把 min-width:0 定位到目录视图行（§3.1）');
@@ -569,7 +572,7 @@ check('[§3.1/3.2]', 'text-overflow 且目录行内含 min-width:0', OWNER_CLIEN
 });
 
 // ── [11] 图标映射完整性（防静默 fallback）──────────────────────────────────
-console.log('\n[11/25] 图标映射完整性');
+console.log('\n[11/26] 图标映射完整性');
 check('[§2.4]', '映射表的值都指向已定义的图形；内联副本与 lib/icons.js 同源', OWNER_TABLES, () => {
   assert(
     TABLES.icons.table,
@@ -642,7 +645,7 @@ check('[§2.4]', '映射表的值都指向已定义的图形；内联副本与 l
 });
 
 // ── [12] data-density 不得挂到宿主 <body>/<html> ──────────────────────────
-console.log('\n[12/25] 宿主边界');
+console.log('\n[12/26] 宿主边界');
 check('[宿主边界]', 'data-density 只挂自己的容器，不碰宿主 body/html', OWNER_CLIENT, () => {
   const hits = [];
   const re = /data-density/g;
@@ -678,7 +681,7 @@ check('[宿主边界]', 'data-density 只挂自己的容器，不碰宿主 body/
 });
 
 // ── [13] 不得无兜底消费「幽灵 token」 ─────────────────────────────────────
-console.log('\n[13/25] 宿主 token 真实性');
+console.log('\n[13/26] 宿主 token 真实性');
 check('[§一.1]', '不以无 fallback 形式消费宿主未定义的 token', OWNER_CLIENT, () => {
   /**
    * 名单必须是**实证**的，不是猜的 —— 判据：在官方 bundle 全量 dump 里
@@ -711,7 +714,7 @@ check('[§一.1]', '不以无 fallback 形式消费宿主未定义的 token', OW
 });
 
 // ── [14] 虚拟滚动下的 grid 行数语义 ───────────────────────────────────────
-console.log('\n[14/25] 虚拟滚动无障碍');
+console.log('\n[14/26] 虚拟滚动无障碍');
 check('[§3.7/§七]', 'aria-rowcount 取全量、aria-rowindex 取绝对 1-based 下标', OWNER_CLIENT, () => {
   /**
    * 虚拟化后 DOM 里只有可见行，「一共多少行」「当前是第几行」只能靠 ARIA 说清楚 ——
@@ -786,7 +789,7 @@ check('[§3.7/§七]', 'aria-rowcount 取全量、aria-rowindex 取绝对 1-base
 });
 
 // ── [15] §11.1 浮层可关闭 ─────────────────────────────────────────────────
-console.log('\n[15/25] 浮层可关闭');
+console.log('\n[15/26] 浮层可关闭');
 check('[§11.1]', '右键菜单与 Ctrl+P 浮层都有 Escape 关闭路径', OWNER_CLIENT, () => {
   const problems = [];
   // §11.1①：任何浮层必须可关闭，键盘用户必须支持 Escape。
@@ -812,7 +815,7 @@ check('[§11.1]', '右键菜单与 Ctrl+P 浮层都有 Escape 关闭路径', OWN
 });
 
 // ── [16] §11.2 对话框语义 ─────────────────────────────────────────────────
-console.log('\n[16/25] 对话框语义');
+console.log('\n[16/26] 对话框语义');
 check('[§11.2]', 'role=dialog 有可访问名，且有焦点管理（打开移入 / 关闭归还）', OWNER_CLIENT, () => {
   const problems = [];
 
@@ -856,7 +859,7 @@ check('[§11.2]', 'role=dialog 有可访问名，且有焦点管理（打开移�
 });
 
 // ── [17] §11.4 错误态不清空数据（窄版）────────────────────────────────────
-console.log('\n[17/25] 错误态保留数据');
+console.log('\n[17/26] 错误态保留数据');
 check('[§11.4]', '错误路径不得清空已有列表数据', OWNER_CLIENT, () => {
   // §11.4 官方原文：「操作失败保留数据可见，绝不清空内容来显示错误」。
   // 诚实说明本条的**能力边界**：静态只能挡最直白的写法 —— catch 块里直接把行/条目
@@ -872,7 +875,7 @@ check('[§11.4]', '错误路径不得清空已有列表数据', OWNER_CLIENT, ()
 });
 
 // ── [18] §11.5 加载态 ─────────────────────────────────────────────────────
-console.log('\n[18/25] 加载态');
+console.log('\n[18/26] 加载态');
 check('[§11.5]', '列表用骨架屏，且 toast 自动隐藏是一次性定时器（不空转）', OWNER_CLIENT, () => {
   const problems = [];
 
@@ -900,7 +903,7 @@ check('[§11.5]', '列表用骨架屏，且 toast 自动隐藏是一次性定时
 });
 
 // ── [19] §11.6 快捷键宿主边界 ─────────────────────────────────────────────
-console.log('\n[19/25] 快捷键宿主边界');
+console.log('\n[19/26] 快捷键宿主边界');
 check('[§11.6]', '面板快捷键有可见性闸门，且 document keydown 监听成对增删', OWNER_CLIENT, () => {
   const problems = [];
 
@@ -924,7 +927,7 @@ check('[§11.6]', '面板快捷键有可见性闸门，且 document keydown 监�
 });
 
 // ── [20] §11.1② 浮层定位必须经过视口夹取/翻转 ─────────────────────────────
-console.log('\n[20/25] 浮层视口适配');
+console.log('\n[20/26] 浮层视口适配');
 check('[§11.1②]', '浮层坐标经过视口夹取/翻转（函数或就地），不是拿到 rect 直接就用', OWNER_CLIENT, () => {
   // 原则（lead 定的）：「运行期质量」不钉，「**结构选择**」钉。钉两条：
   //   ① 全文件**存在**夹取/翻转运算（视口尺寸 + Math.min + Math.max）；
@@ -991,7 +994,7 @@ check('[§11.1②]', '浮层坐标经过视口夹取/翻转（函数或就地）
 });
 
 // ── [21] §11.1③ 浮层根节点必须 fixed（或 portal）────────────────────────
-console.log('\n[21/25] 浮层不被裁切');
+console.log('\n[21/26] 浮层不被裁切');
 check('[§11.1③]', '浮层根节点 position:fixed（或 portal 到 body），不被 overflow 祖先裁切', OWNER_CLIENT, () => {
   // 同样是「结构选择」而非运行期质量：根容器 `.alf` 是 overflow:hidden，
   // 所以浮层要么自己 fixed（脱离文档流，不被祖先裁），要么 portal 到 body。
@@ -1017,7 +1020,7 @@ check('[§11.1③]', '浮层根节点 position:fixed（或 portal 到 body），
 });
 
 // ── [22] §11.4 瞬时结果走应用级 shell.overlay ────────────────────────────
-console.log('\n[22/25] 瞬时结果挂在活得久的地方');
+console.log('\n[22/26] 瞬时结果挂在活得久的地方');
 check('[§11.4]', 'toast 走 shell.overlay，且有 hasOverlay 回退判据', OWNER_CLIENT, () => {
   const problems = [];
   if (!/shell\.overlay/.test(CLIENT_SRC)) {
@@ -1032,7 +1035,7 @@ check('[§11.4]', 'toast 走 shell.overlay，且有 hasOverlay 回退判据', OW
 });
 
 // ── [23] 设置面板由 schema 驱动 ──────────────────────────────────────────
-console.log('\n[23/25] 设置面板 schema 驱动');
+console.log('\n[23/26] 设置面板 schema 驱动');
 check('[实现约定]', '键集来自 schema.defaults、分组来自 schema.hostEffectiveKeys', OWNER_CLIENT, () => {
   // 来源说明：这不是 UI-SPEC 条款，是 **lead 指定的实现约定**（补设置面板的覆盖缺口）。
   // 只钉**正向**的「schema 驱动」，不做「禁止出现键名」的负判据 ——
@@ -1081,7 +1084,7 @@ check('[实现约定]', '键集来自 schema.defaults、分组来自 schema.host
 });
 
 // ── [24] 空态两分支 ──────────────────────────────────────────────────────
-console.log('\n[24/25] 空态两分支');
+console.log('\n[24/26] 空态两分支');
 check('[§六]', '「真的空」与「被隐藏项过滤成空」是两个分支，不是同一句兜底', OWNER_CLIENT, () => {
   const problems = [];
   const emptyMsg = /这个文件夹是空的/;
@@ -1105,7 +1108,7 @@ check('[§六]', '「真的空」与「被隐藏项过滤成空」是两个分�
 });
 
 // ── [25] 导入结果如实展示三类清单 ─────────────────────────────────────────
-console.log('\n[25/25] 导入结果如实展示');
+console.log('\n[25/26] 导入结果如实展示');
 check('[§11.4]', 'applied / ignored / errors 三类清单一并展示', OWNER_CLIENT, () => {
   // §11.4 的「如实」：失败/被忽略的部分不能被一句「成功」吞掉。
   const hits = {};
@@ -1120,6 +1123,60 @@ check('[§11.4]', 'applied / ignored / errors 三类清单一并展示', OWNER_C
   // 三类必须在**同一处渲染**（同一段窗口内全都出现），否则可能只是散落的变量名
   const together = hits.applied.some((a) => hits.ignored.some((b) => Math.abs(a - b) < 1200) && hits.errors.some((c) => Math.abs(a - c) < 1200));
   assert(together, 'applied / ignored / errors 没有在同一段渲染逻辑里同时出现 —— 可能只展示了其中一类');
+});
+
+// ── [26] 客户端生效的设置键必须真的被读（防「只存不读」）──────────────────
+console.log('\n[26/26] 设置项真的生效');
+check('[实现约定]', 'APPEARANCE_KEYS 与 virtualThreshold 每个键在渲染侧都有消费点', OWNER_CLIENT, () => {
+  /**
+   * 为什么有这条：ui-core 自查发现 **9 个客户端生效键「只存不读」** ——
+   * 面板照 schema 渲染、控件齐、保存成功，但改了行高/缩略图大小**什么都不发生**。
+   * 这正是 lead 反复点的 `indexExtraDirs` 式坑（「读了不生效」的镜像：存了没人读）。
+   *
+   * 判据是**结构性事实**（源码里有没有读它），不是渲染行为 → 不受 hook 布局影响。
+   * **键名清单从 `lib/settings.js` 的 `APPEARANCE_KEYS` 读**，所以将来加键会自动被要求接线，
+   * 不需要有人记得回来改这份测试。
+   */
+  const problems = [];
+
+  let appearance = [];
+  try {
+    const settingsSrc = fs.readFileSync(SETTINGS_PATH, 'utf8');
+    const block = /APPEARANCE_KEYS\s*=\s*\[([\s\S]*?)\]/.exec(settingsSrc);
+    appearance = block ? [...block[1].matchAll(/['"]([A-Za-z_$][\w$]*)['"]/g)].map((m) => m[1]) : [];
+  } catch (error) {
+    problems.push('读不到 lib/settings.js（' + errText(error) + '）—— 无法核对键名清单');
+  }
+  if (!appearance.length) {
+    problems.push('从 lib/settings.js 解析不出 `APPEARANCE_KEYS`（清单为空）—— 这条判据需要它，不能静默失效');
+  }
+
+  // virtualThreshold 不在 APPEARANCE_KEYS 里，但它属于那批「只存不读」的键，单独补上。
+  //
+  // ⚠️ 判据演进（两次，方向相反，都记下来）：
+  //   v1 只认 `prefs.<key>` → 把 `next.defaultView` 判红。我当时**当成自己写窄了**（值确实被读了），
+  //      于是放宽成「任意成员访问」。
+  //   v2（放宽后）→ ui-core 指出：那不是误杀，是**它自己的命名不一致**，并已统一成 `prefs.<key>`，
+  //      理由是「换个人读源码，`next.defaultView` 不如 `prefs.defaultView` 一眼可查」。
+  //   v3（现在）→ 既然命名统一是**实现方有意为之的约定**，就把约定一起钉住：
+  //      要求消费点写成 `prefs.<key>`（或 `prefs["<key>"]`）。这样这条同时保证
+  //      「真的被读」**和**「可 grep 得到」——后者是维护性，不是洁癖。
+  //      将来若有人合法改名，这条会红；**消息里写明了「要么用 prefs.，要么连同本断言一起更新」**，
+  //      所以那次红是自解释的，不会变成谜题。
+  const keys = appearance.concat(['virtualThreshold']);
+  for (const key of keys) {
+    const k = key.replace(/\$/g, '\\$');
+    const readRe = new RegExp('prefs\\s*(\\.\\s*' + k + '\\b|\\[\\s*["\']' + k + '["\']\\s*\\])');
+    if (!readRe.test(CLIENT_SRC)) {
+      problems.push(
+        '客户端生效键 `' + key + '` 找不到消费点 `prefs.' + key + '` —— ' +
+          '「只存不读」：设置面板能改它，但实际不生效；也可能是消费点换了对象名（约定：统一用 `prefs.<键>`，' +
+          '便于 grep；若确实要改名，请连同本条断言一起更新）'
+      );
+    }
+  }
+
+  assert(problems.length === 0, problems.join('；'));
 });
 
 // ── 汇总 ──────────────────────────────────────────────────────────────────

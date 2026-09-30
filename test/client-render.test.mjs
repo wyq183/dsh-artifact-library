@@ -126,7 +126,14 @@ function renderDir(entries, extra) {
     sampleData, filters, null, '',
     false,                    // sessionOnly
     (extra && extra.changesAvailable !== undefined) ? extra.changesAvailable : null,   // changesAvailable（null|true|false，改动入口门控）
-    'C:\\proj', entries, (extra && extra.phase) || 'ready', '', ['C:\\proj'], { by: 'name', dir: 'asc' }, 'standard', {}, null, 0, 0, { top: 0, height: 600 },
+    null,                     // sSettings（当前设置；画廊/设置接线那批新增，第 7 位）
+    'C:\\proj', entries, (extra && extra.phase) || 'ready', '', ['C:\\proj'], { by: 'name', dir: 'asc' }, 'standard',
+    // ↓ 多选/批量那批新增的 4 个（在 sDensity 之后、sCounts 之前）
+    { paths: {}, anchor: -1 },    // sSel（选中集合 + 锚点）
+    null,                         // sCrumbEdit（面包屑编辑中的文本）
+    null,                         // sBatchUndo（可撤销的批量登记凭据）
+    0,                            // sDragOver（拖入计数）
+    {}, null, 0, 0, { top: 0, height: 600 },
     (extra && extra.thumbFailed) || {},   // thumbFailed
     (extra && extra.finder) || null,      // finder
     (extra && extra.listMeta) || null,    // listMeta（/files/list 的 total/truncated/limit）
@@ -259,7 +266,7 @@ console.log('\n── 校准护栏（见文件头维护须知）──');
 // **为什么是相等而不是 >=**：`>=` 只能发现 hook 被删；一旦有人在前面**插入**一个 hook，
 // 后面所有值整体后移，按位置喂的 states 会静默错位 —— 断言可能「用错状态也过」。
 // 相等判定会把「增删改 hook」一律变成响亮的失败，逼人重新校准。改组件 hook 结构就改这个数。
-const EXPECTED_HOOK_CALLS = 21;
+const EXPECTED_HOOK_CALLS = 26;
 console.log('  hook 调用 = ' + out.useStateCalls + ' / 期望 = ' + EXPECTED_HOOK_CALLS + ' / 状态槽位 = ' + out.stateSlots);
 check('状态队列仍与组件 hook 结构对得上（校准护栏）', () => {
   assert(
