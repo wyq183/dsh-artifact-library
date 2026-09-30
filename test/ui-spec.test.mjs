@@ -1494,6 +1494,142 @@ check('[§11.4]', '写明单次上限（10000）与跳过原因，且结果块�
   assert(problems.length === 0, problems.join('；'));
 });
 
+
+// ── [38/45] R-9：节奏刻度护栏（从 ui-core 的 scratch 搬进**项目门禁**）──────────
+//
+// 为什么搬：这四条刻度断言原本只活在 ui-core 的 `~/.dsh/scratch/ui-check.cjs`。
+//   那是**个人自查工具**，别人不会跑它 → 有人改 client.js 时 `npm test` **不会红**。
+//   「我这边做了」≠「项目有了」，区别在于**谁会跑它**。
+//
+// 口径（避免「指定实现」）：
+//   ✗ 不断言「必须是 2/4/6/8」——那是指定实现
+//   ✓ 断言「取值来自一个**小的、显式列出的刻度集**」——这才是「节奏刻度」这个**不变量**
+//
+// 锚点形态（**先读源码确认过**，不是凭记忆）：
+//   start = `"." + NS + "{"`（拼接形态，L80 —— **不是**字面量 `.alf{`）
+//   end   = `].join("\n")`（那个 css 字符串数组的结束，L415）
+//   ⚠️ 曾有版本用 `var features` 当结束边界 —— **源码里根本没有这个标识符**，
+//      于是 CSS 区域为空 / 或静默回退成全文扫描。教训：**口头传锚点也必须以源码为准**。
+function cssRegionOf(src) {
+  const start = src.indexOf('"." + NS + "{');
+  const end = src.indexOf('].join("\\n")', start > 0 ? start : 0);
+  if (start < 0 || end < start) return null;
+  return src.slice(start, end);
+}
+// 取不到 CSS 区域就**明说前提失效** —— 绝不静默回退到全文件
+// （回退会让断言「看起来在防、其实扫全文」：**比红更糟，因为没人会去查**）
+//
+// ⚠️ 「长度量级」这条是有来历的：ui-core 的审计脚本曾因锚点失配
+//    （`indexOf` 返回 -1、`slice(-1,-1)` 不抛）**静默回退成整份文件**（310155 字符），
+//    于是它报出的刻度统计全是在全文上算的 —— **断言照样绿，绿得毫无意义**。
+//    ⇒ 通用规矩：**任何 slice/substring/indexOf 取出的切片，都要配一条「形状断言」**
+//      （非空 + 量级合理），否则它迟早悄悄变成「整份文件」或「空」。
+function requireCssRegion(src) {
+  const region = cssRegionOf(src);
+  assert(region !== null,
+    '取不到 CSS 区域（start=`"." + NS + "{"` / end=`].join("\\n")` 有一个失配）'
+    + ' —— 判据前提失效，请同步更新本断言（**不要放宽成全文扫描**）');
+  assert(region.length > 10000 && region.length < 120000,
+    'CSS 区域长度异常：' + region.length + ' 字符（期望 10000~120000；'
+    + '接近全文长度(~31万)说明锚点失配后回退了 —— **别放宽这条，去修锚点**）');
+  return region;
+}
+// 只认「看起来像 CSS 长度」的捕获 —— 否则会捞到 JS 里的 `gap: "` 之类
+const cssLen = (v) => /^[0-9.]+(px)?(\s+[0-9.]+(px)?)*$/.test(v);
+function allCss(src, region, re) {
+  const out = [];
+  let m;
+  const r = new RegExp(re.source, re.flags);
+  while ((m = r.exec(region))) out.push(String(m[1]).trim());
+  return out;
+}
+
+console.log('\n[38/45] R-9 节奏刻度：gap（间距必须来自一个小刻度集）');
+check('[§12]', '★ gap 只用节奏刻度 {0,2,4,6,8,10,12,16}（含「行 列」两值写法）', OWNER_CLIENT, () => {
+  const region = requireCssRegion(CLIENT_SRC);
+  const scale = ['0', '2px', '4px', '6px', '8px', '10px', '12px', '16px'];
+  const bad = allCss(CLIENT_SRC, region, /gap:([^;"}]+)/g)
+    .filter(cssLen)
+    .filter((v) => v.split(/\s+/).some((one) => scale.indexOf(one) < 0));
+  assert(bad.length === 0, '不在刻度上: ' + Array.from(new Set(bad)).join(' | ') + '（新增间距值必须是有意识的决定）');
+});
+
+console.log('\n[39/45] R-9 节奏刻度：字号下限');
+check('[§12]', '★ 字号下限 12px（11px 及以下一律不许 —— 面板在侧栏里，本来就窄）', OWNER_CLIENT, () => {
+  const region = requireCssRegion(CLIENT_SRC);
+  const small = allCss(CLIENT_SRC, region, /font-size:([0-9.]+px)/g)
+    .filter(cssLen)
+    .filter((v) => parseFloat(v) < 12);
+  assert(small.length === 0, '过小字号: ' + Array.from(new Set(small)).join(' | '));
+});
+
+console.log('\n[40/45] R-9 节奏刻度：圆角来源');
+check('[§12]', '★ 圆角只用 token（或 999px 胶囊）—— 不许随手写 px', OWNER_CLIENT, () => {
+  const region = requireCssRegion(CLIENT_SRC);
+  const raw = allCss(CLIENT_SRC, region, /border-radius:([0-9.]+px)/g)
+    .filter(cssLen)
+    .filter((v) => v !== '999px');
+  assert(raw.length === 0, '裸 px 圆角: ' + raw.join(' | ') + '（圆角走 token，别随手写 px）');
+});
+
+console.log('\n[41/45] R-9 对齐：按钮与输入框同一套尺寸');
+check('[§12]', '★ 对齐 = 按钮与输入框**同一套尺寸**（同高不同内边距会左右错位）', OWNER_CLIENT, () => {
+  const region = requireCssRegion(CLIENT_SRC);
+  const btn = (region.match(/__btn\{[^}]*padding:([^;]+);/) || [])[1];
+  const inp = (region.match(/__input,\._*[^}]*padding:([^;]+);/) || [])[1]
+    || (region.match(/__select\{[^}]*padding:([^;]+);/) || [])[1];
+  assert(btn, '取不到按钮 padding（判据前提失效，请同步更新本断言）');
+  assert(btn.indexOf('5px 10px') >= 0, '按钮 padding = ' + btn + '（期望 5px 10px）');
+  assert(!inp || inp.indexOf('5px 10px') >= 0, '输入/下拉 padding = ' + inp + '（与按钮不一致会左右错位）');
+});
+
+console.log('\n[42/45] R-9 节奏刻度：padding 的每个分量都在允许集内');
+check('[§12]', '★ padding 分量都在允许集内（含 44/52 单列为结构性偏移，避免放水）', OWNER_CLIENT, () => {
+  const region = requireCssRegion(CLIENT_SRC);
+  // 允许集 = 节奏刻度 + {44,52}（**结构性偏移**：覆盖层留白/头部高度，不是间距）
+  //   ⚠️ 单独列出是为了**不让它们把刻度放水** —— 否则将来 30px 也拦不住
+  const allow = ['0', '2px', '4px', '5px', '6px', '8px', '10px', '12px', '14px', '16px', '18px', '20px', '24px', '44px', '52px'];
+  const combos = allCss(CLIENT_SRC, region, /padding:([0-9][^;"}]*)/g);
+  const bad = [];
+  combos.forEach((v) => {
+    v.split(/\s+/).forEach((one) => { if (one && allow.indexOf(one) < 0) bad.push(v); });
+  });
+  assert(bad.length === 0, '不在允许集: ' + Array.from(new Set(bad)).join(' | '));
+});
+
+console.log('\n[43/45] R-9 零散间距值不再出现');
+check('[§12]', '零散「5px/7px/11px」不再出现在间距声明里', OWNER_CLIENT, () => {
+  const region = requireCssRegion(CLIENT_SRC);
+  const odd = [];
+  ['gap:5px', 'gap:7px', 'padding:5px 11px', 'padding:7px 10px'].forEach((k) => {
+    if (region.indexOf(k) >= 0) odd.push(k);
+  });
+  assert(odd.length === 0, '仍有: ' + odd.join(' | '));
+});
+
+console.log('\n[44/45] R-1：请求层两条通道都走超时通道');
+check('[§12]', '★ apiGet 与 apiSend **各自**都调用 fetchWithTimeout（漏一条等于没做）', OWNER_CLIENT, () => {
+  // 为什么用 bodyOf 分别切片，而不是「全文件出现 ≥2 次」：
+  //   后者是「太松」—— 把两处都塞进 apiGet 也能凑够 2 次。
+  const problems = [];
+  const g = bodyOf(CLIENT_SRC, 'apiGet');
+  const s = bodyOf(CLIENT_SRC, 'apiSend');
+  if (!g) problems.push('找不到 `apiGet` —— 判据前提失效，请同步更新本断言');
+  else if (!/fetchWithTimeout\s*\(/.test(g)) problems.push('apiGet 没走超时通道（慢请求会停在骨架屏）');
+  if (!s) problems.push('找不到 `apiSend` —— 判据前提失效，请同步更新本断言');
+  else if (!/fetchWithTimeout\s*\(/.test(s)) problems.push('apiSend 没走超时通道（漏一条 = 没做）');
+  assert(problems.length === 0, problems.join('；'));
+});
+
+console.log('\n[45/45] R-1：超时与「插件没装」必须是两条不同的失败');
+check('[§12]', '★ 超时 / 普通失败 文案不同（两者下一步动作不同：点重试 vs 确认插件）', OWNER_CLIENT, () => {
+  const problems = [];
+  if (!/加载超时：/.test(CLIENT_SRC)) problems.push('没有超时文案（用户看不出「宿主没响应」和「插件没装」的区别）');
+  if (!/加载失败：/.test(CLIENT_SRC)) problems.push('普通失败文案被删了');
+  if (!/isTimeout/.test(CLIENT_SRC)) problems.push('没有分流判断');
+  assert(problems.length === 0, problems.join('；'));
+});
+
 // ── 汇总 ──────────────────────────────────────────────────────────────────
 if (failureList.length) {
   console.log('\n── 失败清单（按负责人）──');
