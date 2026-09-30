@@ -133,9 +133,18 @@ function collectRegistrations() {
   return calls;
 }
 const calls = collectRegistrations();
-check('注册了 3 个席位', () => {
-  assert(calls.inject.length === 3, 'inject 调用次数 = ' + calls.inject.length);
-  assert(calls.inject.join(',') === 'main,sidebar.panellist,sidebar.footer.action', '席位顺序/名字：' + calls.inject.join(','));
+check('注册了必需席位（前三个固定，允许白名单内追加）', () => {
+  // 2026-09-30 放宽：官方 UX 规范要求「瞬时结果用应用级 Toast，且必须挂在比上报界面
+  // 活得久的地方」，所以追加了 shell.overlay。改为「必需的三个必须存在且顺序固定，
+  // 追加的必须在白名单内」—— 仍然能挡住乱注册，但不再禁止合规的追加。
+  const REQUIRED = ['main', 'sidebar.panellist', 'sidebar.footer.action'];
+  const ALLOWED_EXTRA = new Set(['shell.overlay']);
+  assert(calls.inject.length >= REQUIRED.length, 'inject 调用次数 = ' + calls.inject.length);
+  const head = calls.inject.slice(0, REQUIRED.length);
+  assert(head.join(',') === REQUIRED.join(','), '前三个席位顺序/名字：' + head.join(','));
+  calls.inject.slice(REQUIRED.length).forEach((name) => {
+    assert(ALLOWED_EXTRA.has(name), '未预期的额外席位：' + name);
+  });
 });
 check('main.key === sidebar.panellist.id（不一致会让布局抛错）', () => {
   const main = calls.register.find((r) => r.options.name === 'main');
