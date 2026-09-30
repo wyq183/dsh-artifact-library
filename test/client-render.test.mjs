@@ -125,6 +125,7 @@ function renderDir(entries, extra) {
   const states = [
     sampleData, filters, null, '',
     false,                    // sessionOnly
+    (extra && extra.changesAvailable !== undefined) ? extra.changesAvailable : null,   // changesAvailable（null|true|false，改动入口门控）
     'C:\\proj', entries, (extra && extra.phase) || 'ready', '', ['C:\\proj'], { by: 'name', dir: 'asc' }, 'standard', {}, null, 0, 0, { top: 0, height: 600 },
     (extra && extra.thumbFailed) || {},   // thumbFailed
     (extra && extra.finder) || null,      // finder
@@ -228,12 +229,37 @@ check('无匹配时给提示而不是空白', () => {
   assert(hint.length >= 1, '没有提示');
 });
 
+console.log('\n── 「改动」入口门控（就是它给 PanelInner 加了那个 hook）──');
+/**
+ * 为什么钉这三条：`changesAvailable`（null|true|false）是**新增 hook** 所服务的行为，
+ * 也正是它让本文件的按位置队列整体位移（校准护栏第一次真实触发）。
+ * 用**同一个已校准的队列**喂三种取值即可覆盖，不必为它再开一份状态队列。
+ * 语义（来自 client.js:1671 注释）：只有真探到有数据才把「改动」放进切换器；
+ * false / null 都不显示 —— 不留「永远 404 的入口」。
+ */
+const segTexts = (nodes) => nodes.filter((n) => cls(n).includes('alf__segi')).map((n) => String((n.children || []).join('')));
+const segTrue = segTexts(renderDir(entries, { changesAvailable: true }).nodes);
+const segFalse = segTexts(renderDir(entries, { changesAvailable: false }).nodes);
+const segNull = segTexts(renderDir(entries, { changesAvailable: null }).nodes);
+console.log('  切换器（true）:', segTrue.join(' | '));
+console.log('  切换器（false）:', segFalse.join(' | '));
+check('changesAvailable=true → 出现「改动」页签', () => {
+  assert(segTrue.indexOf('改动') >= 0, '探到有数据却没出现「改动」：' + segTrue.join('|'));
+});
+check('changesAvailable=false → 「改动」整块摘掉', () => {
+  assert(segFalse.indexOf('改动') < 0, '没有数据却仍显示「改动」：' + segFalse.join('|'));
+  assert(segFalse.length >= 4, '摘掉时不该把别的视图也带走：' + segFalse.join('|'));
+});
+check('changesAvailable=null（未探明）→ 也不显示（不留空面板）', () => {
+  assert(segNull.indexOf('改动') < 0, '未探明却已显示「改动」：' + segNull.join('|'));
+});
+
 console.log('\n── 校准护栏（见文件头维护须知）──');
 // 黄金值：首次渲染（view=dir，无 finder）时整棵树的 useState 调用总数。
 // **为什么是相等而不是 >=**：`>=` 只能发现 hook 被删；一旦有人在前面**插入**一个 hook，
 // 后面所有值整体后移，按位置喂的 states 会静默错位 —— 断言可能「用错状态也过」。
 // 相等判定会把「增删改 hook」一律变成响亮的失败，逼人重新校准。改组件 hook 结构就改这个数。
-const EXPECTED_HOOK_CALLS = 20;
+const EXPECTED_HOOK_CALLS = 21;
 console.log('  hook 调用 = ' + out.useStateCalls + ' / 期望 = ' + EXPECTED_HOOK_CALLS + ' / 状态槽位 = ' + out.stateSlots);
 check('状态队列仍与组件 hook 结构对得上（校准护栏）', () => {
   assert(
