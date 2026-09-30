@@ -221,24 +221,33 @@ git push origin v0.7.0
 `git ls-files` 确认未进版本库（因此 `github:` 安装也不会带上）。
 无需处理，但**别手贱 `git add -f`**。
 
-### R7. 「额外索引目录」是**死设置**（已从 README 的能力描述里撤下）
+### R7. ✅ 「额外索引目录」死设置 —— **已修复**（保留作案例）
 
-实测（全库 grep，`indexExtraDirs` 只出现 **1 次**）：
+**原问题**（2026-09-30 白天发现）：`indexExtraDirs` 全库只出现 **1 次** ——
+`lib/index.js` 老实读它，但 `ArtifactStore.getSettings()` / `updateSettings()` 的
+白名单里**都没有这个键**，设置面板也没有入口 → **恒为 `[]`**，
+「用户额外目录」这个能力**从来不存在**。
 
-| 位置 | 有没有 |
-|:---|:--:|
-| `lib/index.js:41` 读它：`Array.isArray(settings.indexExtraDirs) ? … : []` | ✅ 有 |
-| `ArtifactStore.getSettings()` 白名单 | ❌ **没有** |
-| `ArtifactStore.updateSettings()` 白名单 | ❌ **没有** |
-| 设置面板 / `ui/index.html` 入口 | ❌ **没有** |
+**现已修好**（`host-dev` task-8，同日）：
 
-→ `settings.indexExtraDirs` **恒为 `undefined`**，`extra` 恒为 `[]`。
-**实际生效的索引范围只有「DSH 工作区 + 已登记产出所在目录」**。
+| 位置 | 现状 |
+|:---|:---|
+| `lib/settings.js:119` | 默认值收录 `indexExtraDirs: []` |
+| `lib/settings.js:126` | 列入 `HOST_EFFECTIVE_KEYS` |
+| `lib/settings.js:335-344` | 完整校验：数组 / ≤64 项 / 每项字符串 / **绝对路径** / 单条 ≤1024 字符 |
+| `lib/index.js:57` | 从 `uiSettings` 读（不再读旧 `store.getSettings()`） |
+| `lib/index.js:153-155` | **键变化时真的触发 `scheduleScopeRefresh()`** —— 不再是「存进去了但范围没变」 |
+| `lib/client.js:844` | 设置面板有「额外索引目录」字段（每行一个绝对路径） |
+| `GET /ext/artifacts/settings` | **实测返回** `"indexExtraDirs":[]` ✅ |
 
-- 已据此**修正 README**：能力描述与隐私章节不再声称「可指定额外目录」，
-  配置表删掉该行，并在 [已知限制](../README.md#limits) 里如实写明
-- **待人工决策**（二选一）：① 把 `indexExtraDirs` 接进 `getSettings`/`updateSettings`
-  + 设置面板入口；② 删掉 `lib/index.js:41` 那段死读路径，避免后人以为它能用
+**因此已回滚我此前的文档改动**：README 的能力描述、隐私章节、配置表**重新写回**
+「可指定额外目录」，并在 [已知限制](../README.md#limits) 里把它从「尚未接线」
+改成「已接线」，同时**保留那段踩坑记录**（它现在是案例，不是缺陷）。
+
+> 📌 **这正是本晚的教训本身**：「注释/文档过期就是坑」。
+> 我的旧结论在我写下它几小时后就被队友修好了 ——
+> **凡是「某文件没有某功能」这类结论，都必须带时间戳，并在交付前重验一次。**
+> 本次交付前重跑了一次全库 grep 才发现；否则 README 会带着一句假话上架。
 
 > 对比之下，其余设置项**都验证过是真的接线了**：
 > `autoCollect`（`autocollect.js:55`）、`maxPerTurn`、`cleanupEnabled` /

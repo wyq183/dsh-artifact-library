@@ -33,7 +33,7 @@
 - [功能一览](#features)
 - [安装](#install) · [DSH 版本对照](#compat)
 - [特性巡礼](#tour)
-  - [原生面板](#tour-panel) · [本地文件管理器](#tour-files) · [自动采集与 AI 精化](#tour-collect)
+  - [原生面板](#tour-panel) · [未发布（开发中）](#unreleased) · [本地文件管理器](#tour-files) · [自动采集与 AI 精化](#tour-collect)
   - [检索与连线](#tour-search) · [维护与备份](#tour-maint) · [模型工具](#tour-tools)
   - [使用与快捷键](#usage) · [数据模型](#data-model) · [配置项](#config)
 - [隐私](#privacy)
@@ -49,7 +49,7 @@
 
 | 能力 | 说明 |
 |---|---|
-| **本地文件管理器**（v0.7.0 新增） | 内置 [Everything](https://www.voidtools.com/) 引擎（MIT，见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)），**毫秒级**本地文件搜索：Everything 语法（`ext:psd` · `dm:today` · `size:>10mb` · `path:项目`），命中项可一键登记为产物。索引范围**严格限定**在「DSH 工作区 + 已登记产出所在目录」，**不索引全盘**，全部本地完成 |
+| **本地文件管理器**（v0.7.0 新增） | 内置 [Everything](https://www.voidtools.com/) 引擎（MIT，见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)），**毫秒级**本地文件搜索：Everything 语法（`ext:psd` · `dm:today` · `size:>10mb` · `path:项目`），命中项可一键登记为产物。索引范围**严格限定**在「DSH 工作区 + 已登记产出所在目录 + 你额外指定的目录」，**不索引全盘**，全部本地完成 |
 | **自动采集** | 订阅会话事件，AI 每轮产出的文件自动进库，并记录**来源会话**（可回看诞生过程）|
 | **AI 整理分类** | 自动采集后标记「待精化」，会话内模型主动补全摘要/标签/项目；或点「立即精炼」开专属精化会话批量处理 |
 | **一句话语义搜索** | `artifact_find` / 管理页 🔍 语义搜索：用自然语言描述（「上次那个视频素材」）就能找回，自动拆词加权打分 |
@@ -115,8 +115,35 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 
 - **原生 React 渲染**，样式全部读 DSH 设计 token（`--dsw-alias-*` / `--dsw-font-*` / `--dsw-radius-*` / `--dsw-shadow-*`），**自动跟随深浅主题**
 - 统计条、搜索、kind/状态/项目/排序筛选
-- **卡片 · 列表 · 项目**三视图
+- **卡片 · 列表 · 项目**三视图（v0.7.0 已发布形态；下一版的扩展见 [未发布](#unreleased)）
 - 详情抽屉：图片 / 文本 / 音视频**内联预览**、星级打分、编辑、回收站/恢复、文件管理器定位、复制路径
+
+<a id="unreleased"></a>
+### 🧪 未发布：原生面板的下一版（开发中）
+
+> ⚠️ 下面这些**已经写进代码**（逐条对照 `lib/client.js` 的实现路径核对过），
+> 但**尚未发版**，而且此刻仍有人在改（`task-6` 进行中）。**发版前以实际界面为准。**
+
+- **项目成为第一级容器**：打开面板先看到**一个个项目**，点进去才看到该项目里有什么；
+  「全部产物」平铺入口保留（`client.js` 1985–1989 / 2273–2275）
+- **产物视图扩到 3 种 + 文件系统 3 种**：卡片 / 列表 / **画廊**、文件 / 目录 / 改动（`VIEWS`，2052）；
+  画廊是缩略图墙，虚拟滚动阈值为 60（566）
+- **列设置就地可调**：视图工具栏里的「列（N）」下拉，勾选显示哪些列，改完立即生效（4940–4975）
+- **多选 + 批量**：`Ctrl/Cmd 点击`、`Shift 区间`、`空格切换`、`Ctrl+A`、`Esc`；批量
+  **登记**（可一键撤销）/ 复制路径 / 打开 / 移入回收站（2719–2993、3206）
+- **`@` 引用**：注册官方 `inputTriggers` 来源（root 作用域）；行右键「复制为 @引用」复制
+  `@path` / `@"含空格路径"` 文本（880–1011、3402–3405）。
+  ⚠️ 这是**复制引用文本**，**不是**「把引用注入输入框」——代码注释里就是这么标的
+- **hover 操作区**：行尾按钮 hover 或 `:focus-within` 才出现，**固定 72px 占位防抖动**（233–235、2955）
+- **空状态承载新手引导**：不做教程弹窗，引导长在空状态里，且两个按钮都是**真路径**（2278–2300）
+- **设置面板**：结构从 `GET /settings/schema` 读（**不写死**），含预设与导出/导入（4153–4288、4308–4357）
+
+**还没做的（文档里不许写成「有」）**：
+
+- **把产物拖到聊天输入框 = 插入引用**：代码里**没有** `draggable` / `onDragStart`。
+  现有的 `onDrop`（3642）是**反方向** —— 把系统文件拖进面板做**登记**
+- **原生面板里的导入文件夹 / 立即精炼 / 语义搜索 / 整理建议**：这 4 项**仍只在完整管理页**
+  （详见 [使用](#usage) 与 [已知限制](#limits)）
 
 <a id="tour-files"></a>
 ### 🗂️ 本地文件管理器（v0.7.0）
@@ -142,10 +169,10 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 <a id="tour-search"></a>
 ### 🔍 检索与连线
 
-- **语义搜索**：管理页 🔍 按钮，或让任意会话的 AI 用 `artifact_find`（自然语言描述）
+- **语义搜索**：管理页 🔍 按钮（**原生面板里还没有**），或让任意会话的 AI 用 `artifact_find`（自然语言描述）
 - **关键词检索**：`artifact_search`（全文）
 - **AI 连线**：编辑产物时点「扫描相关条目」，或让 AI 用 `artifact_suggest_links`
-- **整理建议**：管理页 🧹 按钮，或让 AI 用 `artifact_suggest_cleanup`
+- **整理建议**：管理页 🧹 按钮（**原生面板里还没有**），或让 AI 用 `artifact_suggest_cleanup`
 
 <a id="tour-maint"></a>
 ### 🧰 维护与备份
@@ -166,9 +193,19 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 <a id="usage"></a>
 ### 🕹️ 使用 Usage
 
-- **完整管理页（兜底入口）**：侧栏脚部「产物库 · 网页版」，或访问
+- **完整管理页（仍在服役）**：侧栏脚部「产物库 · 网页版」，或访问
   `<dsh web 地址>/ext/artifact-library/`（端口由运行时决定，插件会向宿主索取**绝对**地址）。
-  **登记 / 导入文件夹 / 精炼 / 语义搜索 / 整理建议**目前仍以此页为主（第二期搬进原生面板）
+  它**暂时还不能下线** —— 下面 5 项重功能里**只有「登记产物」搬进了原生面板**，
+  其余 4 项**只有这个页面能做**（后端端点都已就绪，缺的是面板里的 UI）：
+
+  | 重功能 | 原生面板 | 完整管理页 |
+  |:---|:---:|:---:|
+  | 登记产物 | ✅ 单个 + 多选批量（可撤销） | ✅ |
+  | 导入文件夹 | ❌ | ✅ 唯一入口 |
+  | 立即精炼 | ❌ | ✅ 唯一入口 |
+  | 语义搜索 | ❌ | ✅ 唯一入口 |
+  | 整理建议 | ❌ | ✅ 唯一入口 |
+
 - **文件搜索**：面板 →「文件」→ 启动索引 → 输入关键词
 - **快捷键**：`/` 搜索 · `n` 登记 · `g` 回收站 · `1/2/3` 视图
 
@@ -191,6 +228,15 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 | 设置面板 | `backupKeep` / `backupOnCleanup` | `10` / `true` | 备份份数与整理前备份 |
 | 设置面板 | `importMaxSizeMB` | `50` | 文件夹导入的单文件上限（MB） |
 | 设置面板 | `searchLimit` | `20` | 语义搜索默认返回条数 |
+| 设置面板 | `indexExtraDirs` | `[]` | **额外索引目录**（每行一个绝对路径，≤64 个，自动去重；由宿主执行并触发范围重算） |
+| 设置面板 | `preset` / `density` / `defaultView` | `general` / `standard` / `list` | 外观：预设 / 行高密度 / 默认视图 |
+| 设置面板 | `columns` / `sortBy` / `sortDir` | `{size,time}` / `name` / `asc` | 显示哪些列 / 排序 |
+| 设置面板 | `thumbnails` / `thumbSize` / `galleryThumbSize` / `thumbMaxBytes` | `true` / `16` / `96` / `5242880` | 缩略图开关、尺寸、画廊尺寸、超过多少字节不生成缩略图 |
+| 设置面板 | `listLimit` / `virtualThreshold` / `showHidden` / `panelWidth` | `2000` / `200` / `false` / `null` | 列表上限 / 虚拟滚动阈值 / 显示隐藏文件 / 记忆的面板宽度 |
+
+> ⚠️ **上面后 4 行是宿主侧已实现的设置 schema**（`GET /ext/artifacts/settings` 实测返回它们），
+> 但**对应的设置面板 UI 尚未发版**（见 [未发布](#unreleased)）。
+> 在面板发版前，这些键可以通过 `PUT /ext/artifacts/settings` 直接改。
 
 ---
 
@@ -199,7 +245,7 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 
 - 全文索引、导入、导出、语义搜索全部**本地完成**，零外传
 - **无遥测、无上报**
-- 文件索引**不索引全盘**：范围 = DSH 工作区 + 已登记产出所在目录
+- 文件索引**不索引全盘**：范围 = DSH 工作区 + 已登记产出所在目录 + 你额外指定的目录（`indexExtraDirs`）
 - `DSHArtifacts` 是**独立 Everything 实例**，与你自装的 Everything 互不干扰
 
 ---
@@ -253,16 +299,42 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 文件索引硬依赖 Everything（`vendor/everything/`，MIT，版本已锁 **1.5.0.1423b**）。
 非 Windows 平台上文件视图优雅降级为「不可用」，产物库本体功能不受影响。
 
-### 4. 其它已实测的边界
+### 4. 「完整管理页」暂时还不能下线
+
+`ui/index.html`（`/ext/artifact-library/`）原本只是**兜底入口**，代码注释里写着
+「重功能第二期搬进原生面板」。**第二期只搬了一半** —— 逐条核对实现路径的结论：
+
+| 重功能 | 原生面板 | 证据 |
+|:---|:---:|:---|
+| 登记产物 | ✅ 已搬 | `client.js:3775` / `:2797` 调 `POST /ext/artifacts` |
+| 导入文件夹 | ❌ 未搬 | `client.js` 全文**无** `POST /import` 调用；网页 `ui/index.html:569` 是唯一调用方 |
+| 立即精炼 | ❌ 未搬 | `client.js` **无** `/refine-session`、`/refine-request` 调用；`refine` 只作**筛选器**（2103） |
+| 语义搜索 | ❌ 未搬 | 主搜索框走 `GET /ext/artifacts?q=`（**关键词子串**），不是 `GET /search`（语义） |
+| 整理建议 | ❌ 未搬 | `client.js` **无** `/suggest-cleanup`、`/cleanup-now` 调用 |
+
+**这 4 项的后端端点全部已就绪并可用**（`http.js:494` `POST /import` → `importFolder`、
+`:458/:471` 精炼、`:270` `GET /search` → `searchSemantic`、`:281` `GET /suggest-cleanup`
+→ `suggestCleanup`）。**缺的只是面板里的 UI**。
+
+> ⚠️ **行号是 2026-09-30 夜里的快照** —— `lib/client.js` 当时仍在被改动，
+> 行号会漂。上表结论用的是**端点字符串的有无**（可复核、不会漂）：
+> `client.js` 全文搜不到 `/import`、`/search`、`/suggest-cleanup`、`/cleanup-now`、
+> `/refine-session`、`/refine-request`；唯一带 `import` 的是 `/settings/import`（**设置导入**，另一回事）。
+
+> 所以：**别删 `ui/index.html`**，也别删 `sidebar.footer.action` 那个入口 ——
+> 删了就等于把这 4 个功能一起删掉。等它们搬完再谈下线。
+
+### 5. 其它已实测的边界
 
 - **范围规模守卫**：单次范围估算超过 **60,000 项**时会提前返回，避免把 Everything 拖死
   （实测 41 万项的目录会让它**启动即僵死**；排掉 `node_modules` 后立刻恢复）
 - **不存在的目录会被跳过**：索引范围里混入已删除的目录曾导致实例完全不响应 IPC，现已过滤并告警
-- **「额外索引目录」尚未接线**：`lib/index.js` 会读 `settings.indexExtraDirs`，
-  但 `ArtifactStore.getSettings()` / `updateSettings()` 的白名单里**都没有这个键**，
-  设置面板也没有入口 —— 也就是说它**恒为 `[]`**。
-  当前生效的范围实际只有「DSH 工作区 + 已登记产出所在目录」。
-  想索引别处，暂时只能把该目录登记为产物、或把它设为会话工作区
+- **「额外索引目录」已接线**（`indexExtraDirs`）：设置里的「额外索引目录」（每行一个**绝对路径**，
+  最多 64 个，自动去重），由宿主执行。
+  ⚠️ **它曾经是个「死设置」** —— 旧版 `lib/index.js` 会读它，但 `store` 的读写白名单里**都没有这个键**，
+  于是恒为 `[]`，「指定额外目录」这个能力**从来不存在**。2026-09-30 已修：
+  `settings.js` 收录该键并做校验（数组 / ≤64 项 / 绝对路径 / 单条 ≤1024 字符），
+  `index.js` 在它变化时**真的触发索引范围重算**（而不是「存进去了但范围没变」）
 - **杀毒软件可能拦截 `Everything.exe`**：目前只能表现为启动失败，尚无专门的人话提示
 - **Everything 1.5 仍是 beta**：版本已锁定，**升级前必须重跑** `RISK-ANALYSIS.md` 里的全部对照实验
 - **命名注意**：`cordis.patch.yml` 里的 `id: artifact-library` 是 **Cordis 补丁行 id**
@@ -277,10 +349,10 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 ### v0.7.0（2026-09-30）· 本地文件管理器
 
 - **内置 Everything 引擎**（`vendor/everything/`：Everything 1.5.0.1423b 便携版 + ES 1.1.0.38，均 MIT）
-- **索引范围严格限定**：DSH 工作区 + 已登记产出所在目录。
+- **索引范围严格限定**：DSH 工作区 + 已登记产出所在目录 + 你额外指定的目录。
   实现方式 `auto_include_fixed_volumes=0` + 清空卷列表 + `folders=` 白名单。
   实测：限定前入库 3,217,522 条 / 库 118 MB → 限定后 6 条 / 库 **422 bytes**
-  （「额外目录」的读取路径已预留，但**写入路径尚未接线**，见 [已知限制](#limits)）
+  （「额外目录」当时只有读取路径、**写入路径没接线**，是个死设置；2026-09-30 已修好，见 [已知限制](#limits)）
 - **索引模式三层降级**：**filelists（首选）→ ntfs → folder（保底）**，
   普通用户无需管理员权限也能用（见 [已知限制](#limits)）
 - **独立实例** `DSHArtifacts`：与用户自己装的 Everything 完全隔离，不改不卸不干扰
