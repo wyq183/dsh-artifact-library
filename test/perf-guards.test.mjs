@@ -42,6 +42,11 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
  * 所以任何切片都必须**自己证明它切到了东西**：锚点找得到、顺序对、长度合理。
  * 这条守卫**比它保护的断言更重要** —— 文件末尾 [7] 里有对 guard 自身的测试。
  */
+/** 源码守卫用：剥掉注释（免得守卫被自己的说明文字绊倒 —— 这个坑我踩过两次） */
+function stripComments(s) {
+  return String(s).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+}
+
 function sliceBetween(src, startMarker, endMarker, label) {
   const i = src.indexOf(startMarker)
   if (i === -1) throw new Error(`形状断言失败[${label}]：找不到起始锚点 ${JSON.stringify(startMarker)}`)
@@ -326,6 +331,107 @@ console.log('\n=== [7] sliceBetween 的形状断言本身有效 ===')
     assert(code.length > 1000, '扫描对象太短，说明截取锚点失效：' + code.length)
     const bare = code.split('slice(' + 'src.indexOf').length - 1
     assert(bare === 0, '★ 还有 ' + bare + ' 处裸切片')
+  })
+}
+
+// ═══ [8] R-6 (A)+(D)：正文索引上限 + 导入字节预算 ═══════════════════════
+console.log('\n=== [8] (A) 正文索引上限 8000 + 诚实截断标志 / (D) 导入字节预算 ===')
+{
+  const { ArtifactStore, MAX_TEXT_INDEX_CHARS, DEFAULT_IMPORT_MAX_BYTES } = await import('../lib/store.js')
+  const base = path.join(TMP, 'ad')
+  fs.mkdirSync(base, { recursive: true })
+
+  // ── (A) 上限与诚实标志 ──
+  const shortFile = path.join(base, 'short.md')
+  fs.writeFileSync(shortFile, 'x'.repeat(100))
+  const longFile = path.join(base, 'long.md')
+  fs.writeFileSync(longFile, 'y'.repeat(MAX_TEXT_INDEX_CHARS + 5000))
+  const s1 = new ArtifactStore(path.join(base, 's1')).load()
+  const recShort = s1.register({ path: shortFile, title: '短' })
+  const recLong = s1.register({ path: longFile, title: '长' })
+  const hits = await s1.searchSemantic('老记录', { limit: 5 })
+
+  check(`上限常量已导出且为 8000（= ${MAX_TEXT_INDEX_CHARS}）`, () => {
+    assert(MAX_TEXT_INDEX_CHARS === 8000, '值: ' + MAX_TEXT_INDEX_CHARS)
+  })
+  check('短文件：不截断、标志为 false、字符数如实', () => {
+    assert(recShort.contentIndexTruncated === false, 'flagged: ' + recShort.contentIndexTruncated)
+    assert(recShort.contentIndex.length === 100, 'chars: ' + recShort.contentIndex.length)
+    assert(recShort.contentIndexChars === 100, 'contentIndexChars: ' + recShort.contentIndexChars)
+  })
+  check('★★ 长文件：**截断且自己说出来**（truncated=true + 原文字符数）', () => {
+    assert(recLong.contentIndex.length === MAX_TEXT_INDEX_CHARS, '索引长度 ' + recLong.contentIndex.length)
+    assert(recLong.contentIndexTruncated === true, '★ 截断了却没标 —— 用户会以为检索是完整的')
+    assert(recLong.contentIndexTotalChars === MAX_TEXT_INDEX_CHARS + 5000, 'totalChars: ' + recLong.contentIndexTotalChars)
+    assert(recLong.contentIndexChars === MAX_TEXT_INDEX_CHARS, 'chars: ' + recLong.contentIndexChars)
+  })
+  check('★ 语义搜索的命中里带截断标志（客户端才有东西可显示）', () => {
+    for (const h of hits) {
+      assert('contentIndexTruncated' in h, '命中里缺 contentIndexTruncated')
+      assert('contentIndexChars' in h && 'contentIndexTotalChars' in h, '命中里缺字符数字段')
+    }
+  })
+
+  // ── (A) 迁移：老库的超标正文要被裁掉**并留痕** ──
+  const legacyDir = path.join(base, 'legacy')
+  fs.mkdirSync(legacyDir, { recursive: true })
+  fs.writeFileSync(path.join(legacyDir, 'artifacts.json'), JSON.stringify([{
+    id: 'art_legacy1', title: '老记录', path: shortFile, filename: 'short.md', extension: '.md',
+    kind: 'deliverable', source: 'manual', tags: [], status: 'final', stars: 0, summary: 's',
+    project: 'P', artifact_type: 'other', needsRefine: false, references: [],
+    contentIndex: 'z'.repeat(50000), created_at: 1, updated_at: 1, trashed_at: null,
+  }]), 'utf8')
+  fs.writeFileSync(path.join(legacyDir, 'meta.json'), JSON.stringify({ needsRefineRule: 2 }), 'utf8')
+  const legacy = new ArtifactStore(legacyDir).load().get('art_legacy1')
+
+  check('★★ 迁移：老库里 5 万字符的正文被裁到 8000（否则体积永远不降）', () => {
+    assert(legacy.contentIndex.length === MAX_TEXT_INDEX_CHARS, '裁后长度 ' + legacy.contentIndex.length)
+  })
+  check('★★ 迁移**必须留痕**：标 truncated + 记下原长度（无声迁移 = 骗人）', () => {
+    assert(legacy.contentIndexTruncated === true, '★ 迁移是无声的 —— 用户以为检索还是完整的')
+    assert(legacy.contentIndexTotalChars === 50000, 'totalChars: ' + legacy.contentIndexTotalChars)
+  })
+  check('迁移幂等（再 load 一次不会改坏）', () => {
+    const again = new ArtifactStore(legacyDir).load().get('art_legacy1')
+    assert(again.contentIndex.length === MAX_TEXT_INDEX_CHARS && again.contentIndexTotalChars === 50000, '第二次 load 改坏了')
+  })
+  check('规则版本写进 meta（下次不重复迁移）', () => {
+    const meta = JSON.parse(fs.readFileSync(path.join(legacyDir, 'meta.json'), 'utf8'))
+    assert(meta.contentIndexRule === 2, 'contentIndexRule: ' + meta.contentIndexRule)
+  })
+
+  // ── (D) 总字节预算 ──
+  const budgetDir = path.join(base, 'budget')
+  fs.mkdirSync(budgetDir, { recursive: true })
+  for (let i = 0; i < 40; i += 1) fs.writeFileSync(path.join(budgetDir, `b${i}.md`), 'x'.repeat(100 * 1024))
+  const capped = await new ArtifactStore(path.join(base, 's3')).load().importFolder(budgetDir, { project: 'D', maxBytes: 1024 * 1024 })
+  const uncapped = await new ArtifactStore(path.join(base, 's4')).load().importFolder(budgetDir, { project: 'D2' })
+
+  check(`★ (D) 超预算**提前停止**（${capped.count} 条 < ${uncapped.count} 条）`, () => {
+    assert(capped.count < uncapped.count, '没停：' + capped.count)
+    assert(capped.count > 0, '一条都没导')
+  })
+  check('★ (D) 如实回报「为什么停」+ 用量', () => {
+    assert(capped.stopped === true, 'stopped: ' + capped.stopped)
+    assert(capped.stoppedBy === 'byte-budget', 'stoppedBy: ' + capped.stoppedBy)
+    assert(capped.usedBytes <= 1024 * 1024, '★ 用超了预算: ' + capped.usedBytes)
+    assert(typeof capped.note === 'string' && capped.note.length > 10, 'note: ' + capped.note)
+  })
+  check('★ (D) note 是人话且能照做（提到可分批继续）', () => {
+    assert(/预算/.test(capped.note) && /分批|继续/.test(capped.note), 'note: ' + capped.note)
+  })
+  check('默认预算下正常目录不会被停（别把正常导入也掐了）', () => {
+    assert(uncapped.stopped === false, '★ 默认预算误停: ' + uncapped.stoppedBy)
+    assert(uncapped.stoppedBy === null, 'stoppedBy: ' + uncapped.stoppedBy)
+    assert(DEFAULT_IMPORT_MAX_BYTES === 512 * 1024 * 1024, '默认预算: ' + DEFAULT_IMPORT_MAX_BYTES)
+  })
+  check('★★ artifact_read **不受这个上限影响**（直接读磁盘 → 全文仍可读）', () => {
+    const src = stripComments(fs.readFileSync(path.join(ROOT, 'lib', 'tools.js'), 'utf8'))
+    const at = src.indexOf("name: 'artifact_read'")
+    const readFn = sliceBetween(src, "name: 'artifact_read'", 'const disposers', 'artifact_read 工具定义')
+    assert(at >= 0, '找不到 artifact_read')
+    assert(!/contentIndex/.test(readFn), '★ artifact_read 依赖了 contentIndex —— 那裁掉正文就读不全了')
+    assert(/readFileSync/.test(readFn), 'artifact_read 应该直接读磁盘')
   })
 }
 
