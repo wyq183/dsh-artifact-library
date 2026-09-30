@@ -177,7 +177,8 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 ### 🔍 检索与连线
 
 - **语义搜索**：管理页 🔍 按钮（**原生面板里还没有**），或让任意会话的 AI 用 `artifact_find`（自然语言描述）
-- **关键词检索**：`artifact_search`（全文）
+- **关键词检索**：`artifact_search`（**正文前 8000 字符**；更长文档的靠后内容搜不到 ——
+  命中行会明确提示「正文已截断」并指明出路）
 - **AI 连线**：编辑产物时点「扫描相关条目」，或让 AI 用 `artifact_suggest_links`
 - **整理建议**：管理页 🧹 按钮（**原生面板里还没有**），或让 AI 用 `artifact_suggest_cleanup`
 
@@ -250,7 +251,7 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 <a id="privacy"></a>
 ## 🔒 隐私 Privacy
 
-- 全文索引、导入、导出、语义搜索全部**本地完成**，零外传
+- 正文索引（**每篇前 8000 字符**）、导入、导出、语义搜索全部**本地完成**，零外传
 - **无遥测、无上报**
 - 文件索引**不索引全盘**：范围 = DSH 工作区 + 已登记产出所在目录 + 你额外指定的目录（`indexExtraDirs`）
 - `DSHArtifacts` 是**独立 Everything 实例**，与你自装的 Everything 互不干扰
@@ -260,11 +261,11 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 <a id="security"></a>
 ## 🛡️ 安全边界 Security（v0.3.1 起）
 
-- **敏感路径防护**：凭据/密钥类文件名（`credentials`/`creds`/`secret`/`token`/`api key`/`.env`/`.pem`/`.key`/`id_rsa` 等）与凭据目录（`.ssh`/`.gnupg`/`.aws`/`.azure`/`.kube`/`.docker`/`.npmrc`）下的文件，登记与导入**一律拒绝**，防止密钥泄露进全文索引与文件接口
+- **敏感路径防护**：凭据/密钥类文件名（`credentials`/`creds`/`secret`/`token`/`api key`/`.env`/`.pem`/`.key`/`id_rsa` 等）与凭据目录（`.ssh`/`.gnupg`/`.aws`/`.azure`/`.kube`/`.docker`/`.npmrc`）下的文件，登记与导入**一律拒绝**，防止密钥泄露进正文索引与文件接口
 - **来源限制**：`/ext/artifacts` 的**文件内容读取（`/:id/file`、单条记录、`/export`）与全部写操作仅限本机回环（127.0.0.1）**；局域网来源（`host: 0.0.0.0` 绑定）只读浏览**不含文件正文**的元数据（列表/搜索/统计/建议）。局域网内预览/编辑/登记/回收等操作用不了，属**预期行为**——安全优先
 - **文件操作闸门**：文件操作（打开/定位）只放行**索引范围内**的路径，范围外一律 403
 - **文件索引路由**：`/ext/artifacts/files*`（搜索 / status / start / stop）**仅限本机回环**，局域网来源 403
-- 数据文件 `~/.dsh/artifact-library/` 为本地 JSON，含全文索引，注意本机文件权限
+- 数据文件 `~/.dsh/artifact-library/` 为本地 JSON，含正文索引（每篇前 8000 字符），注意本机文件权限
 
 ---
 
@@ -308,27 +309,31 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 文件索引硬依赖 Everything（`vendor/everything/`，MIT，版本已锁 **1.5.0.1423b**）。
 非 Windows 平台上文件视图优雅降级为「不可用」，产物库本体功能不受影响。
 
-### 4. 「完整管理页」暂时还不能下线
+### 4. 「完整管理页」的去留（**2026-09-30 夜更新：已具备下线条件，但删不删请依琪定**）
 
 `ui/index.html`（`/ext/artifact-library/`）原本只是**兜底入口**，代码注释里写着
-「重功能第二期搬进原生面板」。**第二期实际只搬了 5 个里的 1 个** —— 逐条核对实现路径的结论：
+「重功能第二期搬进原生面板」。**截至 2026-09-30 夜，那 5 项已全部有下落** —— 逐条核对：
 
-| 重功能 | 原生面板 | 判据（按**端点字符串**，可复核） |
+| 重功能 | 原生面板 | 判据（按**端点 / 函数名**，可复核） |
 |:---|:---:|:---|
-| 登记产物 | ✅ 已搬 | `lib/client.js` 的 `registerRow` / `batchRegister` 调 `POST /ext/artifacts` |
-| 导入文件夹 | ❌ 未搬 | `client.js` 全文**无** `/import` 调用；唯一调用方是网页 `ui/index.html` |
-| 立即精炼 | ❌ 未搬 | **无** `/refine-session`、`/refine-request` 调用；`refine` 只作**筛选器** |
-| 语义搜索 | ❌ 未搬 | 主搜索框走 `GET /ext/artifacts?q=`（**关键词子串**），不是 `GET /search`（语义） |
-| 整理建议 | ❌ 未搬 | **无** `/suggest-cleanup`、`/cleanup-now` 调用 |
+| 登记产物 | ✅ 已搬 | `registerRow` / `batchRegister` 调 `POST /ext/artifacts` |
+| **导入文件夹** | ✅ **已搬**（`ebd4648`）| `ImportPanel` 调 `POST /import`；**原生 picker 优先 + 手动路径兜底** |
+| **立即精炼** | ⚖️ **当年拆成两半** | **`/refine-request`（标记优先精化）已搬** `986794e` + 撤销 `5390d68`；<br>**`/refine-session`（开会话）明确判断不做** —— 它依赖「**这台机器上有没有配模型**」，<br>失败面里有一大块无法验证；且「只做读的一半」与现有状态显示重复 |
+| **语义搜索** | ✅ **已搬**（`55f397f`）| `SemanticView` 调 `GET /search`；**与关键词走不同通道、不静默降级** |
+| **整理建议** | ✅ **已搬**（`e777c74`）| 独立视图调 `GET /suggest-cleanup` / `POST /cleanup-now`（含二次确认 + 真撤销）|
 
-**这 4 项的后端端点全部已就绪并可用** —— `POST /import` → `importFolder`、
-`POST /refine-session` + `/refine-request`、`GET /search` → `searchSemantic`、
-`GET /suggest-cleanup` → `suggestCleanup`、`POST /cleanup-now`。**缺的只是面板里的 UI**。
+**⇒ 结论：4 项已搬，1 项（`/refine-session`）明确不做且已说明理由。**
+**网页版原计划承担的「重功能」已全部有下落** ——
+所以它**不再有「未搬完所以不能下线」这个理由**。
 
-📋 **搬运优先级建议**（每个功能的 UI 复杂度估计 + 建议顺序 + 一个待验证点）见
-**[docs/MIGRATION-PLAN-web-to-panel.md](docs/MIGRATION-PLAN-web-to-panel.md)**。
+> ⚠️ **但「删不删」是产品决定，留给依琪。** 本表只陈述事实：
+> **「不能删，因为功能没搬完」这个理由，现在不成立了。**
+> 如果决定下线：**先确认网页版独有的「兜底入口」价值**（比如面板加载失败时的应急通道）——
+> 那是它现在唯一可能还值得留的理由。
 
-> ⚠️ **本表刻意不写行号** —— **端点字符串不会漂，行号会**。
+> ⚠️ **本表刻意不写行号** —— **端点 / 函数名不会漂，行号会**。
+> （本条在 2026-09-30 夜被更新过：原文写「只搬了 5 个里的 1 个」，那是当时的实测；
+> 当晚 4 项搬完 / 1 项判定不做后，那句话就成了**过期陈述**。）
 > 第一次核这张表时我引了行号；几小时后再核，「`http.js:494`」**已经不再是 `/import`**
 > （队友在同一个文件上继续加端点，`client.js` 更是整体漂了 300+ 行）。
 > 所以判据一律用端点/符号名 —— 它们**别人也能复核**。
