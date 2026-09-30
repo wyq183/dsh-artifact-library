@@ -126,17 +126,24 @@ function renderDir(entries, extra) {
     sampleData, filters, null, '',
     false,                    // sessionOnly
     (extra && extra.changesAvailable !== undefined) ? extra.changesAvailable : null,   // changesAvailable（null|true|false，改动入口门控）
-    null,                     // sSettings（当前设置；画廊/设置接线那批新增，第 7 位）
-    'C:\\proj', entries, (extra && extra.phase) || 'ready', '', ['C:\\proj'], { by: 'name', dir: 'asc' }, 'standard',
+    (extra && extra.prefs !== undefined) ? extra.prefs : null,   // sSettings（当前设置；喂它才能验「设置真的生效」）
+    null,                     // sProject（项目容器态；task-11 新增，第 8 位）
+    'C:\\proj', entries, (extra && extra.phase) || 'ready', '', ['C:\\proj'], { by: 'name', dir: 'asc' },
+    // ⚠️ sDensity 是**手动覆盖**（null = 未覆盖 → 取设置里的值）。
+    //    验「设置真的生效」必须喂 null；喂 'standard' 等于「用户行内改过」，设置会被（正确地）忽略 ——
+    //    我第一版喂了字符串，于是误报了「密度没反映到渲染上」（第 8 次自曝，是测试的错不是产品的错）。
+    (extra && extra.density !== undefined) ? extra.density : 'standard',
     // ↓ 多选/批量那批新增的 4 个（在 sDensity 之后、sCounts 之前）
     (extra && extra.sel) || { paths: {}, anchor: -1 },    // sSel（选中集合 + 锚点）
     null,                         // sCrumbEdit（面包屑编辑中的文本）
+    (extra && extra.dirView !== undefined) ? extra.dirView : null,   // sDirView（目录里的呈现档：list|card|gallery；task-11 新增）
     null,                         // sBatchUndo（可撤销的批量登记凭据）
     0,                            // sDragOver（拖入计数）
     {}, null, 0, 0, { top: 0, height: 600 },
     (extra && extra.thumbFailed) || {},   // thumbFailed
     (extra && extra.finder) || null,      // finder
     (extra && extra.listMeta) || null,    // listMeta（/files/list 的 total/truncated/limit）
+    false,                                // ViewControl: sColsOpen（列浮层开合；task-11 新增，在目录路径末尾）
   ];
   const built = build(states);
   const tree = built.comps.main({});
@@ -276,12 +283,52 @@ check('选中后批量条渲染，且排在列表之前', () => {
   assert(idxBar < idxRow, '批量条排在第 1 行之后（文档序 ' + idxBar + ' vs ' + idxRow + '）—— 虚拟滚动时会被藏走');
 });
 
+console.log('\n── ViewControl 真的生效（task-11：目录里能切呈现 + 密度/尺寸真反映）──');
+/**
+ * 为什么钉**渲染级**：`ui-spec` #26 只保证「源码里读了这些设置键」，**不保证「改了真的反映在渲染上」**。
+ * 手法：喂不同设置 → 比较**整棵渲染树的结构签名**（类名 + props），而不是只比较 state。
+ * 用签名而不是具体标记名，是为了将来换标记写法也不误报。
+ */
+const sig = (ns) => ns.map((n) => cls(n) + '|' + JSON.stringify(n.props, (k, v) => (k === 'children' || typeof v === 'function' ? undefined : v))).join(';');
+const hasCls = (ns, c) => ns.some((n) => cls(n).includes(c));
+const densOf = (ns) => { const n = ns.find((x) => x.props && x.props['data-density']); return n ? n.props['data-density'] : null; };
+const baseColumns = { size: true, time: false, type: false };
+const prefsCompact = { density: 'compact', defaultView: 'list', thumbnails: true, columns: baseColumns };
+const prefsLoose = { density: 'loose', defaultView: 'list', thumbnails: true, columns: baseColumns };
+const rCompact = renderDir(entries, { prefs: prefsCompact, dirView: 'list', density: null });
+const rLoose = renderDir(entries, { prefs: prefsLoose, dirView: 'list', density: null });
+const rCard = renderDir(entries, { prefs: prefsCompact, dirView: 'card', density: null });
+console.log('  ViewControl:', hasCls(rCompact.nodes, 'alf__viewctl') ? '在' : '不在',
+  '| density:', densOf(rCompact.nodes), '→', densOf(rLoose.nodes),
+  '| list 有 __dlist:', hasCls(rCompact.nodes, 'alf__dlist'), '| card 有 __dlist:', hasCls(rCard.nodes, 'alf__dlist'));
+
+check('目录工具栏里有 ViewControl', () => {
+  assert(hasCls(rCompact.nodes, 'alf__viewctl'), '目录树里找不到 alf__viewctl —— 呈现/密度/尺寸控件没渲染出来');
+});
+check('密度设置真的反映在渲染上（data-density）', () => {
+  const a = densOf(rCompact.nodes);
+  const b = densOf(rLoose.nodes);
+  assert(a && b, '找不到 data-density 容器（__dlist）—— 判据前提失效，请同步更新本断言');
+  assert(a === 'compact' && b === 'loose', 'prefs.density 没反映到 data-density：compact→' + a + ' / loose→' + b + '（「只存不读」的渲染版）');
+});
+check('目录里切「列表 ↔ 卡片」真的改变渲染（不是只变 state）', () => {
+  assert(hasCls(rCompact.nodes, 'alf__dlist'), 'list 档没有 __dlist 容器');
+  assert(!hasCls(rCard.nodes, 'alf__dlist'), 'card 档仍然渲染 __dlist —— 切换没改变渲染');
+  assert(sig(rCompact.nodes) !== sig(rCard.nodes), '两种呈现的渲染树签名相同 —— 切换只改了 state，没改输出');
+});
+check('卡片尺寸改了，渲染树跟着变（galleryThumbSize 48 ↔ 160）', () => {
+  const mk = (px) => renderDir(entries, { prefs: { density: 'standard', defaultView: 'card', thumbnails: true, galleryThumbSize: px, columns: baseColumns }, dirView: 'card' });
+  const r48 = mk(48);
+  const r160 = mk(160);
+  assert(sig(r48.nodes) !== sig(r160.nodes), 'galleryThumbSize 从 48 改到 160，渲染树完全没变 —— 尺寸设置没接到渲染上');
+});
+
 console.log('\n── 校准护栏（见文件头维护须知）──');
 // 黄金值：首次渲染（view=dir，无 finder）时整棵树的 useState 调用总数。
 // **为什么是相等而不是 >=**：`>=` 只能发现 hook 被删；一旦有人在前面**插入**一个 hook，
 // 后面所有值整体后移，按位置喂的 states 会静默错位 —— 断言可能「用错状态也过」。
 // 相等判定会把「增删改 hook」一律变成响亮的失败，逼人重新校准。改组件 hook 结构就改这个数。
-const EXPECTED_HOOK_CALLS = 26;
+const EXPECTED_HOOK_CALLS = 29;
 console.log('  hook 调用 = ' + out.useStateCalls + ' / 期望 = ' + EXPECTED_HOOK_CALLS + ' / 状态槽位 = ' + out.stateSlots);
 check('状态队列仍与组件 hook 结构对得上（校准护栏）', () => {
   assert(
