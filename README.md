@@ -272,7 +272,9 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 ## ⚠️ 已知限制 Known limitations
 
 > 这一节是**如实记录**，不是免责模板。以下每一条都在真机上实测复现过
-> （完整事故记录见 [docs/RISK-ANALYSIS.md](docs/RISK-ANALYSIS.md)）。
+> （完整事故记录见 [docs/RISK-ANALYSIS.md](docs/RISK-ANALYSIS.md)；
+> **该文档 §7 逐条列出了面板各功能的风险、触发条件、影响面与缺口，
+> 凡未实测的一律标「未验证」** —— 想评估「装之前该担心什么」看那一节）。
 
 ### 1. 文件索引是「三层降级」，首选层是**快照**
 
