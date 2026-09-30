@@ -1210,21 +1210,34 @@ check('[§三.3/§七]', '可选中行必须有 aria-selected，且随选中状�
   assert(problems.length === 0, problems.join('；'));
 });
 
-// ── [28] 拖拽语义唯一 ────────────────────────────────────────────────────
+// ── [28] 拖拽语义唯一（三个方向不许打架）──────────────────────────────────
 console.log('\n[28/28] 拖拽语义唯一');
-check('[实现约定]', '不得出现拖拽选中（onDragStart / dragSelect），拖拽只做「投放=登记」', OWNER_CLIENT, () => {
-  // ⚠️ 这条**不是禁止拖拽**：下面是「投放路径必须存在」的配对要求。
-  //    它防的是「两条路打架」—— 一旦有人加上拖拽框选，它就和「拖进=登记」抢同一个手势，
-  //    而且 §4.3 明确要求拖拽与虚拟滚动不打架（本文件从未实现拖拽选中，别把它加回来）。
+check('[实现约定]', '拖进来=登记、拖出去=带载荷的引用、禁止拖拽选中', OWNER_CLIENT, () => {
+  // 这条**不是禁止拖拽**：它给三种拖拽各自定死语义，并禁止第三种（框选）出现。
+  //   ① 拖进来 = 登记  → `onDrop` 必须存在（配对正向要求）
+  //   ② 拖出去 = 引用  → 允许 `onDragStart`，但**必须带载荷**（`.setData(`）
+  //   ③ 拖拽选中（框选/刷选）→ 禁止：它和上面两个抢同一个手势，§4.3 也要求拖拽不与虚拟滚动打架
+  // ⚠️ 2026-09-30 夜里提前改过一次：原判据**一律禁 `onDragStart`**，而 task-13 的
+  //    「拖出去=引用」正需要它 —— 不改，那条合法功能会被本门禁误杀。
+  //    教训一句话：**判据要跟着「语义」走，不是跟着关键词走**（同一关键词在不同语义下对错相反）。
   const problems = [];
-  for (const bad of ['onDragStart', 'dragSelect', 'dragRect', 'marqueeSelect']) {
+
+  // ③ 禁止拖拽选中
+  for (const bad of ['dragSelect', 'dragRect', 'marqueeSelect', 'selectionRect']) {
     if (new RegExp('\\b' + bad + '\\b').test(CLIENT_SRC)) {
-      problems.push('出现了 `' + bad + '` —— 拖拽选中会与「投放=登记」抢同一手势（§4.3）');
+      problems.push('出现了 `' + bad + '` —— 拖拽选中会与「拖进=登记」「拖出=引用」抢同一手势（§4.3）');
     }
   }
+  // ① 拖进来 = 登记（配对正向要求：防止本条退化成永远为真的空话）
   if (!/onDrop/.test(CLIENT_SRC)) {
-    problems.push('找不到 `onDrop` —— 拖拽投放（登记）路径不见了；本条判据的前提已失效，请同步更新');
+    problems.push('找不到 `onDrop` —— 拖拽投放（登记）路径不见了；本条判据前提已失效，请同步更新');
   }
+  // ② 拖出去 = 引用：允许 onDragStart，但必须带载荷
+  const dragOut = /\bonDragStart\b/.test(CLIENT_SRC);
+  if (dragOut && !/\.setData\s*\(/.test(CLIENT_SRC)) {
+    problems.push('有 `onDragStart` 却找不到 `.setData(` —— 拖出去必须带引用载荷，否则用户拖出去得不到任何东西');
+  }
+
   assert(problems.length === 0, problems.join('；'));
 });
 
