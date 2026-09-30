@@ -210,6 +210,63 @@ console.log('\n=== [5] 客户端契约（字段名固定，改要通知 ui-core/
   })
 }
 
+// ═══ [6] R-4：语义搜索分批让出事件循环 ══════════════════════════════════
+// ⚠️ 本文件的 `check()` 是**同步**的（`try { fn() }`）—— async 函数里的断言不会被等到，
+//    会**静默通过**（假绿）。所以 async 调用一律**在 check 外面 await**，里面只做断言。
+console.log('\n=== [6] R-4 语义搜索：分批不阻塞宿主，且结果不变 ===')
+{
+  const { ArtifactStore, SEARCH_YIELD_EVERY } = await import('../lib/store.js')
+  const dir = path.join(TMP, 'r4')
+  fs.mkdirSync(dir, { recursive: true })
+  const store = new ArtifactStore(dir).load()
+  store.items = []
+  for (let i = 0; i < 4000; i += 1) {
+    store.items.push({
+      id: 'art_' + i, title: `标题 ${i}`, path: `C:\\x\\f${i}.md`, filename: `f${i}.md`,
+      tags: ['a'], summary: '', contentIndex: 'x'.repeat(80), kind: 'deliverable',
+      project: 'P', artifact_type: 'other', stars: 0, trashed_at: null,
+    })
+  }
+  const returned = store.searchSemantic('标题 5', { limit: 5 })
+  const chunked = await store.searchSemantic('标题 5', { limit: 20 })
+  const unchunked = await store.searchSemantic('标题 5', { limit: 20, yieldEvery: Number.MAX_SAFE_INTEGER })
+  let ticks = 0
+  const timer = setInterval(() => { ticks += 1 }, 0)
+  await store.searchSemantic('标题 5', { limit: 20, yieldEvery: 200 })
+  clearInterval(timer)
+  const empty = await store.searchSemantic('   ', { limit: 5 })
+
+  check('searchSemantic 现在是 **async**（返回 Promise）', () => {
+    assert(returned && typeof returned.then === 'function', '★ 还是同步的 —— 就没法让出事件循环')
+  })
+  check('★★ 分批与不分批的结果**完全一致**（修性能不能顺手改搜索质量）', () => {
+    assert(JSON.stringify(chunked) === JSON.stringify(unchunked), '分批/不分批结果不同！')
+    assert(chunked.length === 20, '命中数 ' + chunked.length)
+  })
+  check('★★ 搜索期间**事件循环真的转起来了**（宏任务能插进来）', () => {
+    assert(ticks > 0, '★ 搜索期间一次定时器都没跑 —— 等于没让出（多半用了微任务）')
+  })
+  check(`SEARCH_YIELD_EVERY 是有限正数（= ${SEARCH_YIELD_EVERY}）`, () => {
+    assert(Number.isFinite(SEARCH_YIELD_EVERY) && SEARCH_YIELD_EVERY > 0 && SEARCH_YIELD_EVERY <= 10000, '值: ' + SEARCH_YIELD_EVERY)
+  })
+  check('★ 让出用的是 **setImmediate（宏任务）**，不是 Promise.resolve（微任务）', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'lib', 'store.js'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+    const yieldFn = src.slice(src.indexOf('const searchYield'), src.indexOf('export class ArtifactStore'))
+    assert(/setImmediate/.test(yieldFn), '★ 没用 setImmediate')
+    assert(!/Promise\.resolve\(\)/.test(yieldFn), '★ 用了微任务 —— 微任务不让 I/O 插进来，等于没让')
+  })
+  check('★ 两个调用方都 await 了（漏一个就会拿到 Promise 当数组用）', () => {
+    const http = fs.readFileSync(path.join(ROOT, 'lib', 'http.js'), 'utf8')
+    const tools = fs.readFileSync(path.join(ROOT, 'lib', 'tools.js'), 'utf8')
+    assert(/await store\.searchSemantic/.test(http), 'http.js /search 没 await')
+    assert(/await store\.searchSemantic/.test(tools), 'tools.js artifact_find 没 await')
+  })
+  check('空查询立即返回 []（不进入扫描）', () => {
+    assert(Array.isArray(empty) && empty.length === 0, JSON.stringify(empty))
+  })
+}
+
 try { fs.rmSync(TMP, { recursive: true, force: true }) } catch { /* 忽略 */ }
 
 console.log('\n' + '─'.repeat(60))
