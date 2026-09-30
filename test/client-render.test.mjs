@@ -129,7 +129,7 @@ function renderDir(entries, extra) {
     null,                     // sSettings（当前设置；画廊/设置接线那批新增，第 7 位）
     'C:\\proj', entries, (extra && extra.phase) || 'ready', '', ['C:\\proj'], { by: 'name', dir: 'asc' }, 'standard',
     // ↓ 多选/批量那批新增的 4 个（在 sDensity 之后、sCounts 之前）
-    { paths: {}, anchor: -1 },    // sSel（选中集合 + 锚点）
+    (extra && extra.sel) || { paths: {}, anchor: -1 },    // sSel（选中集合 + 锚点）
     null,                         // sCrumbEdit（面包屑编辑中的文本）
     null,                         // sBatchUndo（可撤销的批量登记凭据）
     0,                            // sDragOver（拖入计数）
@@ -259,6 +259,21 @@ check('changesAvailable=false → 「改动」整块摘掉', () => {
 });
 check('changesAvailable=null（未探明）→ 也不显示（不留空面板）', () => {
   assert(segNull.indexOf('改动') < 0, '未探明却已显示「改动」：' + segNull.join('|'));
+});
+
+console.log('\n── 批量操作条的位置（不被虚拟滚动藏走）──');
+const selMap = {};
+selMap[entries[0].path] = 1;
+const batched = renderDir(entries, { sel: { paths: selMap, anchor: 0 } });
+const selBar = batched.nodes.find((n) => cls(n).includes('alf__selbar'));
+const firstRow = batched.nodes.find((n) => /alf__(?:d)?rows?\b/.test(cls(n)));
+const idxBar = batched.nodes.indexOf(selBar);
+const idxRow = batched.nodes.indexOf(firstRow);
+console.log('  批量条:', selBar ? '有' : '无', '/ 首行:', firstRow ? '有' : '无', '/ 文档序 bar@' + idxBar + ' row@' + idxRow);
+check('选中后批量条渲染，且排在列表之前', () => {
+  assert(selBar, '选中了 1 项却没有 __selbar —— 批量操作条没渲染');
+  assert(firstRow, '找不到行节点（判据前提失效：行 class 变了？）');
+  assert(idxBar < idxRow, '批量条排在第 1 行之后（文档序 ' + idxBar + ' vs ' + idxRow + '）—— 虚拟滚动时会被藏走');
 });
 
 console.log('\n── 校准护栏（见文件头维护须知）──');

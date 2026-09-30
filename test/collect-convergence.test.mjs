@@ -156,6 +156,20 @@ console.log('\n=== [2] 防重复登记 ===')
     assert(store5.items.length === 2, '应新增一条')
     assert(JSON.stringify(store5.items.find((r) => r.id === ra.id)) === snapshot, '旧记录被改动了')
   })
+  // ⚠️ 这条是为一个**真实踩过的坑**立的契约（ui-core 自查发现并修复）：
+  //    duplicate 时返回的 id 是**早就存在那条**的 id。若调用方把它当成「本次创建的记录」
+  //    收进「撤销 / 批量回滚」名单，用户点一次撤销就会把自己**早就有的**产物扔进回收站。
+  check('★ 契约：duplicate 时 id = 已有记录的 id，且 created=false（调用方唯一判据）', () => {
+    const store6 = freshStore()
+    const f = makeFile('contract/a.txt')
+    const created = store6.register({ path: f })
+    assert(created.created !== false, '首次登记不该带 created=false')
+    const dup = store6.register({ path: f })
+    assert(dup.created === false, 'duplicate 必须带 created=false')
+    assert(dup.duplicate === true, 'duplicate 必须带 duplicate=true')
+    assert(dup.id === created.id, 'id 必须是已有记录的 id（调用方要能据此避开撤销名单）')
+    assert(store6.items.length === 1, '不该新建')
+  })
 }
 
 // ═══ [3] A 类：deliverables/presented ════════════════════════════════════
