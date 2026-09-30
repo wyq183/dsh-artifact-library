@@ -31,6 +31,28 @@ function check(name, fn) {
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed') }
 
+/**
+ * ★ **形状断言版**的源码切片（2026-09-30，ui-tester 的锚点失效教训）。
+ *
+ * 为什么要它：`src.slice(src.indexOf(a), src.indexOf(b))` 在**锚点写错**时
+ * 返回的是 `''`（`indexOf` 返回 -1 → `slice(-1, -1)`），
+ * 而对空串跑正则断言**全部通过** → **静默假绿**：
+ * 数字被当真、写进报告、当作「已修」。
+ *
+ * 所以任何切片都必须**自己证明它切到了东西**：锚点找得到、顺序对、长度合理。
+ * 这条守卫**比它保护的断言更重要** —— 文件末尾 [7] 里有对 guard 自身的测试。
+ */
+function sliceBetween(src, startMarker, endMarker, label) {
+  const i = src.indexOf(startMarker)
+  if (i === -1) throw new Error(`形状断言失败[${label}]：找不到起始锚点 ${JSON.stringify(startMarker)}`)
+  const j = endMarker === null ? src.length : src.indexOf(endMarker, i + startMarker.length)
+  if (j === -1) throw new Error(`形状断言失败[${label}]：找不到结束锚点 ${JSON.stringify(endMarker)}`)
+  if (j <= i) throw new Error(`形状断言失败[${label}]：结束锚点在起始锚点之前（i=${i} j=${j}）`)
+  const out = src.slice(i, j)
+  if (out.length < 20) throw new Error(`形状断言失败[${label}]：切片只有 ${out.length} 字符，锚点很可能落错了地方`)
+  return out
+}
+
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'alf-perf-'))
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -157,27 +179,27 @@ console.log('\n=== [4] 取消能中断构建 ===')
 {
   const src = fs.readFileSync(path.join(ROOT, 'lib', 'index', 'engine.js'), 'utf8')
   check('★ waitReady 的**等待循环里**检查取消（否则要干等到 90s/300s 预算耗尽）', () => {
-    const fn = src.slice(src.indexOf('async function waitReady'), src.indexOf('async function shutdown'))
+    const fn = sliceBetween(src, 'async function waitReady', 'async function shutdown', 'waitReady 函数体')
     assert(/epoch !== cancelEpoch/.test(fn), 'waitReady 里没有取消检查')
     assert(/return 'cancelled'/.test(fn), 'waitReady 没把取消作为独立结果返回')
   })
   check('★ startRound（每轮开始）检查取消 —— 三轮回退最坏 ≈480s，不能一直试下去', () => {
-    const fn = src.slice(src.indexOf('const startRound = async'), src.indexOf('const cancelledNow'))
+    const fn = sliceBetween(src, 'const startRound = async', 'const cancelledNow', 'startRound 函数体')
     assert(/epoch !== cancelEpoch/.test(fn), 'startRound 里没有取消检查')
     assert(/reason: 'cancelled'/.test(fn), 'startRound 没返回 cancelled')
   })
   check('★★ 被取消时**不会**当成「这轮没就绪」继续回退下一轮', () => {
     assert(/cancelledNow\(round\)/.test(src), '没有 cancelledNow 短路')
-    const fallback = src.slice(src.indexOf("if (mode === 'filelists')"), src.indexOf('// 「就绪」不等于'))
+    const fallback = sliceBetween(src, "if (mode === 'filelists')", '// 「就绪」不等于', '三轮回退块')
     const cancelReturns = (fallback.match(/reason: 'cancelled'/g) || []).length
     assert(cancelReturns >= 3, '三轮回退里都应短路 cancelled，实际 ' + cancelReturns)
   })
   check('★ shutdown()（= /files/stop）会 bump 取消纪元', () => {
-    const fn = src.slice(src.indexOf('async function shutdown'), src.indexOf('function ensureReady'))
+    const fn = sliceBetween(src, 'async function shutdown', 'function ensureReady', 'shutdown 函数体')
     assert(/cancelEpoch \+= 1/.test(fn), 'shutdown 没取消在跑的构建')
   })
   check('ensureReady 进入时记下纪元（避免把「之后才发生的取消」误判成自己的）', () => {
-    const fn = src.slice(src.indexOf('function ensureReady'), src.indexOf('const scopeDirs = Array.isArray'))
+    const fn = sliceBetween(src, 'function ensureReady', 'const scopeDirs = Array.isArray', 'ensureReady 开头')
     assert(/const epoch = cancelEpoch/.test(fn), 'ensureReady 没记纪元')
   })
   check('取消后状态回到 stopped（不是停在 starting 骗人）', () => {
@@ -205,7 +227,7 @@ console.log('\n=== [5] 客户端契约（字段名固定，改要通知 ui-core/
   })
   check('stalled 为 true 时 hint 必须提到「可取消」（信号与文案一致）', () => {
     const src = fs.readFileSync(path.join(ROOT, 'lib', 'index', 'engine.js'), 'utf8')
-    const hintBlock = src.slice(src.indexOf('hint: starting'), src.indexOf("'索引未启动"))
+    const hintBlock = sliceBetween(src, 'hint: starting', "'索引未启动", 'hint 文案块')
     assert(/stalled[\s\S]*files\/stop/.test(hintBlock), 'stalled 分支的文案里没告诉用户怎么停')
   })
 }
@@ -252,7 +274,7 @@ console.log('\n=== [6] R-4 语义搜索：分批不阻塞宿主，且结果不�
   check('★ 让出用的是 **setImmediate（宏任务）**，不是 Promise.resolve（微任务）', () => {
     const src = fs.readFileSync(path.join(ROOT, 'lib', 'store.js'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
-    const yieldFn = src.slice(src.indexOf('const searchYield'), src.indexOf('export class ArtifactStore'))
+    const yieldFn = sliceBetween(src, 'const searchYield', 'export class ArtifactStore', 'searchYield 定义')
     assert(/setImmediate/.test(yieldFn), '★ 没用 setImmediate')
     assert(!/Promise\.resolve\(\)/.test(yieldFn), '★ 用了微任务 —— 微任务不让 I/O 插进来，等于没让')
   })
@@ -264,6 +286,46 @@ console.log('\n=== [6] R-4 语义搜索：分批不阻塞宿主，且结果不�
   })
   check('空查询立即返回 []（不进入扫描）', () => {
     assert(Array.isArray(empty) && empty.length === 0, JSON.stringify(empty))
+  })
+}
+
+// ═══ [7] 守卫自身的测试：形状断言必须**真的会失败** ═════════════════════
+// 「让信号自己证明它测到了东西」—— 一个从不在错误输入上失败的守卫等于没有守卫。
+console.log('\n=== [7] sliceBetween 的形状断言本身有效 ===')
+{
+  const probe = 'AAAAAAAAAA start ' + 'B'.repeat(40) + ' end CCCCCCCCCC'
+  let threwNoStart = false
+  try { sliceBetween(probe, '没有这个锚点', 'end', '探针') } catch { threwNoStart = true }
+  let threwNoEnd = false
+  try { sliceBetween(probe, 'start', '也没有这个', '探针') } catch { threwNoEnd = true }
+  let threwShort = false
+  try { sliceBetween('aXb', 'a', 'b', '探针') } catch { threwShort = true }
+  const naive = probe.slice(probe.indexOf('没有这个锚点'), probe.indexOf('end'))
+
+  check('正常锚点：切出中间那段', () => {
+    assert(sliceBetween(probe, 'start', 'end', '探针').includes('BBBB'), '切出的内容不对')
+  })
+  check('★ 起始锚点不存在 → **抛错**（而不是静默返回空串）', () => {
+    assert(threwNoStart, '★ 锚点找不到却静默通过了 —— 这正是 ui-tester 踩的那个坑')
+  })
+  check('★ 结束锚点不存在 → **抛错**', () => {
+    assert(threwNoEnd, '★ 结束锚点找不到却静默通过')
+  })
+  check('★ 切片过短（锚点落错地方）→ **抛错**', () => {
+    assert(threwShort, '★ 只切到 1 个字符也通过')
+  })
+  check('★★ 对照：裸 `slice(indexOf, indexOf)` 在同样输入下**返回空串却不报错**', () => {
+    assert(naive === '', '预期空串，实际: ' + JSON.stringify(naive))
+    assert(!/start/.test(naive), '空串上跑「不包含」型断言会静默通过 —— 这就是假绿的机制')
+  })
+  check('★ 本文件已没有裸 `slice(src.indexOf(...))`（注释里提到不算）', () => {
+    const self = fs.readFileSync(new URL(import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+    // ⚠️ 只扫 [7] 之前的部分：否则这条检查会**匹配到它自己的模式串**（自指假阳性，我第一次就踩了）
+    const code = self.slice(0, self.indexOf('sliceBetween 的形状断言本身有效'))
+    assert(code.length > 1000, '扫描对象太短，说明截取锚点失效：' + code.length)
+    const bare = code.split('slice(' + 'src.indexOf').length - 1
+    assert(bare === 0, '★ 还有 ' + bare + ' 处裸切片')
   })
 }
 
