@@ -123,27 +123,30 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 
 > ⚠️ 下面这些**已经写进代码**（逐条对照 `lib/client.js` 的实现路径核对过），
 > 但**尚未发版**，而且此刻仍有人在改（`task-6` 进行中）。**发版前以实际界面为准。**
+> 判据一律写**符号名**（函数/常量/端点）而不是行号 —— **行号会漂**，符号名别人能复核。
 
 - **项目成为第一级容器**：打开面板先看到**一个个项目**，点进去才看到该项目里有什么；
-  「全部产物」平铺入口保留（`client.js` 1985–1989 / 2273–2275）
-- **产物视图扩到 3 种 + 文件系统 3 种**：卡片 / 列表 / **画廊**、文件 / 目录 / 改动（`VIEWS`，2052）；
-  画廊是缩略图墙，虚拟滚动阈值为 60（566）
-- **列设置就地可调**：视图工具栏里的「列（N）」下拉，勾选显示哪些列，改完立即生效（4940–4975）
+  「全部产物」平铺入口保留（`currentProject === null` 时渲染项目列表）
+- **产物视图扩到 3 种 + 文件系统 3 种**：卡片 / 列表 / **画廊**、文件 / 目录 / 改动（常量 `VIEWS`）；
+  画廊是缩略图墙，虚拟滚动阈值为 60（常量 `GALLERY_VIRTUAL_THRESHOLD`）
+- **列设置就地可调**：视图工具栏里的「列（N）」下拉，勾选显示哪些列，改完立即生效
+  （`ViewControl` 的 ④ 段 + 常量 `COLUMN_KEYS`）
 - **多选 + 批量**：`Ctrl/Cmd 点击`、`Shift 区间`、`空格切换`、`Ctrl+A`、`Esc`；批量
-  **登记**（可一键撤销）/ 复制路径 / 打开 / 移入回收站（2719–2993、3206）
-- **`@` 引用**：注册官方 `inputTriggers` 来源（root 作用域）；行右键「复制为 @引用」复制
-  `@path` / `@"含空格路径"` 文本（880–1011、3402–3405）。
+  **登记**（`batchRegister` + `undoBatch` 可一键撤销）/ 复制路径 / 打开 / 移入回收站
+- **`@` 引用**：注册官方 `inputTriggers` 来源（root 作用域，`registerSource`）；行右键「复制为 @引用」
+  复制 `@path` / `@"含空格路径"` 文本（`copyAtMention` / `formatFileMention`）。
   ⚠️ 这是**复制引用文本**，**不是**「把引用注入输入框」——代码注释里就是这么标的
-- **hover 操作区**：行尾按钮 hover 或 `:focus-within` 才出现，**固定 72px 占位防抖动**（233–235、2955）
-- **空状态承载新手引导**：不做教程弹窗，引导长在空状态里，且两个按钮都是**真路径**（2278–2300）
-- **设置面板**：结构从 `GET /settings/schema` 读（**不写死**），含预设与导出/导入（4153–4288、4308–4357）
+- **hover 操作区**：行尾按钮 hover 或 `:focus-within` 才出现，**固定 72px 占位防抖动**（样式 `__dact`）
+- **空状态承载新手引导**：不做教程弹窗，引导长在空状态里，且两个按钮都是**真路径**
+- **设置面板**：结构从 `GET /settings/schema` 读（**不写死**），含预设与导出/导入
 
 **还没做的（文档里不许写成「有」）**：
 
 - **把产物拖到聊天输入框 = 插入引用**：代码里**没有** `draggable` / `onDragStart`。
-  现有的 `onDrop`（3642）是**反方向** —— 把系统文件拖进面板做**登记**
+  现有的 `onDrop` 是**反方向** —— 把系统文件拖进面板做**登记**
 - **原生面板里的导入文件夹 / 立即精炼 / 语义搜索 / 整理建议**：这 4 项**仍只在完整管理页**
-  （详见 [使用](#usage) 与 [已知限制](#limits)）
+  （详见 [使用](#usage) 与 [已知限制](#limits)，搬运建议见
+  [docs/MIGRATION-PLAN-web-to-panel.md](docs/MIGRATION-PLAN-web-to-panel.md)）
 
 <a id="tour-files"></a>
 ### 🗂️ 本地文件管理器（v0.7.0）
@@ -302,24 +305,28 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 ### 4. 「完整管理页」暂时还不能下线
 
 `ui/index.html`（`/ext/artifact-library/`）原本只是**兜底入口**，代码注释里写着
-「重功能第二期搬进原生面板」。**第二期只搬了一半** —— 逐条核对实现路径的结论：
+「重功能第二期搬进原生面板」。**第二期实际只搬了 5 个里的 1 个** —— 逐条核对实现路径的结论：
 
-| 重功能 | 原生面板 | 证据 |
+| 重功能 | 原生面板 | 判据（按**端点字符串**，可复核） |
 |:---|:---:|:---|
-| 登记产物 | ✅ 已搬 | `client.js:3775` / `:2797` 调 `POST /ext/artifacts` |
-| 导入文件夹 | ❌ 未搬 | `client.js` 全文**无** `POST /import` 调用；网页 `ui/index.html:569` 是唯一调用方 |
-| 立即精炼 | ❌ 未搬 | `client.js` **无** `/refine-session`、`/refine-request` 调用；`refine` 只作**筛选器**（2103） |
+| 登记产物 | ✅ 已搬 | `lib/client.js` 的 `registerRow` / `batchRegister` 调 `POST /ext/artifacts` |
+| 导入文件夹 | ❌ 未搬 | `client.js` 全文**无** `/import` 调用；唯一调用方是网页 `ui/index.html` |
+| 立即精炼 | ❌ 未搬 | **无** `/refine-session`、`/refine-request` 调用；`refine` 只作**筛选器** |
 | 语义搜索 | ❌ 未搬 | 主搜索框走 `GET /ext/artifacts?q=`（**关键词子串**），不是 `GET /search`（语义） |
-| 整理建议 | ❌ 未搬 | `client.js` **无** `/suggest-cleanup`、`/cleanup-now` 调用 |
+| 整理建议 | ❌ 未搬 | **无** `/suggest-cleanup`、`/cleanup-now` 调用 |
 
-**这 4 项的后端端点全部已就绪并可用**（`http.js:494` `POST /import` → `importFolder`、
-`:458/:471` 精炼、`:270` `GET /search` → `searchSemantic`、`:281` `GET /suggest-cleanup`
-→ `suggestCleanup`）。**缺的只是面板里的 UI**。
+**这 4 项的后端端点全部已就绪并可用** —— `POST /import` → `importFolder`、
+`POST /refine-session` + `/refine-request`、`GET /search` → `searchSemantic`、
+`GET /suggest-cleanup` → `suggestCleanup`、`POST /cleanup-now`。**缺的只是面板里的 UI**。
 
-> ⚠️ **行号是 2026-09-30 夜里的快照** —— `lib/client.js` 当时仍在被改动，
-> 行号会漂。上表结论用的是**端点字符串的有无**（可复核、不会漂）：
-> `client.js` 全文搜不到 `/import`、`/search`、`/suggest-cleanup`、`/cleanup-now`、
-> `/refine-session`、`/refine-request`；唯一带 `import` 的是 `/settings/import`（**设置导入**，另一回事）。
+📋 **搬运优先级建议**（每个功能的 UI 复杂度估计 + 建议顺序 + 一个待验证点）见
+**[docs/MIGRATION-PLAN-web-to-panel.md](docs/MIGRATION-PLAN-web-to-panel.md)**。
+
+> ⚠️ **本表刻意不写行号** —— **端点字符串不会漂，行号会**。
+> 第一次核这张表时我引了行号；几小时后再核，「`http.js:494`」**已经不再是 `/import`**
+> （队友在同一个文件上继续加端点，`client.js` 更是整体漂了 300+ 行）。
+> 所以判据一律用端点/符号名 —— 它们**别人也能复核**。
+> 另：唯一带 `import` 的客户端调用是 `/settings/import`（**设置导入**，与文件夹导入无关）。
 
 > 所以：**别删 `ui/index.html`**，也别删 `sidebar.footer.action` 那个入口 ——
 > 删了就等于把这 4 个功能一起删掉。等它们搬完再谈下线。
