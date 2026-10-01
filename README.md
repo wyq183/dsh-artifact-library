@@ -2,10 +2,10 @@
 
 # 🐋 dsh-artifact-library · DSH 产物库
 
-![Version](https://img.shields.io/badge/version-0.7.0-green)
+![Version](https://img.shields.io/badge/version-0.8.0-green)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2-4F46E5)
-![Platform](https://img.shields.io/badge/platform-Windows-0078D4)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D4)
 ![Stars](https://img.shields.io/github/stars/wyq183/dsh-artifact-library?style=flat&label=stars)
 
 **DeepSeek Harness 的「作品柜 + 资料柜 + 工作台」**：自动采集 AI 产出、AI 自动分类整理、一句话语义检索、AI 替你连线，外加一个**内置 Everything 引擎的本地文件管理器**。本地优先，数据绝不出本机。
@@ -60,7 +60,19 @@
 | **维护** | 定时整理（去重/文件状态刷新，默认每周）、自动备份（默认保留 10 份）、导出 JSON |
 | **人性化** | 撤销式操作、快捷键、批量操作、图片缩放/音视频倍速预览、缺失文件提醒 |
 
-**平台**：原生面板与文件管理器依赖 Everything，**仅 Windows**；产物库本体（登记/检索/精化/连线）跨平台，非 Windows 上文件视图会显示不可用原因并优雅降级。
+**平台**：**Windows 与 Linux 都完整可用**（macOS 尚未适配）。
+
+文件索引按平台自动选后端，**上层功能与查询语法完全一致**：
+
+| 平台 | 文件索引后端 | 「在文件管理器中定位」 |
+|:---|:---|:---|
+| Windows | 内置 Everything 便携版（`vendor/everything/`） | `explorer /select,` |
+| Linux | **纯 Node 范围索引**（零外部依赖） | D-Bus `FileManager1.ShowItems` → 回退 `xdg-open` 所在目录 |
+
+两者对外是**同一套接口**（`status / ensureReady / search / listDir / …`），
+所以 `ext:png dm:today size:>10mb` 这类语法、面板、工具栏在两边长得一样。
+Linux 上**不依赖** plocate/fd/Spotlight 之类的系统工具，也不用装任何东西。
+macOS 目前会落到 Node 后端，但路径语义与「用访达打开」这两处**未经验证** —— 别当成已支持。
 
 ---
 
@@ -304,10 +316,19 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 （工作区 + 产出目录，两个就够）—— 就不能指望 NTFS 模式，
 普通用户会落到**已知不可靠**的 folder 回退路径上。
 
-### 3. 仅 Windows
+### 3. 平台支持（2026-10-01 更新：已不是 Windows 专属）
 
-文件索引硬依赖 Everything（`vendor/everything/`，MIT，版本已锁 **1.5.0.1423b**）。
-非 Windows 平台上文件视图优雅降级为「不可用」，产物库本体功能不受影响。
+**Windows** 的文件索引依赖内置 Everything（`vendor/everything/`，MIT，版本已锁 **1.5.0.1423b**）。
+**Linux** 走纯 Node 范围索引（`lib/index/backend-node.js`），不依赖任何系统搜索工具，
+两者接口与查询语法一致。
+
+仍未验证的是 **macOS**：它会落到 Node 后端，但路径大小写语义（HFS+/APFS 默认不敏感）
+与 `open -R` 那两条**没在真机上跑过** —— 代码里有分支，但**没有证据**，别当成已支持。
+
+⚠️ 跨平台迁移的已知限制：产物记录里的 `path` 是**绝对路径且当主键**。
+把一份 Windows 上的 `artifacts.json` 直接搬到 Linux，那些 `C:\…` 记录会全部失效
+（现在至少**不会**把索引范围退化成 `.` —— `dirsFromArtifacts` 已改成形态感知解析，
+但库本身不做路径重映射）。同机跨平台不迁移数据就不会遇到。
 
 ### 4. 「完整管理页」的去留（**2026-09-30 夜更新：已具备下线条件，但删不删请依琪定**）
 
