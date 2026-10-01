@@ -482,15 +482,23 @@ console.log('\n=== [6] 纯 Node 便携后端：端到端 ===')
     assert(typeof r.error === 'string' && r.error.length > 0, '没有错误说明')
   })
 
-  await checkAsync('目录浏览走**实时读盘**（刚建的文件立刻可见）', async () => {
+  await checkAsync('目录浏览走**实时读盘**（刚建的文件立刻出现）', async () => {
     const dir = path.join(scope, '项目A')
     const before = await index.listDir(dir)
     assert(before.ok === true, JSON.stringify(before.error))
-    fs.writeFileSync(path.join(dir, '刚建的.txt'), 'x')
+    // ⚠️ 这个夹具文件名**必须是 ASCII** —— 不是偷懒，是绕开一个 Node 在 Windows 上的缺陷：
+    //    Windows + Node v25.2.1 上，`fs.rmSync()` 一个**中文名**文件会直接 fastfail
+    //    （退出码 0xC0000409 / 低字节 9），stderr 全空、`try/catch` 抓不到、进程级 abort。
+    //    实测边界（纯 Node，不含本插件任何代码）：
+    //      plain.txt  ✅ · café.txt ✅ · 刚建的.txt ❌ 崩 · art-😀.txt ❌ 崩
+    //    本断言想验的是「实时读盘能看见刚建的文件」，跟文件名用什么字符无关，
+    //    所以用 ASCII 名 —— 既验到了该验的，又不在别人的缺陷上摔一跤。
+    const fresh = 'freshly-created.txt'
+    fs.writeFileSync(path.join(dir, fresh), 'x')
     const after = await index.listDir(dir)
-    assert(after.entries.some((e) => e.name === '刚建的.txt'), '刚建的文件没出现（又走回快照了？）')
+    assert(after.entries.some((e) => e.name === fresh), '刚建的文件没出现（又走回快照了？）')
     assert(after.source === 'fs', 'source=' + after.source)
-    fs.rmSync(path.join(dir, '刚建的.txt'))
+    fs.rmSync(path.join(dir, fresh))
   })
 
   await checkAsync('范围变化 → 重建，新目录立即可搜', async () => {
