@@ -121,10 +121,24 @@ console.log('\n=== [2] 范围/安全判据：形态语义 ===')
     assert(out.length === 1 && out[0].toLowerCase() === 'c:\\a', '得到 ' + JSON.stringify(out))
   })
   check('★★ normalizeScope 不再合并大小写不同的真实目录', () => {
+    // ⚠️ 这条断言**按平台分开写**，因为「大小写不同的两个目录」在两个平台上的
+    //    正确答案本来就不一样：POSIX 是两个不同目录，Windows 是同一个。
+    //    第一版只写了 POSIX 版，于是它在 Windows 上必然假红 —— 而假红比没有更坏
+    //    （会让人以为 Windows 支持坏了）。
+    if (IS_WINDOWS) {
+      const out = normalizeScope(['C:\\Home\\A', 'c:\\home\\a'])
+      assert(out.length === 1, 'Windows 形态本应折叠成一个，得到 ' + JSON.stringify(out))
+      return
+    }
     const out = normalizeScope(['/home/A', '/home/a'])
     assert(out.length === 2, '被合并成 ' + JSON.stringify(out))
   })
-  check('★ isInside 不再放宽安全闸门（/home/A/x 不属于 /home/a）', () => {
+  check('★ isInside 不再放宽安全闸门', () => {
+    if (IS_WINDOWS) {
+      // Windows 语义不变（大小写不敏感）
+      assert(isInside('C:\\Home\\A\\x', 'c:\\home\\a') === true, 'Windows 大小写语义被改坏了')
+      return
+    }
     assert(isInside('/home/A/x', '/home/a') === false, '★ 越界闸门被放宽了')
     assert(isInside('/home/a/x', '/home/a') === true, '/home/a/x 应属于 /home/a')
     assert(isInside('/home/a', '/home/a') === true, '自身应算包含')
