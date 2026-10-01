@@ -224,6 +224,81 @@ Ctrl+滚轮缩放 · 输入框内 Backspace 只删字不翻目录 · 行上有�
 顺带一个连带确认：目录行显示 `第三章 **1 项**` —— 这个「N 项」在 Linux 上原来永远算不出来
 （`isLocalPath` 只认盘符），现在有了。
 
+### 4. 真 Windows（借 WSL 互操作，Node v25.2.1）
+
+修完 Linux 不代表 Windows 没事 —— 所以把 `linux-port` 用 `git archive` 解到
+`C:\Users\Administrator\.dsh\profiles\_alf-win-verify\`（**不碰他的工作区**），
+用 Windows 侧的真 node 跑同一套：
+
+```
+process.platform     = win32
+node                 = v25.2.1
+os.release()         = 10.0.26200
+platformCapabilities = {"platform":"windows","caseInsensitivePaths":true,
+                        "fileSearchBackend":"everything","usesEverything":true}
+默认后端 backendName  = everything        ← 分流在真 Windows 上确实选了 Everything
+status 契约字段齐全   = true
+全量：17 个文件 552 通过 / 0 失败
+```
+
+（Windows 552 与 Linux 555 的差 = 4：`platform-port` 里那 5 条 Linux 专用启动器断言
+在 Windows 上按平台跳过，而 Windows 侧 `scope-guards` 多跑 1 条真机采样。
+`555 - 4 + 1 = 552`，对得上。）
+
+**这一步是必要的，不是多余的**：第一次在真 Windows 上跑时，
+`platform-port.test.mjs` 整进程崩了。详见下一节 —— 那是个**真发现**。
+
+---
+
+## 四点五、⚠️ 顺手逮到的一个 Node 在 Windows 上的缺陷
+
+> **不是本插件的 bug**，但值得记 —— 因为它会**整进程打崩**，而且和环境是中文高度相关。
+
+### 现象
+
+Windows + **Node v25.2.1** 上，`fs.rmSync()` 一个**中文名**文件时：
+
+- 进程以 `0xC0000409`（`STATUS_STACK_BUFFER_OVERRUN` / fastfail）**直接死**
+- **stderr 完全空**、没有 JS 异常、`try/catch` 抓不到、
+  `--report-on-fatalerror` **不生成任何报告**（说明 abort 发生在 V8 够不到的原生层）
+
+### 最小复现（纯 Node，不含本插件任何代码）
+
+```js
+import fs from 'node:fs'
+const f = 'C:\\temp\\刚建的.txt'
+fs.writeFileSync(f, 'x')
+fs.rmSync(f)          // ← 进程在这里 fastfail
+```
+
+### 边界（实测）
+
+| 文件名 | 结果 |
+|:---|:---|
+| `plain.txt` | ✅ 正常 |
+| `café.txt`（拉丁扩展） | ✅ 正常 |
+| `刚建的.txt`（CJK） | ❌ **fastfail** |
+| `art-😀.txt`（emoji） | ❌ **fastfail** |
+
+### 当时的排查过程（留档，因为"没头绪"是这类问题最大的成本）
+
+1. 全量跑 → `platform-port` RC=`3221226505`，**stderr 空**
+2. 用 `--import` 预加载把 `console.log` **同步落盘**（fastfail 会丢缓冲输出）→
+   拿到"崩之前最后一行"
+3. 把该 section 单独抽出来 → 仍崩（可快速迭代）
+4. 逐步注入同步日志 → 定位到 `fs.rmSync(...)` 那一行
+5. 两个对照实验收窄：**去掉 rmSync → 10/0 通过**；**屏蔽 fs.watch → 照样崩**
+   （于是排除 watcher；注意：第一次心跳显示的位置是**误导**的，真实崩点在它后面）
+6. 纯 Node 最小复现 → 复现成功 → 确认是 Node/平台层面，不是插件代码
+7. 分离变量 → **与 `listDirectory` 无关，与非 ASCII 名有关**
+
+### 对本插件的影响
+
+**当前不构成线上风险**：插件的删除点只有三处，路径全是 ASCII
+（缓存临时文件 `es-<pid>-<ts>.json`、备份文件名 `artifacts-*.json`、selftest 的固定目录）。
+但**写新代码时要当心**：任何"删用户文件"的逻辑都可能踩到，而且**没有 JS 层兜底**。
+已在本仓库的测试里用 ASCII 夹具绕开，并在测试注释里写明了原因。
+
 ---
 
 ## 五、明说没做的部分
@@ -247,3 +322,4 @@ Ctrl+滚轮缩放 · 输入框内 Backspace 只删字不翻目录 · 行上有�
 | `dirsFromArtifacts` 在 Linux 上把目录变成 `'.'` | ✅ 属实（`path.dirname('C:\a\b.txt')==='.'`）→ 已修 |
 | 「32 个 commit」/「33 个 commit」（历史记忆） | ⚠️ 已过期，实测 **64 个** |
 | README「仅 Windows，其他平台优雅降级」 | ❌ 已过期 → 已更新 |
+| 「改完在 Windows 上跑一遍就知道了」 | ⚠️ 不够：Linux 侧 555 全绿的同时，Windows 侧有一个**整进程崩溃**。**两个平台各跑一遍才算数。** |
