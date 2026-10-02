@@ -1,7 +1,7 @@
 {
   "name": "@dsh-external/dsh-artifact-library",
   "description": "DSH 产物库 + 本地文件管理器：登记/管理/检索 DSH 产出物，提供毫秒级本地文件搜索（索引范围严格限定在工作区与已登记目录）。Windows 用内置 Everything，Linux 用纯 Node 范围索引，查询语法与界面一致。Artifact library and local file manager for DeepSeek Harness.",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": false,
   "type": "module",
   "main": "lib/index.js",

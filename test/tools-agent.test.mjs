@@ -62,8 +62,8 @@ const run = (name, args) => tools.get(name).execute(args, {})
 console.log('\n=== [1] 工具清单与契约 ===')
 freshStore()
 {
-  check('★ 注册了 13 个工具（数出来的，不是记的）', () => {
-    assert(tools.size === 13, '实际 ' + tools.size + ': ' + [...tools.keys()].join(', '))
+  check('★ 注册了 14 个工具（数出来的，不是记的）', () => {
+    assert(tools.size === 14, '实际 ' + tools.size + ': ' + [...tools.keys()].join(', '))
   })
   check('每个工具的 parameters 是合法 JSON Schema（type=object + properties + required 子集）', () => {
     for (const [name, tool] of tools) {
@@ -96,7 +96,7 @@ freshStore()
     const local = new Map()
     const localCtx = { tools: { register: (t) => { local.set(t.name, t); return () => local.delete(t.name) } } }
     const destroy = registerArtifactTools(localCtx, new ArtifactStore(dir).load())
-    assert(local.size === 13, '装了 ' + local.size + ' 个')
+    assert(local.size === 14, '装了 ' + local.size + ' 个')
     destroy()
     assert(local.size === 0, '卸载后还剩 ' + local.size + ' 个')
   })
