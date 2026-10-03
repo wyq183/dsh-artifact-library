@@ -355,6 +355,36 @@ check('card actions are hidden from Tab order until hover or focus-within', () =
   assert(src.includes('__card:focus-within .'), 'focused card does not reveal its actions');
 });
 
+console.log('\n── 首用引导在空库首屏可达（T2 §3.1 那条 P1）──');
+/**
+ * 背景：T2 静态走查发现 `isFirstRun` 那套最好的首用引导
+ * （「这里会自动收着你让 AI 做出来的东西」+ 两个真路径按钮）**在真实空库首屏不可达** ——
+ * 因为项目层分支排在它前面，而 `currentProject` 初值是 `null`，空库时同样命中 ⇒
+ * 用户得先点一次「全部产物」才看得到。评审原话：「那句写得最好的引导，新人根本见不到」。
+ *
+ * 2026-10-03 批次 3 给项目层分支补了 `&& visibleItems.length` —— 空库时它就是 0，
+ * 条件为假 ⇒ 让位给后面的空态 ⇒ **引导可达**。
+ *
+ * ⚠️ 为什么用断言而不是真机：**没法在依琪的真实库里造一个空库**（那要改
+ * `DSH_ARTIFACT_LIBRARY_DIR` 并重启 DSH，会打断他正在用的界面）。
+ * 所以改用「空库渲染」把它钉死 —— 纯逻辑判据，比"等一次真机"更快也更可靠。
+ */
+const emptyLib = renderDir([], {
+  data: { ...sampleData, items: [] },
+  filters: { ...filters, view: 'card' },
+});
+const emptyTexts = [];
+walk(emptyLib.nodes, emptyTexts);
+const emptyFlat = emptyTexts.map((n) => String((n.children || []).join(''))).join(' ');
+check('空库首屏出现首用引导原句', () => {
+  assert(emptyFlat.indexOf('这里会自动收着你让 AI 做出来的东西') >= 0,
+    '空库时首用引导没出现 —— T2 §3.1 那条 P1 回来了（项目层又挡在空态前面）。实际渲染：' + emptyFlat.slice(0, 200));
+});
+check('空库首屏不渲染项目卡（让位给空态）', () => {
+  const cards = emptyLib.nodes.filter((n) => cls(n).includes('alf__pcard'));
+  assert(cards.length === 0, '空库却渲染了 ' + cards.length + ' 张项目卡');
+});
+
 console.log('\n── ViewControl 真的生效（task-11：目录里能切呈现 + 密度/尺寸真反映）──');
 /**
  * 为什么钉**渲染级**：`ui-spec` #26 只保证「源码里读了这些设置键」，**不保证「改了真的反映在渲染上」**。
