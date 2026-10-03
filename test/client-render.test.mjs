@@ -134,12 +134,12 @@ const filters = { q: '', kind: '', refine: '', project: '', sort: 'created_desc'
 
 function renderDir(entries, extra) {
   const states = [
-    sampleData, filters, null, '',
+    (extra && extra.data) || sampleData, (extra && extra.filters) || filters, null, '',
     false,                    // sessionOnly
     (extra && extra.changesAvailable !== undefined) ? extra.changesAvailable : null,   // changesAvailable（null|true|false，改动入口门控）
     (extra && extra.prefs !== undefined) ? extra.prefs : null,   // sSettings（当前设置；喂它才能验「设置真的生效」）
-    null,                     // sProject（项目容器态；task-11 新增，第 8 位）
-    { ids: {}, anchor: -1 },  // sPanelSel（产物侧多选；task-13 新增，第 9 位）
+    (extra && extra.project !== undefined) ? extra.project : null, // sProject
+    (extra && extra.panelSel) || { ids: {}, anchor: -1 },  // sPanelSel
     null,                     // sRefineUndo（取消优先标记的凭据；第 10 位 —— 在 sArtMenu **之前**）
     null,                     // sArtMenu（产物右键菜单；task-13 新增，第 11 位）
     'C:\\proj', entries, (extra && extra.phase) || 'ready', '', ['C:\\proj'], { by: 'name', dir: 'asc' },
@@ -295,6 +295,55 @@ check('选中后批量条渲染，且排在列表之前', () => {
   assert(selBar, '选中了 1 项却没有 __selbar —— 批量操作条没渲染');
   assert(firstRow, '找不到行节点（判据前提失效：行 class 变了？）');
   assert(idxBar < idxRow, '批量条排在第 1 行之后（文档序 ' + idxBar + ' vs ' + idxRow + '）—— 虚拟滚动时会被藏走');
+});
+
+console.log('\n── 产物行与卡片键盘行为 ──');
+const artifacts = [
+  { id: 'a', title: 'First', path: 'C:\\proj\\first.md', project: 'P', size_bytes: 100 },
+  { id: 'b', title: 'Second', path: 'C:\\proj\\second.md', project: 'P', size_bytes: 200 },
+];
+function renderArtifacts(view, panelSel) {
+  const rendered = renderDir([], {
+    data: { ...sampleData, items: artifacts },
+    filters: { ...filters, view },
+    project: '__all__',
+    panelSel,
+  });
+  return rendered.nodes;
+}
+function keyEvent(key, currentTarget, target = currentTarget) {
+  let prevented = false;
+  return { key, currentTarget, target, preventDefault() { prevented = true; }, get prevented() { return prevented; } };
+}
+for (const [view, rowClass] of [['list', 'alf__table'], ['card', 'alf__card']]) {
+  const nodes = renderArtifacts(view, { ids: { b: 1 }, anchor: 1 });
+  const rows = nodes.filter((n) => view === 'list' ? n.type === 'tr' && n.props['data-sel'] : cls(n) === rowClass);
+  check(view + ': only first item enters Tab order, including when another item is selected', () => {
+    assert(rows.length === 2, 'expected two items, got ' + rows.length);
+    assert(rows[0].props.tabIndex === 0 && rows[1].props.tabIndex === -1, 'selected item added another Tab stop');
+  });
+  check(view + ': item Enter/Space work, descendant buttons keep native behavior', () => {
+    for (const key of ['Enter', ' ']) {
+      const own = keyEvent(key, rows[0]);
+      rows[0].props.onKeyDown(own);
+      assert(own.prevented, key + ' did not activate item');
+      const child = keyEvent(key, rows[0], {});
+      rows[0].props.onKeyDown(child);
+      assert(!child.prevented, key + ' was intercepted on a child button');
+    }
+  });
+  check(view + ': ArrowDown moves focus to next item', () => {
+    let focused = false;
+    const next = { focus() { focused = true; } };
+    const row = { parentNode: { children: [null, next] } };
+    const event = keyEvent('ArrowDown', row);
+    rows[0].props.onKeyDown(event);
+    assert(event.prevented && focused, 'ArrowDown did not move focus');
+  });
+}
+check('card actions are hidden from Tab order until hover or focus-within', () => {
+  assert(src.includes('opacity:0;visibility:hidden;pointer-events:none'), 'hidden card actions can still receive Tab');
+  assert(src.includes('__card:focus-within .'), 'focused card does not reveal its actions');
 });
 
 console.log('\n── ViewControl 真的生效（task-11：目录里能切呈现 + 密度/尺寸真反映）──');
