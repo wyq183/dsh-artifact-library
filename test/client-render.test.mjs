@@ -93,7 +93,7 @@ assert(captured && typeof captured.factory === 'function', 'factory 未被注册
  */
 function makeReact(queue) {
   const q = queue.slice();
-  const stats = { useStateCalls: 0 };
+  const stats = { useStateCalls: 0, setCalls: [] };
   function createElement(type, props, ...children) {
     if (typeof type === 'function') return type(Object.assign({}, props || {}, { children }));
     return { type, props: props || {}, children };
@@ -102,8 +102,8 @@ function makeReact(queue) {
     createElement,
     useState(init) {
       stats.useStateCalls += 1;
-      if (q.length) return [q.shift(), () => {}];
-      return [typeof init === 'function' ? init() : init, () => {}];
+      const state = q.length ? q.shift() : (typeof init === 'function' ? init() : init);
+      return [state, (value) => stats.setCalls.push({ slot: stats.useStateCalls, value })];
     },
     useEffect() {},
     useCallback(fn) { return fn; },
@@ -170,6 +170,7 @@ function renderDir(entries, extra) {
     icons: nodes.filter((n) => cls(n) === 'alf__fi'),
     useStateCalls: built.react.__stats.useStateCalls,
     stateSlots: states.length,
+    setCalls: built.react.__stats.setCalls,
   };
 }
 
@@ -309,15 +310,15 @@ function renderArtifacts(view, panelSel) {
     project: '__all__',
     panelSel,
   });
-  return rendered.nodes;
+  return rendered;
 }
 function keyEvent(key, currentTarget, target = currentTarget) {
   let prevented = false;
   return { key, currentTarget, target, preventDefault() { prevented = true; }, get prevented() { return prevented; } };
 }
 for (const [view, rowClass] of [['list', 'alf__table'], ['card', 'alf__card']]) {
-  const nodes = renderArtifacts(view, { ids: { b: 1 }, anchor: 1 });
-  const rows = nodes.filter((n) => view === 'list' ? n.type === 'tr' && n.props['data-sel'] : cls(n) === rowClass);
+  const rendered = renderArtifacts(view, { ids: { b: 1 }, anchor: 1 });
+  const rows = rendered.nodes.filter((n) => view === 'list' ? n.type === 'tr' && n.props['data-sel'] : cls(n) === rowClass);
   check(view + ': only first item enters Tab order, including when another item is selected', () => {
     assert(rows.length === 2, 'expected two items, got ' + rows.length);
     assert(rows[0].props.tabIndex === 0 && rows[1].props.tabIndex === -1, 'selected item added another Tab stop');
@@ -339,6 +340,14 @@ for (const [view, rowClass] of [['list', 'alf__table'], ['card', 'alf__card']]) 
     const event = keyEvent('ArrowDown', row);
     rows[0].props.onKeyDown(event);
     assert(event.prevented && focused, 'ArrowDown did not move focus');
+  });
+  check(view + ': Enter opens the same detail view as a plain click', () => {
+    rows[0].props.onClick({ ctrlKey: false, metaKey: false, shiftKey: false });
+    const click = rendered.setCalls.pop();
+    rows[0].props.onKeyDown(keyEvent('Enter', rows[0]));
+    const enter = rendered.setCalls.pop();
+    assert(click && enter && click.slot === enter.slot && click.value === enter.value,
+      'Enter and click have different primary actions');
   });
 }
 check('card actions are hidden from Tab order until hover or focus-within', () => {
