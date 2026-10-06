@@ -15,6 +15,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { ArtifactStore } from '../lib/store.js'
+import { SettingsStore } from '../lib/settings.js'
 import { registerArtifactTools, fileMention, humanSize, humanTime } from '../lib/tools.js'
 
 let passed = 0
@@ -62,8 +63,8 @@ const run = (name, args) => tools.get(name).execute(args, {})
 console.log('\n=== [1] 工具清单与契约 ===')
 freshStore()
 {
-  check('★ 注册了 14 个工具（数出来的，不是记的）', () => {
-    assert(tools.size === 14, '实际 ' + tools.size + ': ' + [...tools.keys()].join(', '))
+  check('★ 注册了 15 个工具（数出来的，不是记的）', () => {
+    assert(tools.size === 15, '实际 ' + tools.size + ': ' + [...tools.keys()].join(', '))
   })
   check('每个工具的 parameters 是合法 JSON Schema（type=object + properties + required 子集）', () => {
     for (const [name, tool] of tools) {
@@ -96,7 +97,7 @@ freshStore()
     const local = new Map()
     const localCtx = { tools: { register: (t) => { local.set(t.name, t); return () => local.delete(t.name) } } }
     const destroy = registerArtifactTools(localCtx, new ArtifactStore(dir).load())
-    assert(local.size === 14, '装了 ' + local.size + ' 个')
+    assert(local.size === 15, '装了 ' + local.size + ' 个')
     destroy()
     assert(local.size === 0, '卸载后还剩 ' + local.size + ' 个')
   })
@@ -351,6 +352,184 @@ console.log('\n=== [7] 既有工具回归 ===')
     assert(humanSize(-1) === '—' && humanSize('x') === '—', '非法输入应回 —')
     assert(humanTime(0) === '—', humanTime(0))
     assert(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(humanTime(1790766537)), humanTime(1790766537))
+  })
+}
+
+// ═══ [N] 分类工具 artifact_categories（Step 2c）═════════════════════════
+//
+// 这一节的靶子是**破坏性动作的安全契约**：删一个分类会牵动一批记录，
+// 所以「不给 reassign_to 就绝不动手」必须被钉死 —— 一旦它退化，
+// 用户会以为「我只是删了个分类」，实际是一批记录被静默降级。
+//
+// ⚠️ 本节按本文件既有套路写：`await run(...)` 在**语句层**跑，
+//    `check()` 只放同步断言（这个 harness 的 check 不 await 回调，
+//    把 async 回调塞进去会「假通过」）。
+console.log('\n=== [N] artifact_categories（含删除的安全契约）===')
+{
+  const dir = path.join(TMP, 'catstore')
+  fs.mkdirSync(dir, { recursive: true })
+  const store = new ArtifactStore(dir).load()
+  const settings = new SettingsStore({ file: path.join(dir, 'settings.json') }).load()
+  store.setCategoriesProvider(() => settings.get().categories)
+  ctx.tools.allowReplace = true
+  registerArtifactTools(ctx, store, settings)
+  ctx.tools.allowReplace = false
+  const cats = (args) => tools.get('artifact_categories').execute(args, {})
+  const catById = (id) => settings.get().categories.find((c) => c.id === id)
+  const typeSnap = () => JSON.stringify(store.items.map((r) => r.artifact_type))
+
+  const md = makeFile('cat-a.md', '# 一份文档')
+  const png = makeFile('cat-b.png', 'x')
+  const recMd = await run('register_artifact', { path: md })
+  const recPng = await run('register_artifact', { path: png })
+
+  check('★ register_artifact 不再有 artifact_type 枚举（否则自定义分类根本传不进来）', () => {
+    const prop = tools.get('register_artifact').parameters.properties.artifact_type
+    assert(prop.enum === undefined, '枚举还在：' + JSON.stringify(prop.enum))
+    assert(/留空则按文件后缀自动归类/.test(prop.description), '描述该说清留空的语义：' + prop.description)
+  })
+  check('★ 留空 artifact_type → 按后缀自动归类（.md→document .png→image）', () => {
+    assert(/类型:document/.test(recMd.text), recMd.text)
+    assert(/类型:image/.test(recPng.text), recPng.text)
+  })
+
+  const listOut = (await cats({ action: 'list' })).text
+  check('list：报出分类、计数、兜底类锁定、可用图标', () => {
+    assert(/产物库分类（共 7 个/.test(listOut), listOut.slice(0, 90))
+    assert(/document/.test(listOut) && /文档/.test(listOut), '该列出 document/文档')
+    assert(/🔒/.test(listOut), '兜底类该有锁定标记')
+    assert(/未分类/.test(listOut), listOut)
+    assert(/可用图标：/.test(listOut), '该列出可选图标')
+    assert(/不可删/.test(listOut), '该说明兜底类不可删')
+  })
+
+  const addOk = (await cats({ action: 'add', id: 'short_drama', label: '短剧素材', icon: 'video', exts: ['mp4', 'srt'] })).text
+  check('★ add：新建分类成功，并落进设置（label/icon/exts 都对）', () => {
+    assert(/✅ 已新建分类/.test(addOk), addOk)
+    const cat = catById('short_drama')
+    assert(cat, '没写进设置')
+    assert(cat.label === '短剧素材' && cat.icon === 'video', JSON.stringify(cat))
+    assert(JSON.stringify(cat.exts) === JSON.stringify(['mp4', 'srt']), JSON.stringify(cat.exts))
+  })
+
+  const addNoLabel = (await cats({ action: 'add', id: 'nolabel', exts: [] })).text
+  const addDup = (await cats({ action: 'add', id: 'short_drama', label: '重复' })).text
+  const addBadId = (await cats({ action: 'add', id: 'Bad-Id', label: '大写' })).text
+  check('add：缺 label 被拒 / id 重复被拒 / id 形状非法被拒', () => {
+    assert(/必须给 label/.test(addNoLabel), addNoLabel)
+    assert(/已经存在/.test(addDup), addDup)
+    assert(/不合法/.test(addBadId), addBadId)
+  })
+
+  const docBefore = JSON.stringify(catById('document'))
+  await cats({ action: 'update', id: 'short_drama', label: '短剧', exts: ['mp4'] })
+  check('★ update：改 label/exts 生效，且**不碰别的分类**', () => {
+    const cat = catById('short_drama')
+    assert(cat.label === '短剧' && JSON.stringify(cat.exts) === JSON.stringify(['mp4']), JSON.stringify(cat))
+    assert(JSON.stringify(catById('document')) === docBefore, 'document 被顺手改了')
+  })
+  const updMissing = (await cats({ action: 'update', id: 'nope', label: 'x' })).text
+  check('update 不存在的分类 → 说清「要新建用 add」', () => {
+    assert(/没有叫 nope 的分类/.test(updMissing) && /add/.test(updMissing), updMissing)
+  })
+
+  const lockUpd = (await cats({ action: 'update', id: 'other', label: '改名' })).text
+  const lockDel = (await cats({ action: 'remove', id: 'other' })).text
+  check('★ 兜底分类不可改、不可删', () => {
+    assert(/兜底分类/.test(lockUpd), lockUpd)
+    assert(/不可删除/.test(lockDel), lockDel)
+    assert(catById('other'), 'other 没了')
+  })
+
+  const dupExt = (await cats({ action: 'add', id: 'dup_ext', label: '重复后缀', exts: ['mp4'] })).text
+  check('★ 同一后缀被两类声明 → 只是**提示**，不拒绝', () => {
+    assert(/✅ 已新建/.test(dupExt), dupExt)
+    assert(/同时属于/.test(dupExt), '该给出冲突提示：' + dupExt)
+  })
+
+  // ── 删除的安全契约（本节重点）──────────────────────────────────────────
+  const beforeTable = JSON.stringify(settings.get().categories)
+  const beforeTypes = typeSnap()
+  const refuse = (await cats({ action: 'remove', id: 'image' })).text
+  check('★★★ remove 不给 reassign_to 且有记录 → **只回报影响面、一个字都不改**', () => {
+    assert(/没有删除/.test(refuse), refuse)
+    assert(/1 条记录/.test(refuse), '该报出影响条数：' + refuse)
+    assert(/reassign_to/.test(refuse), '该说清怎么继续：' + refuse)
+    assert(JSON.stringify(settings.get().categories) === beforeTable, '★ 分类表被改了')
+    assert(typeSnap() === beforeTypes, '★ 记录被改了')
+    assert(catById('image'), '★ 分类被删了')
+  })
+
+  const badTarget = (await cats({ action: 'remove', id: 'image', reassign_to: '不存在的分类' })).text
+  check('remove：reassign_to 指向不存在的分类 → 被拒，且什么都没改', () => {
+    assert(/不是一个已知分类/.test(badTarget), badTarget)
+    assert(typeSnap() === beforeTypes, '记录被改了')
+    assert(catById('image'), '分类被删了')
+  })
+
+  const removed = (await cats({ action: 'remove', id: 'image', reassign_to: 'document' })).text
+  check('★ remove 给了 reassign_to → 记录先改派、分类后删，且不留孤儿', () => {
+    assert(/✅ 已删除分类/.test(removed), removed)
+    assert(/1 条记录改派到了/.test(removed), removed)
+    assert(!catById('image'), '分类没被删掉')
+    const pngRec = store.byPath(path.join(TMP, 'cat-b.png'))
+    assert(pngRec.artifact_type === 'document', '记录没被改派：' + pngRec.artifact_type)
+    const ids = new Set(settings.get().categories.map((c) => c.id))
+    for (const rec of store.items) assert(ids.has(rec.artifact_type), `出现孤儿 ${rec.artifact_type}`)
+  })
+
+  await cats({ action: 'add', id: 'tmpcat', label: '临时类', exts: ['qqq'] })
+  await run('register_artifact', { path: makeFile('cat-c.qqq', 'x') })
+  const byLabel = (await cats({ action: 'remove', id: 'tmpcat', reassign_to: '文档' })).text
+  check('★ remove 可以按**显示名**给 reassign_to（用户不会记 id）', () => {
+    assert(/✅ 已删除分类/.test(byLabel), byLabel)
+    assert(store.byPath(path.join(TMP, 'cat-c.qqq')).artifact_type === 'document',
+      '按显示名改派失败：' + store.byPath(path.join(TMP, 'cat-c.qqq')).artifact_type)
+  })
+
+  await cats({ action: 'add', id: 'emptycat', label: '空的', exts: [] })
+  const delEmpty = (await cats({ action: 'remove', id: 'emptycat' })).text
+  check('★ 0 条记录的分类可以直接删（不需要 reassign_to）', () => {
+    assert(/✅ 已删除分类/.test(delEmpty), delEmpty)
+    assert(!catById('emptycat'), '没删掉')
+  })
+
+  const undone = (await cats({ action: 'undo-remove' })).text
+  check('★★ undo-remove：记录改回原分类，且分类被加回分类表', () => {
+    assert(/✅ 已撤销/.test(undone), undone)
+    assert(store.byPath(path.join(TMP, 'cat-c.qqq')).artifact_type === 'tmpcat', '记录没改回去')
+    assert(catById('tmpcat'), '分类没被加回分类表')
+  })
+  const undone2 = (await cats({ action: 'undo-remove' })).text
+  check('undo-remove：没有可撤销的时说人话，不抛', () => {
+    assert(/没有可撤销/.test(undone2), undone2)
+  })
+
+  const delMissing = (await cats({ action: 'remove', id: 'nope' })).text
+  check('remove 不存在的分类 → 被拒', () => {
+    assert(/没有叫 nope 的分类/.test(delMissing), delMissing)
+  })
+  const badAction = (await cats({ action: 'destroy' })).text
+  check('不认识的 action → 说清有哪些合法值', () => {
+    assert(/不认识的 action/.test(badAction), badAction)
+    assert(/list \/ add \/ update \/ remove/.test(badAction), badAction)
+  })
+
+  await run('register_artifact', { path: makeFile('cat-d.md', 'x'), artifact_type: 'ghost_type' })
+  const orphanOut = (await cats({ action: 'list' })).text
+  check('★ list 会报孤儿（记录指向了表里不存在的分类）——不隐藏', () => {
+    assert(/孤儿/.test(orphanOut), orphanOut)
+    assert(/ghost_type/.test(orphanOut), orphanOut)
+  })
+  await run('artifact_update', { id: store.byPath(path.join(TMP, 'cat-d.md')).id, artifact_type: 'document' })
+
+  // 老调用方（不传 settings）也要能装 —— 降级路径
+  const bare = freshStore()
+  const bareList = (await tools.get('artifact_categories').execute({ action: 'list' }, {})).text
+  check('★ 没接设置存储时（老调用方）也能装，分类工具说人话', () => {
+    assert(bare, '没接设置时注册失败')
+    assert(typeof bareList === 'string' && bareList.length > 0, '该给人话')
+    assert(/共 0 个/.test(bareList), '没有表时该报 0 个：' + bareList.slice(0, 60))
   })
 }
 
