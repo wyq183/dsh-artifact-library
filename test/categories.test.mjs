@@ -20,6 +20,7 @@ import {
 } from '../lib/categories.js'
 import {
   DEFAULT_CATEGORIES, CATEGORY_ID_RE, LOCKED_CATEGORY_ID, validateCategories,
+  CONTENT_KEYS, PRESETS, settingsSchema,
 } from '../lib/settings.js'
 import { ArtifactStore } from '../lib/store.js'
 
@@ -367,6 +368,75 @@ console.log('\n=== [F] 客户端接线守卫（防「图能点、请求不带上
       '「清空筛选看全部」没有清 artifact_type')
     assert(/hasFilter = !!\(filters\.q \|\| filters\.kind \|\| filters\.artifact_type/.test(clientSrc),
       'hasFilter 没算 artifact_type —— 空态会误判成「首次使用」')
+  })
+}
+
+// ═══ [G] schema 暴露预设的分类（Step 2e）══════════════════════════════════
+//
+// 为什么必须暴露：预设的**外观是重置、分类是合并（只增不删）**。
+// 不告诉用户「套这个预设会多出哪些分类」，他套完「办公」发现「脚本」还在，
+// 只会以为是 bug。这一节同时钉住「别用不存在的 class」——
+// 热载不重插 CSS，新 class 在真机上就是没有样式的裸文字。
+console.log('\n=== [G] schema 暴露预设分类（Step 2e）===')
+{
+  const s = settingsSchema()
+
+  check('settingsSchema 报出 contentKeys（与 APPEARANCE_KEYS 对称）', () => {
+    assert(Array.isArray(s.contentKeys), 'contentKeys 缺失')
+    assert(JSON.stringify(s.contentKeys) === JSON.stringify(CONTENT_KEYS), JSON.stringify(s.contentKeys))
+  })
+  check('★ 每个预设都带 contentCategories（哪怕是空数组，不能是 undefined）', () => {
+    for (const p of s.presets) {
+      assert(Array.isArray(p.contentCategories),
+        `${p.id} 的 contentCategories 不是数组：${JSON.stringify(p.contentCategories)}`)
+    }
+  })
+  check('★ contentCategories 与 PRESETS 的 content.categories 逐条一致', () => {
+    for (const p of s.presets) {
+      const src = (PRESETS[p.id].content || {}).categories || []
+      assert(p.contentCategories.length === src.length,
+        `${p.id}: schema ${p.contentCategories.length} 条 vs 源 ${src.length} 条`)
+      for (let i = 0; i < src.length; i += 1) {
+        assert(p.contentCategories[i].id === src[i].id && p.contentCategories[i].label === src[i].label,
+          `${p.id}[${i}] 不一致：${JSON.stringify(p.contentCategories[i])} vs ${JSON.stringify(src[i])}`)
+      }
+    }
+  })
+  check('★ 开发者预设的分类在 schema 里可见（依琪要的「代码方面的预设分类」）', () => {
+    const dev = s.presets.find((p) => p.id === 'developer')
+    const labels = dev.contentCategories.map((c) => c.label)
+    for (const need of ['代码', '脚本', '配置']) {
+      assert(labels.includes(need), `schema 里看不到 ${need}：${labels.join('/')}`)
+    }
+  })
+  check('general 预设不带分类（空数组，不是 undefined）', () => {
+    const g = s.presets.find((p) => p.id === 'general')
+    assert(Array.isArray(g.contentCategories) && g.contentCategories.length === 0)
+  })
+  check('★ contentCategories 只摘 id/label，不泄漏完整定义', () => {
+    for (const p of s.presets) {
+      for (const c of p.contentCategories) {
+        assert(JSON.stringify(Object.keys(c).sort()) === JSON.stringify(['id', 'label']),
+          `${p.id} 的 ${c.id} 多带了字段：${JSON.stringify(Object.keys(c))}`)
+      }
+    }
+  })
+  check('★ 设置页新代码用的 class 必须都已存在（否则真机上是裸文字）', () => {
+    const clientSrc2 = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+    // 「预设带的分类」那一块实际用到的 class：**各自都必须在别处也被用过**，
+    // 否则说明它是我新造的名字 —— 而新 class 在本轮是没有样式的（CSS 不随热载重插）。
+    for (const cls of ['__setgroup', '__setgh', '__sethint', '__setrow', '__setlabel']) {
+      const hits = clientSrc2.split('"' + cls + '"').length - 1
+      assert(hits > 1, `class ${cls} 只出现 ${hits} 次 —— 它可能是我新造的名字，真机上没有样式`)
+    }
+  })
+  check('★ 新增代码里不得**使用** __settags / __settag（我第一版造的两个不存在的 class）', () => {
+    const clientSrc2 = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+    // ⚠️ 只看**实际用法**（`NS + "__settag"` 这种拼 class 的地方），不看注释 ——
+    //    上面那段注释里就写着这两个名字（用来记这个教训），
+    //    第一版这条断言搜全文，于是被自己的注释绊倒。
+    assert(!/NS\s*\+\s*"__settags?"/.test(clientSrc2),
+      '又用上了不存在的 __settags/__settag —— 热载不重插 CSS，它们在真机上没有样式')
   })
 }
 
