@@ -203,11 +203,31 @@ check('inputTriggers 可用时注册成功，onPick 产出真引用 insert', () 
   dispose();
   assert(unregistered === 1, 'disposer 没注销: ' + unregistered);
 });
-check('inputTriggers 不可用时优雅跳过（返回 null、不抛）', () => {
-  assert(T.registerAtSource({ get: () => undefined }) === null, 'should return null');
-  assert(T.registerAtSource(undefined) === null, 'undefined ctx should return null');
-  assert(T.registerAtSource({ get: () => { throw new Error('boom'); } }) === null, 'throwing get should return null');
-  assert(T.registerAtSource({ get: () => ({ registerSource: () => { throw new Error('dup'); } }) }) === null, 'register throw → null');
+// ⚠️ **这里是三态契约，不是「都返回 null」**（2026-10-06 改，小琪琪复核逮到的洞）。
+//    旧断言把「服务没到」和「注册真抛了」写成同一个 null —— 而调用方（apply 里的重试包装）
+//    正是靠这个返回值决定要不要再试：两者混在一起 ⇒ **永久失败被重试 20 次刷屏**。
+//    现在：undefined = 服务还没到（可重试）；null = 注册真抛了（永久，调用方必须立刻停）。
+check('inputTriggers 不可用时返回 undefined（服务还没到 → 可重试，不抛）', () => {
+  assert(T.registerAtSource({ get: () => undefined }) === undefined, '服务缺席应 undefined');
+  assert(T.registerAtSource(undefined) === undefined, 'undefined ctx 应 undefined');
+  assert(T.registerAtSource(null) === undefined, 'null ctx 应 undefined');
+  assert(T.registerAtSource({ get: () => { throw new Error('boom'); } }) === undefined, 'get 抛错应 undefined（当服务没到）');
+  assert(T.registerAtSource({ get: () => ({}) }) === undefined, 'registerSource 不是函数应 undefined');
+});
+check('注册真抛了返回 null（永久失败 → 调用方必须停止重试）', () => {
+  const r = T.registerAtSource({ get: () => ({ registerSource: () => { throw new Error('dup'); } }) });
+  assert(r === null, 'register throw → null（不能是 undefined，否则会被重试 20 次）');
+});
+// 源码级钉死：apply 侧必须把 null 当永久失败。这条如果被改坏，
+// 「永久失败重试 20 次」会静默回来，而上面那两条断言照样通过。
+check('apply 源码：null → atFatal，且三种结局都写进 probe', () => {
+  const src = fs.readFileSync(CLIENT_PATH, 'utf8');
+  const at = src.indexOf('var atFatal = false');
+  assert(at > 0, '找不到 apply 里的 atFatal 块');
+  const block = src.slice(at, at + 4000);
+  assert(/if \(disposer === null\) atFatal = true;/.test(block), 'null 必须置 atFatal');
+  assert(/else if \(atFatal\)/.test(block), '首次即永久失败时不能再排重试');
+  assert(/at-reg@/.test(block) && /at-fatal@/.test(block) && /at-giveup@/.test(block), '三种结局都要进 probe');
 });
 check('onPick 遇到坏候选返回 undefined（不插坏引用）', () => {
   let registered = null;

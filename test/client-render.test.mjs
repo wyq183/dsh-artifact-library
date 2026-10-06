@@ -158,6 +158,10 @@ function renderDir(entries, extra) {
     (extra && extra.finder) || null,      // finder
     (extra && extra.listMeta) || null,    // listMeta（/files/list 的 total/truncated/limit）
     false,                                // ViewControl: sColsOpen（列浮层开合；task-11 新增，在目录路径末尾）
+    // ⚠️ 这个槽位在 React 的 hook 顺序里**紧跟在 sColsOpen 之后**
+    //    （`ViewControl` 里先 `useState(colsOpen)` 再 `useState(viewOpen)`）。
+    //    位置不能随手挪 —— 队列是按位置喂的，插错地方会让**下面所有 ViewControl 的断言**都错位。
+    (extra && extra.viewOpen) || false,    // ViewControl: sViewOpen（显示形式浮层开合；2026-10-06 新增）
   ];
   const built = build(states);
   const tree = built.comps.main({});
@@ -425,12 +429,40 @@ check('卡片尺寸改了，渲染树跟着变（galleryThumbSize 48 ↔ 160）'
   assert(sig(r48.nodes) !== sig(r160.nodes), 'galleryThumbSize 从 48 改到 160，渲染树完全没变 —— 尺寸设置没接到渲染上');
 });
 
+// ── 显示形式必须**收成一个**按钮（2026-10-06 · 依琪反馈 + 真机复验）──────────────
+// 背景：第一版把 卡片/列表/画廊 从顶部导航搬出来，却只是塞进 ViewControl 的**又一个分段控件**
+// ⇒ 真机截图里还是 7 个按钮并排、总数一个没少（依琪原话要治的正是「按钮太多……不简洁不直观」）。
+// 这几条钉住「3 个按钮 → 1 个」以及「选项在浮层里、当前项有勾」，防止哪天又并排长回去。
+// ⚠️ 本文件的元素形状是 `{type, props, children}` —— **文案在 `children` 里，不在 `props.children`**。
+//    （第一版断言我写成 `props.children`，于是「找不到按钮」误报了一次；`cls`/`data-*` 那些判据没这个问题。）
+const txt = (n) => (Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string').join('') : String(n.children == null ? '' : n.children));
+check('显示形式收成一个紧凑按钮，而不是又一条并排的分段控件', () => {
+  const btn = rCompact.nodes.find((n) => n.type === 'button' && /^显示：/.test(txt(n)));
+  assert(btn, '找不到「显示：xx ▾」按钮 —— 显示形式控件没有收成单个按钮');
+  assert(/▾$/.test(txt(btn)), '按钮文本应带 ▾ 提示可展开：' + txt(btn));
+  const inlineOpts = rCompact.nodes.filter((n) => n.type === 'button' && ['卡片', '列表', '画廊'].includes(txt(n)));
+  assert(inlineOpts.length === 0, '关着浮层时仍渲染了 ' + inlineOpts.length + ' 个并排的视图选项按钮（退回了「一排按钮」）：' + inlineOpts.map(txt).join('/'));
+});
+check('显示形式浮层：3 个选项、恰好 1 个带 ✓ 的当前项，且跟随 dirView', () => {
+  const rOpen = renderDir(entries, { prefs: prefsCompact, dirView: 'list', density: null, viewOpen: true });
+  const items = rOpen.nodes.filter((n) => n.props && n.props.role === 'menuitemradio');
+  assert(items.length === 3, '浮层里应有 3 个选项，实际 ' + items.length);
+  const checked = items.filter((n) => n.props['aria-checked'] === 'true');
+  assert(checked.length === 1, '应恰好 1 个当前项，实际 ' + checked.length);
+  assert(txt(checked[0]).includes('列表'), 'dirView=list 时当前项应是「列表」，实际：' + txt(checked[0]));
+  assert(txt(checked[0]).includes('✓'), '当前项要带 ✓ 标记：' + txt(checked[0]));
+  // 另外两项必须**不带**勾 —— 否则「当前在哪一档」就看不出来了
+  const others = items.filter((n) => n.props['aria-checked'] !== 'true');
+  assert(others.every((n) => !txt(n).includes('✓')), '非当前项不该出现 ✓');
+});
+
 console.log('\n── 校准护栏（见文件头维护须知）──');
 // 黄金值：首次渲染（view=dir，无 finder）时整棵树的 useState 调用总数。
 // **为什么是相等而不是 >=**：`>=` 只能发现 hook 被删；一旦有人在前面**插入**一个 hook，
 // 后面所有值整体后移，按位置喂的 states 会静默错位 —— 断言可能「用错状态也过」。
 // 相等判定会把「增删改 hook」一律变成响亮的失败，逼人重新校准。改组件 hook 结构就改这个数。
-const EXPECTED_HOOK_CALLS = 32;
+// 32 → 33（2026-10-06）：`ViewControl` 新增 `sViewOpen`（显示形式浮层开合）。
+const EXPECTED_HOOK_CALLS = 33;
 console.log('  hook 调用 = ' + out.useStateCalls + ' / 期望 = ' + EXPECTED_HOOK_CALLS + ' / 状态槽位 = ' + out.stateSlots);
 check('状态队列仍与组件 hook 结构对得上（校准护栏）', () => {
   assert(
