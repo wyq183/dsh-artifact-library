@@ -21,6 +21,9 @@ import { listDirectory } from '../lib/index/list.js'
 import {
   DEFAULT_SETTINGS, PRESETS, APPEARANCE_KEYS, SETTINGS_FORMAT, SETTINGS_VERSION,
   HOST_EFFECTIVE_KEYS, SettingsStore, isHiddenEntryName, scanForbiddenKeys,
+  // Step 2a：分类可自定义
+  CONTENT_KEYS, CATEGORY_ICONS, CATEGORY_ID_RE, LOCKED_CATEGORY_ID, DEFAULT_CATEGORIES,
+  validateCategories, mergeCategories,
 } from '../lib/settings.js'
 
 let passed = 0
@@ -688,6 +691,292 @@ console.log('\n=== [6] 源码守卫（防复发）===')
     for (const key of APPEARANCE_KEYS) {
       assert(!HOST_EFFECTIVE_KEYS.includes(key), key + ' 是客户端生效项，不该混进 hostEffectiveKeys')
     }
+  })
+}
+
+// ═══ [7] 分类可自定义（Step 2a）═══════════════════════════════════════════
+//
+// 本节的靶子是**三条硬约束**，不是「能存能读」：
+//   ① 老数据不能变孤儿 —— 默认分类必须覆盖现有全部 artifact_type，兜底类永不可删；
+//   ② 改分类**不能**把预设打成 custom —— 这是「预设分两层」的唯一理由；
+//   ③ 分类 id 是**用户输入**，必须挡住 `__proto__` 这类键。
+console.log('\n=== [7] 分类可自定义（Step 2a）===')
+{
+  // 现有数据的 artifact_type 实测分布（2026-10-06 取自 ~/.dsh/artifact-library/artifacts.json，
+  // 共 266 条：document 151 / code 53 / image 26 / other 12 / video 11 / archive 11 / audio 2）。
+  // ⚠️ 这张表**故意写死**：如果哪天有人往库里加了新 type，这条测试会红 —— 那正是我要的提醒。
+  const REAL_TYPES = ['document', 'code', 'image', 'other', 'video', 'archive', 'audio']
+
+  // ── 7.1 默认分类与现有数据对齐 ─────────────────────────────────────────
+  check('★ 默认分类正好覆盖现有数据的全部 artifact_type（否则那批记录变孤儿）', () => {
+    const ids = DEFAULT_CATEGORIES.map((c) => c.id)
+    for (const t of REAL_TYPES) {
+      assert(ids.includes(t), `默认分类缺 ${t} —— 它名下的记录会变成孤儿`)
+    }
+    assert(ids.length === REAL_TYPES.length,
+      `默认分类数量与现有 type 数不符：多出 ${ids.filter((i) => !REAL_TYPES.includes(i)).join(' / ') || '无'}`)
+  })
+  check('★ 兜底分类 id 仍是 other、label 是「未分类」、locked（改 id 会逼出迁移）', () => {
+    const other = DEFAULT_CATEGORIES.find((c) => c.id === LOCKED_CATEGORY_ID)
+    assert(other, '默认分类里没有兜底类')
+    assert(LOCKED_CATEGORY_ID === 'other',
+      `兜底 id 被改成 ${LOCKED_CATEGORY_ID} —— 库里 12 条记录的 artifact_type 就是 other，改 id = 要迁移`)
+    assert(other.label === '未分类', '兜底类显示名: ' + other.label)
+    assert(other.locked === true, '兜底类必须 locked')
+  })
+  check('默认分类自身合法：id 过 RE、icon 在表内、exts 无重复', () => {
+    for (const c of DEFAULT_CATEGORIES) {
+      assert(CATEGORY_ID_RE.test(c.id), 'id 不合法: ' + c.id)
+      assert(CATEGORY_ICONS.includes(c.icon), `${c.id} 的图标不在 CATEGORY_ICONS 里: ${c.icon}`)
+      assert(Array.isArray(c.exts) && c.exts.length === new Set(c.exts).size, `${c.id} 的 exts 有重复`)
+      for (const e of c.exts) assert(e === e.toLowerCase() && !e.startsWith('.'), `${c.id} 的后缀没归一: ${e}`)
+    }
+  })
+  check('DEFAULT_SETTINGS.categories 与 DEFAULT_CATEGORIES 同源（不是抄了一份）', () => {
+    assert(JSON.stringify(DEFAULT_SETTINGS.categories) === JSON.stringify(DEFAULT_CATEGORIES),
+      '默认值漂了 —— 两份必须一致')
+  })
+
+  // ── 7.2 两层结构（本步最核心的那条翻案）───────────────────────────────
+  check('★ CONTENT_KEYS 与 APPEARANCE_KEYS 不相交（混在一张表里 = 语义错）', () => {
+    for (const k of CONTENT_KEYS) {
+      assert(!APPEARANCE_KEYS.includes(k), `${k} 同时出现在两张表里`)
+    }
+  })
+  check('★ categories 不在 APPEARANCE_KEYS 里', () => {
+    assert(!APPEARANCE_KEYS.includes('categories'),
+      'categories 混进了 APPEARANCE_KEYS —— 那「改了分类」会被判成「外观被微调 → preset 变 custom」')
+  })
+  check('每个键要么是外观类、要么是内容类，不存在第三类', () => {
+    for (const key of Object.keys(DEFAULT_SETTINGS)) {
+      if (key === 'preset' || key === 'customPresets') continue
+      const isAppearance = APPEARANCE_KEYS.includes(key)
+      const isContent = CONTENT_KEYS.includes(key)
+      // panelWidth / listLimit / indexExtraDirs 等是「宿主生效类」，两表都不进是合法的
+      if (isContent) assert(!isAppearance, `${key} 两类都是`)
+    }
+  })
+  check('★ 预设的 content 只用 CONTENT_KEYS 里的键（第二条模块加载自检的正面断言）', () => {
+    for (const [id, preset] of Object.entries(PRESETS)) {
+      for (const key of Object.keys(preset.content || {})) {
+        assert(CONTENT_KEYS.includes(key), `${id} 的 content 用了非内容键 ${key}`)
+      }
+    }
+  })
+  check('★ 依琪那条：开发者预设带代码类分类（不止图片视频）', () => {
+    const ids = (PRESETS.developer.content.categories || []).map((c) => c.id)
+    for (const need of ['code', 'script', 'config']) {
+      assert(ids.includes(need), `开发者预设缺分类 ${need}（ids: ${ids.join('/')}）`)
+    }
+  })
+  check('预设 content 的 label/icon/exts 自身合法（不能被 validateCategories 拒）', () => {
+    for (const [id, preset] of Object.entries(PRESETS)) {
+      const list = (preset.content || {}).categories
+      if (!list) continue
+      const r = validateCategories(list)
+      assert(r.ok, `预设 ${id} 的 categories 不合法：${r.reason}`)
+    }
+  })
+
+  // ── 7.3 validateCategories：形状与边界 ────────────────────────────────
+  check('validateCategories：非法输入被拒（不是夹紧、不是猜）', () => {
+    const bad = [
+      ['不是数组', 'document'],
+      ['是对象', { id: 'a' }],
+      ['超 64 个', Array.from({ length: 65 }, (_, i) => ({ id: 'c' + i, label: 'x' + i }))],
+      ['元素不是对象', ['document']],
+      ['id 含大写', [{ id: 'Doc', label: '文档' }]],
+      ['id 数字开头', [{ id: '1doc', label: '文档' }]],
+      ['id 太长（33 字符）', [{ id: 'a'.repeat(33), label: '文档' }]],
+      ['id 带空格', [{ id: 'my doc', label: '文档' }]],
+      ['label 空串', [{ id: 'doc', label: '   ' }]],
+      ['label 超 24 字', [{ id: 'doc', label: '字'.repeat(25) }]],
+      ['icon 不认识', [{ id: 'doc', label: '文档', icon: 'rocket' }]],
+      ['exts 不是数组', [{ id: 'doc', label: '文档', exts: 'md' }]],
+      ['exts 超 64 个', [{ id: 'doc', label: '文档', exts: Array.from({ length: 65 }, (_, i) => 'e' + i) }]],
+      ['exts 里有非字符串', [{ id: 'doc', label: '文档', exts: [1] }]],
+      ['exts 里后缀过长', [{ id: 'doc', label: '文档', exts: ['a'.repeat(17)] }]],
+    ]
+    for (const [name, value] of bad) {
+      const r = validateCategories(value)
+      assert(r.ok === false, `本该被拒却通过了：${name}`)
+      assert(typeof r.reason === 'string' && r.reason.length > 0, `${name} 被拒但没给理由`)
+    }
+  })
+  check('id 重复 → 拒（判据是 id，不是 label）', () => {
+    const r = validateCategories([
+      { id: 'doc', label: '文档' },
+      { id: 'doc', label: '另一个文档' },
+      { id: LOCKED_CATEGORY_ID, label: '未分类' },
+    ])
+    assert(r.ok === false && /重复/.test(r.reason), '没拒重复 id：' + JSON.stringify(r))
+  })
+  check('后缀归一：`.MD` / `MD` / `..TXT` → 无点小写；空串跳过', () => {
+    const r = validateCategories([
+      { id: 'doc', label: '文档', exts: ['.MD', 'MD', '..TXT', '  ', 'pdf'] },
+      { id: LOCKED_CATEGORY_ID, label: '未分类' },
+    ])
+    assert(r.ok, r.reason)
+    const doc = r.value.find((c) => c.id === 'doc')
+    assert(JSON.stringify(doc.exts) === JSON.stringify(['md', 'txt', 'pdf']),
+      '归一结果: ' + JSON.stringify(doc.exts))
+  })
+  check('★ 缺兜底类 → **自动补上**而不是报错（结构性保证，不指望调用方记得）', () => {
+    const r = validateCategories([{ id: 'doc', label: '文档', exts: ['md'] }])
+    assert(r.ok, '本该通过：' + r.reason)
+    const other = r.value.find((c) => c.id === LOCKED_CATEGORY_ID)
+    assert(other && other.locked === true, '没自动补上兜底类')
+    assert(other.exts.length === 0, '兜底类不该声明后缀')
+    assert(r.notes.some((n) => /兜底/.test(n)), '补了兜底类却没给 note：' + JSON.stringify(r.notes))
+  })
+  check('★ 同一后缀跨类 → **不报错**、进 notes、取先出现的（真实数据里 exe 天然跨类）', () => {
+    const r = validateCategories([
+      { id: 'code', label: '代码', exts: ['exe', 'js'] },
+      { id: 'archive', label: '压缩包', exts: ['exe', 'zip'] },
+      { id: 'doc', label: '文档', exts: ['exe'] },
+      { id: LOCKED_CATEGORY_ID, label: '未分类' },
+    ])
+    assert(r.ok, '跨类后缀不该被拒：' + r.reason)
+    assert(r.value.find((c) => c.id === 'archive').exts.includes('exe'), '归档类自己仍应保留 exe')
+    const dupNotes = r.notes.filter((n) => /exe/.test(n))
+    assert(dupNotes.length === 2, `exe 跨了三类应给 2 条 note，得到 ${dupNotes.length}: ${JSON.stringify(r.notes)}`)
+    assert(dupNotes.some((n) => /代码/.test(n) && /压缩包/.test(n)), 'note 里没说清是哪两个类：' + JSON.stringify(dupNotes))
+  })
+  check('★ locked 由函数说了算：兜底类强制 true，其它类一律 false', () => {
+    const r = validateCategories([
+      { id: 'doc', label: '文档', locked: true },          // 想自封 → 压回 false
+      { id: LOCKED_CATEGORY_ID, label: '未分类', locked: false }, // 想解除 → 强制 true
+    ])
+    assert(r.ok, r.reason)
+    assert(r.value.find((c) => c.id === 'doc').locked === false, '普通类不该能自封 locked')
+    assert(r.value.find((c) => c.id === LOCKED_CATEGORY_ID).locked === true, '兜底类的 locked 不该能被解除')
+  })
+  check('★ 未知字段被丢掉（尤其 color —— icons.js 明令禁 hex）', () => {
+    const r = validateCategories([
+      { id: 'doc', label: '文档', color: '#ff0000', danger: '<script>', exts: ['md'] },
+      { id: LOCKED_CATEGORY_ID, label: '未分类' },
+    ])
+    assert(r.ok, r.reason)
+    const doc = r.value.find((c) => c.id === 'doc')
+    assert(!Object.prototype.hasOwnProperty.call(doc, 'color'), 'color 漏进来了')
+    assert(!Object.prototype.hasOwnProperty.call(doc, 'danger'), 'danger 漏进来了')
+    assert(JSON.stringify(Object.keys(doc).sort()) === JSON.stringify(['exts', 'icon', 'id', 'label', 'locked']),
+      '字段集不对: ' + JSON.stringify(Object.keys(doc)))
+  })
+  check('返回全新对象：改输入不影响已校验的结果', () => {
+    const input = [{ id: 'doc', label: '文档', exts: ['md'] }, { id: LOCKED_CATEGORY_ID, label: '未分类' }]
+    const r = validateCategories(input)
+    assert(r.ok, r.reason)
+    input[0].label = '被改了'
+    input[0].exts.push('evil')
+    assert(r.value.find((c) => c.id === 'doc').label === '文档', '结果被输入后续改动污染了')
+    assert(!r.value.find((c) => c.id === 'doc').exts.includes('evil'), 'exts 数组没深拷贝')
+  })
+  check('★ 分类 id 不污染 Object.prototype', () => {
+    const r = validateCategories([
+      { id: 'doc', label: '文档', exts: ['md'] },
+      { id: LOCKED_CATEGORY_ID, label: '未分类' },
+    ])
+    assert(r.ok, r.reason)
+    // __proto__ 过不了 CATEGORY_ID_RE（下划线开头？不 —— 它是小写字母开头但含连续下划线，
+    // 形状上是合法的，所以这里断言的是「即使写进来也只是个普通字符串键，不产生原型污染」）
+    const rProto = validateCategories([
+      { id: '__proto__', label: 'x' },
+      { id: LOCKED_CATEGORY_ID, label: '未分类' },
+    ])
+    assert(rProto.ok === false, '__proto__ 开头的 id 该被 RE 挡住（首字符必须是字母）')
+    assert(({}).polluted === undefined, '原型被污染了')
+  })
+
+  // ── 7.4 mergeCategories：只增改、绝不删 ───────────────────────────────
+  check('★ mergeCategories 只增改、绝不删（删了引用它的记录就成孤儿）', () => {
+    const base = [
+      { id: 'document', label: '文档', icon: 'doc', exts: ['md'], locked: false },
+      { id: 'legacy', label: '老分类', icon: 'other', exts: [], locked: false },
+      { id: LOCKED_CATEGORY_ID, label: '未分类', icon: 'other', exts: [], locked: true },
+    ]
+    const merged = mergeCategories(base, [{ id: 'script', label: '脚本', icon: 'code', exts: ['sh'] }])
+    const ids = merged.map((c) => c.id)
+    assert(ids.includes('legacy'), 'legacy 被删了 —— 这就是孤儿')
+    assert(ids.includes(LOCKED_CATEGORY_ID), '兜底类被删了')
+    assert(ids.includes('script'), '新分类没加进去')
+    assert(merged.length === base.length + 1, '数量不对: ' + merged.length)
+  })
+  check('mergeCategories：同 id 覆盖 label/icon/exts（这才是「套预设」的意义）', () => {
+    const base = [{ id: 'code', label: '代码', icon: 'code', exts: ['js'], locked: false }]
+    const merged = mergeCategories(base, [{ id: 'code', label: '源码', icon: 'json', exts: ['py', 'go'] }])
+    const code = merged.find((c) => c.id === 'code')
+    assert(code.label === '源码' && code.icon === 'json', '没覆盖: ' + JSON.stringify(code))
+    assert(JSON.stringify(code.exts) === JSON.stringify(['py', 'go']), 'exts 没覆盖: ' + JSON.stringify(code.exts))
+  })
+  check('mergeCategories 不改动入参（base 与 incoming 都保持原样）', () => {
+    const base = [{ id: 'code', label: '代码', icon: 'code', exts: ['js'], locked: false }]
+    const incoming = [{ id: 'code', label: '源码', exts: ['py'] }, { id: 'new', label: '新', exts: [] }]
+    const baseSnap = JSON.stringify(base)
+    const inSnap = JSON.stringify(incoming)
+    const merged = mergeCategories(base, incoming)
+    assert(JSON.stringify(base) === baseSnap, 'base 被改了')
+    assert(JSON.stringify(incoming) === inSnap, 'incoming 被改了')
+    merged[0].exts.push('污染')
+    assert(JSON.stringify(base) === baseSnap, 'exts 是同一个数组引用（浅拷贝漏了）')
+  })
+  check('mergeCategories 容错：非数组 / 脏元素不抛', () => {
+    assert(mergeCategories(null, null).length === 0, 'null 该回空数组')
+    assert(mergeCategories([{ id: 'a', label: 'A' }], [null, 1, 'x', { noId: 1 }]).length === 1, '脏元素该被跳过')
+  })
+
+  // ── 7.5 ★ 端到端：改分类**不会**把预设打成 custom（本步的核心设计目标）──
+  check('★★ 只改 categories 不会把预设打成 custom（两层结构的唯一理由）', () => {
+    const s = freshStore()
+    s.update({ preset: 'developer' })
+    assert(s.get().preset === 'developer', '前置失败：预设不是 developer')
+    const r = s.update({ categories: [{ id: 'mydoc', label: '我的文档', icon: 'doc', exts: ['md'] }] })
+    assert(r.errors.length === 0, 'errors: ' + JSON.stringify(r.errors))
+    assert(s.get().preset === 'developer',
+      `改了分类后预设变成 ${s.get().preset} —— 内容类不该参与「微调变 custom」判定`)
+    assert(s.get().categories.some((c) => c.id === 'mydoc'), '新分类没存进去')
+  })
+  check('对照：只改外观键**会**变 custom（证明上一条不是因为判定失灵）', () => {
+    const s = freshStore()
+    s.update({ preset: 'developer' })
+    s.update({ density: 'loose' })
+    assert(s.get().preset === 'custom', '外观微调后应变 custom，得到 ' + s.get().preset)
+  })
+  check('★ 套预设时分类是**合并**：developer → office，script/config 仍在', () => {
+    const s = freshStore()
+    s.update({ preset: 'developer' })
+    const afterDev = s.get().categories.map((c) => c.id)
+    assert(afterDev.includes('script') && afterDev.includes('config'), 'developer 没带上代码类分类')
+    s.update({ preset: 'office' })
+    const afterOffice = s.get().categories.map((c) => c.id)
+    for (const keep of ['script', 'config', 'code']) {
+      assert(afterOffice.includes(keep), `换预设后 ${keep} 被删了 —— 那是指向它的记录变孤儿`)
+    }
+    // 对照：外观项**会**被重置（developer 的 compact 行高应回默认）
+    assert(s.get().density === DEFAULT_SETTINGS.density, '外观项该被重置回默认')
+  })
+  check('★ 缺兜底类的配置存进去后，兜底类会被补上（老数据不会失联）', () => {
+    const s = freshStore()
+    const r = s.update({ categories: [{ id: 'only', label: '唯一', icon: 'other', exts: [] }] })
+    assert(r.errors.length === 0, 'errors: ' + JSON.stringify(r.errors))
+    assert(s.get().categories.some((c) => c.id === LOCKED_CATEGORY_ID), '兜底类没被补上')
+    assert(r.notes.some((n) => /兜底/.test(n)), 'notes 没透出来：' + JSON.stringify(r.notes))
+  })
+  check('非法 categories 进 errors，且**不改掉原值**', () => {
+    const s = freshStore()
+    const before = JSON.stringify(s.get().categories)
+    const r = s.update({ categories: [{ id: 'Bad', label: 'x' }] })
+    assert(r.errors.some((e) => e.key === 'categories'), 'errors: ' + JSON.stringify(r.errors))
+    assert(JSON.stringify(s.get().categories) === before, '非法值把原值改掉了')
+  })
+  check('★ categories 会落盘、重新 load 后仍在', () => {
+    const s = freshStore()
+    s.update({ categories: [{ id: 'mine', label: '我的', icon: 'folder', exts: ['xyz'] }] })
+    assert(s.get().categories.some((c) => c.id === 'mine'), '前置失败')
+    const reloaded = new SettingsStore({ file: SETTINGS_FILE }).load()
+    const cats = reloaded.get().categories
+    assert(cats.some((c) => c.id === 'mine'), '重启后分类没了 —— 读了不生效')
+    assert(cats.some((c) => c.id === LOCKED_CATEGORY_ID), '兜底类没落盘')
   })
 }
 
