@@ -151,12 +151,22 @@
 
 ## 八、测试
 
+> ⚠️ **下表只列了最早的 4 套，已经过时**（2026-10-06 实测：`test/` 下有 **20** 个 `*.test.mjs`）。
+> 想知道当前有几套、几条，**跑一遍数**，别信这张表：
+>
+> ```powershell
+> node --test test/*.test.mjs        # 全套；末尾的 tests/pass/fail 就是权威数字
+> ```
+>
+> ⚠️ 用 `node --test test/` 会被当成模块路径报 `MODULE_NOT_FOUND`，**必须带 glob**。
+
 | 套件 | 位置 | 断言数 | 覆盖 |
 |:---|:---|---:|:---|
 | 引擎离线自验 | `lib/index/selftest.js` | 24 | 范围纯函数 / ini 生成 / **真拉起 Everything 真查询** / 隐私零泄漏 / 中文不乱码 / 正常关闭 |
 | 路由 harness | `test/http-files.test.mjs` | 10 | 分发优先级 / 参数透传 / 局域网 403 / 引擎缺失 503 / 原路由回归 |
 | 模型工具 | `test/file-search-tool.test.mjs` | 14 | 工具定义合法性 / 正常路径 / limit 钳制 / 空结果 / 异常兜底 |
 | 客户端插件 | `test/client-apply.test.mjs` | 22 | apply 永不抛出（11 种 ctx）/ 注册形态 / 渲染路径 |
+| 分类（Step 2） | `test/categories.test.mjs` | 33 | 后缀口径 / 跨类取先出现 / 目录不猜 / **已有记录一条都不动** / 兜底 id 与正则不漂移 |
 
 运行方式：
 
