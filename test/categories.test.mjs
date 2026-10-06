@@ -307,6 +307,69 @@ console.log('\n=== [E] 形状守卫 ===')
   })
 }
 
+// ═══ [F] 客户端接线守卫（Step 2d）═════════════════════════════════════════
+//
+// 为什么这一节是**读源码文本**而不是渲染：
+//   `listQuery` / 工具条那段在 client.js 的一个闭包里，而 client-pure 的注入锚点
+//   （`exports.apply = apply;`）在模块作用域 —— 注入钩子看不见它们（实测）。
+//   而这一类 bug 恰恰是**「宿主支持、前端不传」**：2b 之前 `store.list` 早就认
+//   `artifact_type` 这个参数，缺的只有前端。这种「静默断线」用源码守卫抓最直接。
+console.log('\n=== [F] 客户端接线守卫（防「图能点、请求不带上」）===')
+{
+  const clientSrc = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+
+  check('★★ listQuery 必须把 artifact_type 拼进查询串（否则筛选器是死的）', () => {
+    const m = clientSrc.match(/function listQuery\(filters\)\s*\{[\s\S]*?\n {4}\}/)
+    assert(m, '找不到 listQuery 函数体（改名/改形了？请同步本测试）')
+    assert(/add\("artifact_type",\s*filters\.artifact_type\)/.test(m[0]),
+      'listQuery 没带上 artifact_type —— 用户选了分类，请求里没有，列表不会变')
+  })
+  check('★★ 筛选状态必须有 artifact_type 这个键（否则下拉的 value 是 undefined）', () => {
+    const m = clientSrc.match(/var stateFilters = React\.useState\(\{([^}]*)\}\)/)
+    assert(m, '找不到 stateFilters 初值')
+    assert(/artifact_type:/.test(m[1]), 'stateFilters 缺 artifact_type 键：' + m[1].trim())
+  })
+  check('★★★ 重拉的依赖数组里必须有 filters.artifact_type（否则选了分类不刷新）', () => {
+    // 这是「存进去了但不生效」的典型形状：UI 会变、请求会带上，但**没人重新拉**
+    const m = clientSrc.match(/\}, \[reload, ([^\]]*)\]\)/)
+    assert(m, '找不到重拉 effect 的依赖数组')
+    assert(/filters\.artifact_type/.test(m[1]),
+      '依赖数组里没有 filters.artifact_type —— 切分类不会重新拉数据。当前依赖：' + m[1].trim())
+  })
+  check('★ 工具条里真的有分类下拉，且选项来自 buckets（带计数）', () => {
+    assert(/catBuckets/.test(clientSrc) && /data\.cats\.buckets/.test(clientSrc), '没读 buckets')
+    assert(/"aria-label": "按分类筛选"/.test(clientSrc), '找不到分类下拉')
+    // 计数要拼进选项文案，否则「更醒目」只体现在名字上
+    assert(/bucket\.count/.test(clientSrc), '选项里没带计数')
+  })
+  check('★ 0 条的空分类也要列出来（否则用户没法选中它往里归东西）', () => {
+    // 判据：选项由 catOptions 整体 map 生成，**没有** `count > 0` 之类的过滤
+    const m = clientSrc.match(/catOptions\.map\(function[\s\S]*?\n {10}\}\)/)
+    assert(m, '找不到 catOptions.map 那段')
+    assert(!/count\s*>\s*0/.test(m[0]), '选项被按 count>0 过滤了 —— 空分类会消失')
+  })
+  check('★ 失效分类走 optgroup，且明确标注（不静默混进正常分类里）', () => {
+    assert(/optgroup/.test(clientSrc) && /已失效的分类/.test(clientSrc), '孤儿没有单独分组')
+  })
+  check('★ 产物面板的「产出/资料」下拉不再叫「按类型筛选」（它筛的不是分类）', () => {
+    // ⚠️ 只针对**产物面板那个 filters.kind 下拉**。
+    //    文件浏览器里另有一处 `aria-label: "按类型筛选"`（`__chips` 那组扩展名按钮，
+    //    见 client.js 的 chips 段）—— 那个标签是**对的**：它确实按文件类型筛。
+    //    第一版这条守卫全文件搜、于是误伤了那一处，已收窄到 kind 下拉本身。
+    // 直接对**那一行**做字面断言（比正则匹配整段可靠：那段里嵌着 `{...}` 的箭头/函数体）
+    assert(clientSrc.includes('value: filters.kind, "aria-label": "按产出/资料筛选"'),
+      '找不到「产出/资料」下拉的正确标签（是不是又改回「按类型筛选」了？）')
+    assert(!clientSrc.includes('value: filters.kind, "aria-label": "按类型筛选"'),
+      '这个下拉还挂着「按类型筛选」—— 它筛的是产出/资料，不是分类')
+  })
+  check('★ 清空筛选与 hasFilter 都要算上 artifact_type（否则「清空」后仍被分类卡着）', () => {
+    assert(/patchFilters\(\{ q: "", kind: "", refine: "", project: "", artifact_type: "" \}\)/.test(clientSrc),
+      '「清空筛选看全部」没有清 artifact_type')
+    assert(/hasFilter = !!\(filters\.q \|\| filters\.kind \|\| filters\.artifact_type/.test(clientSrc),
+      'hasFilter 没算 artifact_type —— 空态会误判成「首次使用」')
+  })
+}
+
 // ── 收尾 ─────────────────────────────────────────────────────────────────
 for (const dir of TMP_DIRS) { try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* 忽略 */ } }
 
