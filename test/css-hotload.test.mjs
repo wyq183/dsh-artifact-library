@@ -119,6 +119,21 @@ try {
     assert(PLUGIN_ID === '@dsh-external/dsh-artifact-library', '包名变了？这条断言要跟着更新')
   })
 
+  check('A1b ★ STYLE_ID 必须被包名命名空间化 —— 因为"认领/抢占"依赖它全局唯一', () => {
+    // ⚠️ 为什么这条必须有（2026-10-07 · 小琪琪提，我采纳）：
+    //    `injectCss` 现在会**无条件抢占**带同一 `data-plugin-css` 的标签
+    //    （`existing.setAttribute("data-plugin", PLUGIN_ID)`）——
+    //    抢占本身是对的（"我们的标签被别的插件认领走了"正需要它抢回来），
+    //    **但它只在「STYLE_ID 全局唯一」时才安全**：
+    //    它同时是"这个标签归我们"的**所有权证明**，判据就是 `data-plugin-css` 精确相等。
+    //    哪天有人嫌它长、改成 `"ui.css"` —— **抢占立刻变成真的误伤别的插件，而且是静默的**。
+    //    ⇒ 把这个**隐式前提变成一条会红的断言**。
+    assert(STYLE_ID.startsWith(PLUGIN_ID + '/'),
+      `STYLE_ID 必须以「包名/」开头（现在 ${JSON.stringify(STYLE_ID)}）——`
+      + '否则 `data-plugin-css` 不再能证明"这个标签是我们的"，抢占会误伤别的插件')
+    assert(STYLE_ID !== 'ui.css' && STYLE_ID.includes('/'), 'STYLE_ID 看起来被"缩短"过了')
+  })
+
   check('A2 首次注入：标签同时带 data-plugin-css 与 data-plugin', () => {
     const { doc, head } = makeDom()
     makeInject()(doc, STYLE_ID, PLUGIN_ID, 'v1')()

@@ -77,6 +77,46 @@ console.log('\n=== [A] normalizeTag：装饰符折叠，但语义符号必须保
     assert(normalizeTag('---') === '')
     assert(normalizeTag(null) === '' && normalizeTag(undefined) === '')
   })
+
+  // ── ★★ 差分测试：不枚举样本，直接比对「一条独立写的参考实现」 ──────────────
+  // ⚠️ 为什么要有这条（2026-10-07 · 小琪琪独立复核提出，我复现后采纳）：
+  //    上面那几条是**枚举样本**（"这几对必须不同"）—— 可读，但只覆盖我想到的组合。
+  //    她先试了一条"更省"的写法：一个性质 ——「同 tag 键 ⇒ 同 project 键」
+  //    （即 normalizeTag 必须比 normalizeProjectName **更细**）。**那条对洞① 是瞎的**：
+  //      当前实现 violated 0 / 旧口径(抹掉所有符号) violated 也 0
+  //    因为洞① 的病灶恰恰是"tag 键**塌成了** project 键"——
+  //    两者相等时，"不更粗"这条性质照样成立。**那条性质把 bug 状态当成了合法状态。**
+  //    ⇒ 改用差分：把「意图」直接写成一份参考实现，逐串比对。
+  //      **它会在有人把口径改回旧样子时立刻红，并打印是哪些输入** —— 不用先想到那个样本。
+  //    ⚠️ 但**不替换**上面那三条：枚举的**可读性**是文档价值（一眼看懂为什么必须不同），
+  //      差分的**覆盖面**是护栏价值。**两个一起留。**
+  check('★★ 差分：与「只折叠装饰符」这条意图的参考实现**逐串一致**（覆盖面守卫）', () => {
+    // 参考实现 = 把「意图」直写一遍（刻意不 import normalizeTag 的任何内部件）
+    const DECOR = /[\s\u00b7\u30fb\u2027\u2219\u22c5\u2010\u2011\u2012\u2013\u2014\u2015\-_]+/gu
+    const reference = (s) => String(s == null ? '' : s).normalize('NFKC').replace(DECOR, '').toLowerCase()
+
+    // 生成式语料：短串 × 语义符号的笛卡尔积（专挑洞① 那一类）
+    const alpha = ['C', 'c', 'F', 'A', 'GP', 'net', 'v0', '3', '0', 'x', '日']
+    const sem = ['', '+', '#', '.', '++', '##', '.0', '-', '_', ' ', '·', '+\u200b']
+    const corpus = new Set()
+    for (const a of alpha) for (const b of sem) for (const c of sem) corpus.add(a + b + c)
+
+    const mismatch = []
+    for (const s of corpus) {
+      if (normalizeTag(s) !== reference(s)) mismatch.push(`${JSON.stringify(s)}: ${JSON.stringify(normalizeTag(s))} != ${JSON.stringify(reference(s))}`)
+    }
+    assert(mismatch.length === 0,
+      `有 ${mismatch.length} 处与意图不符（前 8 条）：\n    ` + mismatch.slice(0, 8).join('\n    '))
+    assert(corpus.size >= 100, '生成语料太小（' + corpus.size + '），这条守卫会名存实亡')
+
+    // 反向对照：**必须**能抓到"抹掉所有符号"的旧口径 —— 否则这条守卫是空转的
+    const oldCaliber = (s) => String(s == null ? '' : s).normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase()
+    let oldBad = 0
+    for (const s of corpus) if (oldCaliber(s) !== reference(s)) oldBad += 1
+    assert(oldBad > 0,
+      '★ 反向对照失败：旧口径（抹掉所有符号）竟然与参考实现一致 ——'
+      + '说明这份语料挑不出洞①，那这条守卫是空转的，等于没写')
+  })
 }
 
 // ═══ [B] ★★ 范围边界（本步最重要的一条）═════════════════════════════════
@@ -662,6 +702,60 @@ console.log('\n=== [J] 两个真洞的回归守卫（都是实测复现过的丢
       + '会让新 CSS 一直进不来，**非得刷新页面**才行')
     assert(body.includes('existing.setAttribute("data-plugin"'), '认领动作不见了')
     assert(body.includes('existing.textContent = css'), '内容同步不见了（热载后 CSS 值不会更新）')
+  })
+
+  // ── 跨方法一致性：三条「撤销」对回收站的口径 ─────────────────────────────
+  check('★ J11 三条「撤销」路径对回收站的口径**必须一致**（要改就得三条一起改）', () => {
+    // ⚠️ 这条钉的是**跨方法的一致性**，不是单个方法的对错。
+    //    2026-10-07 小琪琪复核时问：「`undoTagMerge` 不排除回收站，而 `mergeTags`/`tagCounts` 都排除，
+    //    口径不一致」。我复现确认了现象，但**查完三条撤销路径后决定不照"排除"改**：
+    //      ① 三条撤销路径**本来就是一致的**（`undoProjectMerge` / `undoCategoryRemoval`
+    //         也还原回收站记录）⇒ 只改 `undoTagMerge` 会**制造**一处新的不一致 ——
+    //         正是她想避免的那类问题；
+    //      ② 快照记的是"这次操作改过哪些记录"，而三条批量写**在改写时**都跳过回收站
+    //         ⇒ 能进快照 = 当时有效、确实被改过；之后被回收不改变这个事实，
+    //           撤销就该把它退回去（跳过反而留下"内容带着一次已被撤销的操作"的记录，
+    //           用户恢复那条记录时会看到合并后的写法）。
+    //    ⇒ 这里把"三者行为一致"钉住：**要么三条一起还原，要么三条一起跳过**。
+    //      将来谁想改，这条会立刻红，逼他三个一起想。
+    const mk = () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alf-undo-sym-'))
+      TMP_DIRS.push(dir)
+      return { dir, store: new ArtifactStore(dir).load() }
+    }
+
+    const a = mk() // ① 标签合并 → 撤销
+    const ra = a.store.register({ path: path.join(a.dir, 'a.txt'), title: 'a', tags: ['dsh'] })
+    a.store.mergeTags({ groups: [{ canonical: 'DSH', from: ['dsh'] }] })
+    a.store.trash(ra.id)
+    a.store.undoTagMerge()
+
+    const b = mk() // ② 项目合并 → 撤销
+    const rb = b.store.register({ path: path.join(b.dir, 'b.txt'), title: 'b', project: '旧项目' })
+    b.store.mergeProjects({ names: ['旧项目'], to: '新项目' })
+    b.store.trash(rb.id)
+    b.store.undoProjectMerge()
+
+    const c = mk() // ③ 分类改派 → 撤销
+    const rc = c.store.register({ path: path.join(c.dir, 'c.txt'), title: 'c', artifact_type: 'code' })
+    c.store.reassignArtifactType('code', { reassignTo: 'document' })
+    c.store.trash(rc.id)
+    c.store.undoCategoryRemoval()
+
+    const restoredTrashed = {
+      undoTagMerge: ra.tags[0] === 'dsh',
+      undoProjectMerge: rb.project === '旧项目',
+      undoCategoryRemoval: rc.artifact_type === 'code',
+    }
+    const values = Object.values(restoredTrashed)
+    assert(values.every((v) => v === values[0]),
+      '★ 三条撤销路径对回收站的口径不一致了 —— 只改一条就会制造新的不一致：'
+      + JSON.stringify(restoredTrashed))
+    // 现在的共同口径是「照样还原」（理由见 lib/store.js 里 UNDO_CREDENTIAL_KEYS 上方那段）。
+    // ⚠️ 若哪天决定改成"跳过回收站"，**三条一起改**，再把这里翻成 === false。
+    assert(values[0] === true,
+      '★ 三条应当都还原回收站记录（若要改口径，三条一起改并同步翻转这条断言）：'
+      + JSON.stringify(restoredTrashed))
   })
 }
 
