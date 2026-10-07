@@ -18,7 +18,7 @@ import path from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import {
   normalizeTag, pickCanonicalTag, findTagDuplicates, planTagMerge,
-  suggestTagFamilies, tagStats,
+  suggestTagFamilies, tagStats, buildTagSwap,
 } from '../lib/tags.js'
 import { normalizeProjectName } from '../lib/project-merge.js'
 import { ArtifactStore } from '../lib/store.js'
@@ -496,13 +496,39 @@ console.log('\n=== [H] store.mergeTags / undoTagMerge（临时目录，不碰真
     }
   })
 
-  check('H14 边界：from 里带 canonical 自己 / 纯标点 → 跳过，不算错也不改东西', () => {
+  check('H14 边界：from 里带 canonical 自己 → 跳过（无东西可改）', () => {
     const onlySelf = S2.mergeTags({ groups: [{ canonical: 'DSH', from: ['DSH'] }] })
     assert(onlySelf.ok === false, '「没有可改写的写法」应 ok=false，实际 ' + JSON.stringify(onlySelf))
+  })
+
+  check('★ H14b 【3c 改行为】纯标点标签在 merge 下**被拒**（旧行为是静默跳过）', () => {
+    // ⚠️ 这条**改了 3b 的行为**，理由要说清楚（2026-10-07，做 3c 抽公共校验层时发现）：
+    //   旧写法是「归一化后为空 → continue 跳过」。我当时写的理由是"它匹配不到任何记录" ——
+    //   **那个理由是错的**：`tagCounts` 只滤掉**空串**，像 `···` 这种"归一化为空但字面存在"
+    //   的标签**是真在库里的**，所以"跳过它"等于**报告说改了、实际一条没改** ——
+    //   正是这个文件反复要防的空转。
+    //   ⇒ 现在只跳过**真正的空串**；`···` 走 merge 会被闸门拒（判据 `'' !== key`），
+    //     并**明确指向 `rename`** —— 清理垃圾标签是"人的决定"，正是 rename 的职责。
     const withJunk = S2.mergeTags({ groups: [{ canonical: 'DSH', from: ['···', 'dsh'] }] })
-    assert(withJunk.ok === true, '纯标点该被跳过、不该让整组失败：' + JSON.stringify(withJunk))
-    const u = S2.undoTagMerge()
-    assert(u.ok === true, '善后撤销应成功：' + JSON.stringify(u))
+    assert(withJunk.ok === false,
+      '★ 纯标点该被闸门拒（而不是静默跳过）—— 静默跳过 = 报告说改了实际没改：' + JSON.stringify(withJunk))
+    assert(/rename/.test(withJunk.error), '拒绝时该指出出路是 rename：' + withJunk.error)
+    assert(JSON.stringify(P.tags) === JSON.stringify(['DSH']), '被拒时不该改任何记录')
+  })
+
+  check('★ H14c 而 `rename` **能**清理垃圾标签（这就是那两个动作的分工）', () => {
+    const { dir, store } = mkStore()
+    const rec = store.register({ path: path.join(dir, 'j.txt'), title: 'j', tags: ['···', '正常'] })
+    const dry = store.renameTags({ groups: [{ canonical: '正常', from: ['···'] }], dryRun: true })
+    assert(dry.ok === true, 'rename 该接受清理垃圾标签：' + JSON.stringify(dry))
+    assert(dry.changed === 1, '该命中 1 条，实际 ' + dry.changed)
+    const real = store.renameTags({ groups: [{ canonical: '正常', from: ['···'] }] })
+    assert(real.ok === true && real.mode === 'rename', JSON.stringify(real))
+    assert(JSON.stringify(rec.tags) === JSON.stringify(['正常']),
+      '★ 垃圾标签该被真的清掉（并被记录内去重掉）：' + JSON.stringify(rec.tags))
+    const u = store.undoTagMerge()
+    assert(u.ok === true && u.mode === 'rename', '撤销该能识别出这是 rename：' + JSON.stringify(u))
+    assert(JSON.stringify(rec.tags) === JSON.stringify(['···', '正常']), '该整份还原：' + JSON.stringify(rec.tags))
   })
 
   check('H15 ★ 回收站记录不参与标签合并（与 mergeProjects 同一口径）', () => {
@@ -756,6 +782,169 @@ console.log('\n=== [J] 两个真洞的回归守卫（都是实测复现过的丢
     assert(values[0] === true,
       '★ 三条应当都还原回收站记录（若要改口径，三条一起改并同步翻转这条断言）：'
       + JSON.stringify(restoredTrashed))
+  })
+}
+
+// ═══ [K] buildTagSwap + renameTags（Step 3c：两个入口共用一个引擎）══════════
+//
+// 这一节的靶子是**「merge 与 rename 只差一道闸门」这条设计**：
+// 如果哪天有人图省事各写一份校验，「不许串链」「逐字保留」这些必然漂移 ——
+// 而这仓库已经吃过「同一件事各写一份」的亏（categories.js 头部那五张扩展名表）。
+console.log('\n=== [K] buildTagSwap / renameTags（两个入口共用一个引擎）===')
+
+{
+  const mkStore = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alf-tags-3c-'))
+    TMP_DIRS.push(dir)
+    return { dir, store: new ArtifactStore(dir).load() }
+  }
+
+  // ── 规则层：buildTagSwap ────────────────────────────────────────────────
+  check('★ K1 机械档（默认）：同串两写放行，跨语义被拒', () => {
+    const okOne = buildTagSwap([{ canonical: 'DSH', from: ['dsh'] }])
+    assert(okOne.ok === true, '同串两写该放行：' + JSON.stringify(okOne))
+    assert(okOne.swap.get('dsh') === 'DSH', 'swap 不对：' + JSON.stringify([...okOne.swap]))
+    const bad = buildTagSwap([{ canonical: '学业', from: ['超星'] }])
+    assert(bad.ok === false, '跨语义该被拒：' + JSON.stringify(bad))
+    assert(/rename/.test(bad.error), '★ 被拒时该指出出路 rename：' + bad.error)
+  })
+
+  check('★★ K2 显式档（allowSemantic）：跨语义**允许** —— 这就是 rename 的存在理由', () => {
+    const r = buildTagSwap([{ canonical: '学业', from: ['超星', '弹幕梗'] }], { allowSemantic: true })
+    assert(r.ok === true, 'rename 档该允许跨语义：' + JSON.stringify(r))
+    assert(r.swap.get('超星') === '学业' && r.swap.get('弹幕梗') === '学业', JSON.stringify([...r.swap]))
+  })
+
+  check('★ K3 目标名可以是**库里还不存在的**新标签（"建一个大类"的动作）', () => {
+    const r = buildTagSwap([{ canonical: '全新的名字', from: ['超星'] }], { allowSemantic: true })
+    assert(r.ok === true, '新目标名该允许：' + JSON.stringify(r))
+  })
+
+  check('★ K4 两档**共用**的守卫：逐字保留（不 trim、不改大小写）', () => {
+    for (const allowSemantic of [false, true]) {
+      const r = buildTagSwap([{ canonical: ' DSH ', from: ['dsh'] }], { allowSemantic })
+      assert(r.ok === true, `allowSemantic=${allowSemantic} 该放行：` + JSON.stringify(r))
+      // ⚠️ 键必须是**记录里那个原字符串**，不能被 trim —— 否则 swap 对不上记录里的值，
+      //    结果就是「报告说改了、实际一条没改」的静默空转。
+      assert(r.swap.has('dsh'), 'from 的键该逐字保留')
+      assert(r.accepted[0].canonical === ' DSH ', '★ canonical 被 trim 了：' + JSON.stringify(r.accepted[0].canonical))
+    }
+  })
+
+  check('★ K5 两档共用的守卫：同一写法不许并到两个不同目标', () => {
+    // ⚠️ 用例设计：两组都必须**先通过范围闸门**（同一归一键），才轮得到这条检查。
+    //    我第一版拿 `dsh2` 当第二个目标 —— 它与 `dsh` 归一化后**不同**，
+    //    会被范围闸门先拦下，于是测的是别的东西（跟 H11 当初那个坑同型，又踩了一次）。
+    for (const allowSemantic of [false, true]) {
+      const r = buildTagSwap([
+        { canonical: 'DSH', from: ['dsh'] },
+        { canonical: 'Dsh', from: ['dsh'] },   // 同归一键（dsh），但目标不同
+      ], { allowSemantic })
+      assert(r.ok === false, `allowSemantic=${allowSemantic} 该被拒：` + JSON.stringify(r))
+      assert(/两个不同的标签/.test(r.error), '该报"并到两个不同目标"：' + r.error)
+    }
+  })
+
+  check('★★ K6 两档共用的守卫：不许串链（某组的目标名同时是别组要改掉的写法）', () => {
+    for (const allowSemantic of [false, true]) {
+      const r = buildTagSwap([
+        { canonical: 'dsH', from: ['DSH'] },
+        { canonical: 'DSH', from: ['dsh'] },
+      ], { allowSemantic })
+      assert(r.ok === false, `allowSemantic=${allowSemantic} 该被拒：` + JSON.stringify(r))
+      assert(/串起来/.test(r.error), r.error)
+    }
+  })
+
+  check('★★ K7 「空串」跳过，但「归一化后为空的真实标签」**必须进闸门**', () => {
+    // ⚠️ 这条改了 3b 的行为，理由是本条最重要的：
+    //   旧写法「归一化后为空 → 跳过」会让 `···` 这种**真在库里**的垃圾标签被**静默丢弃** ——
+    //   也就是"报告说改了、实际一条没改"。现在只跳过**真空串**（不可能是真实标签）。
+    const r = buildTagSwap([{ canonical: 'DSH', from: ['', 'dsh'] }])
+    assert(r.ok === true, '真空串该被跳过：' + JSON.stringify(r))
+    assert(r.swap.size === 1 && r.swap.has('dsh'), '空串不该进 swap：' + JSON.stringify([...r.swap]))
+    // `···` 归一化为空 → 机械档下 `'' !== 'dsh'` ⇒ **被拒**（而不是静默跳过）
+    const junk = buildTagSwap([{ canonical: 'DSH', from: ['···'] }])
+    assert(junk.ok === false, '★ 纯标点该被拒，不该静默跳过：' + JSON.stringify(junk))
+    // 但 rename 档允许 —— 这样垃圾标签才有地方被清理
+    const junkRename = buildTagSwap([{ canonical: '正常', from: ['···'] }], { allowSemantic: true })
+    assert(junkRename.ok === true, 'rename 档该允许清理垃圾标签：' + JSON.stringify(junkRename))
+  })
+
+  check('K8 边界：空输入 / 无有效组 / canonical 归一化后为空 → 都说清原因', () => {
+    assert(buildTagSwap([]).ok === false, '空数组该被拒')
+    assert(buildTagSwap(null).ok === false, 'null 该被拒')
+    assert(buildTagSwap([{ canonical: 'DSH', from: [] }]).ok === false, '没有 from 该被拒')
+    assert(buildTagSwap([{ canonical: '', from: ['dsh'] }]).ok === false, '空规范名该被拒')
+    const junkTarget = buildTagSwap([{ canonical: '···', from: ['dsh'] }])
+    assert(junkTarget.ok === false && /目标名/.test(junkTarget.error), JSON.stringify(junkTarget))
+  })
+
+  // ── store 层：renameTags ────────────────────────────────────────────────
+  const { dir: D, store: S } = mkStore()
+  const mk = (f, tags) => S.register({ path: path.join(D, f), title: f, tags })
+  const A = mk('a.txt', ['超星'])
+  const B = mk('b.txt', ['弹幕梗'])
+  const C = mk('c.txt', ['第213章'])
+
+  check('★ K9 rename 的 dry-run：报影响面，记录/meta 一个字节都不动', () => {
+    const metaBefore = JSON.stringify(S.meta)
+    const r = S.renameTags({ groups: [{ canonical: '学业', from: ['超星', '弹幕梗'] }], dryRun: true })
+    assert(r.ok === true && r.dryRun === true && r.mode === 'rename', JSON.stringify(r).slice(0, 200))
+    assert(r.changed === 2, '该命中 2 条，实际 ' + r.changed)
+    assert(JSON.stringify(A.tags) === JSON.stringify(['超星']), 'A 不该被改：' + JSON.stringify(A.tags))
+    assert(JSON.stringify(S.meta) === metaBefore, '★ dry-run 不该碰 meta')
+  })
+
+  check('★ K10 rename 真执行 → 归成大类（含"目标名库里本来没有"的情况）', () => {
+    const r = S.renameTags({ groups: [{ canonical: '学业', from: ['超星', '弹幕梗'] }] })
+    assert(r.ok === true && r.undo === true && r.mode === 'rename', JSON.stringify(r).slice(0, 200))
+    assert(JSON.stringify(A.tags) === JSON.stringify(['学业']), JSON.stringify(A.tags))
+    assert(JSON.stringify(B.tags) === JSON.stringify(['学业']), JSON.stringify(B.tags))
+    assert(JSON.stringify(C.tags) === JSON.stringify(['第213章']), 'C 没被命中，不该动：' + JSON.stringify(C.tags))
+  })
+
+  check('★ K11 rename 的撤销走同一个入口，并如实报出 mode=rename', () => {
+    const u = S.undoTagMerge()
+    assert(u.ok === true && u.mode === 'rename', '该报 mode=rename：' + JSON.stringify(u))
+    assert(JSON.stringify(A.tags) === JSON.stringify(['超星']), JSON.stringify(A.tags))
+    assert(JSON.stringify(B.tags) === JSON.stringify(['弹幕梗']), JSON.stringify(B.tags))
+  })
+
+  check('★★ K12 两个入口**共用同一份凭据** ⇒ 互相顶掉（只允许撤销最近一次）', () => {
+    const { dir: d2, store: s2 } = mkStore()
+    const r1 = s2.register({ path: path.join(d2, 'x.txt'), title: 'x', tags: ['dsh'] })
+    // ⚠️ 第二步必须用**合法**的操作，否则测的是"被拒之后凭据还在不在"，不是"互斥"。
+    //    我第一版写成 `mergeTags({canonical:'DSH', from:['超星']})` —— 那是跨语义、**会被闸门拒**，
+    //    于是凭据自然还是 rename 的，测试红得对，但红的原因跟我以为的不是一回事。
+    //    （同型错误这一轮我犯了三次：K5 / K12 / 以及更早的 H11。**用例必须真的走到被测那段代码。**）
+    const renameRes = s2.renameTags({ groups: [{ canonical: '超星', from: ['dsh'] }] })
+    assert(renameRes.ok === true && renameRes.mode === 'rename', '第一步 rename 该成功：' + JSON.stringify(renameRes).slice(0, 160))
+    assert(s2.meta.lastTagMerge !== null && s2.meta.lastTagMerge.mode === 'rename', '该落 rename 凭据')
+    // 第二步：合法的同串两写（`超星` → `超星2` 不行，得是同一归一键）
+    const s3 = s2.register({ path: path.join(d2, 'y.txt'), title: 'y', tags: ['dsh'] })
+    s2.update(s3.id, { tags: ['Dsh'] })          // 造一个与 `dsh` 同键的写法
+    const mergeRes = s2.mergeTags({ groups: [{ canonical: 'dsh', from: ['Dsh'] }] })
+    assert(mergeRes.ok === true, '第二步 merge 该成功：' + JSON.stringify(mergeRes).slice(0, 200))
+    const u = s2.undoTagMerge()
+    assert(u.ok === true && u.mode === 'merge', '★ 只该能撤最近一次（merge）：' + JSON.stringify(u))
+    assert(JSON.stringify(s2.get(s3.id).tags) === JSON.stringify(['Dsh']),
+      '该还原到 merge 前：' + JSON.stringify(s2.get(s3.id).tags))
+    // ⚠️ 而第一条记录（被 rename 改过）**不该**被动 —— 它的那次凭据已经被顶掉了
+    assert(JSON.stringify(s2.get(r1.id).tags) === JSON.stringify(['超星']),
+      '★ 更早的那次 rename 已被顶掉，不该被这次撤销波及：' + JSON.stringify(s2.get(r1.id).tags))
+  })
+
+  check('★ K13 merge 与 rename 的报错**措辞不同**（agent 才分得清该改用哪个）', () => {
+    const viaMerge = S.mergeTags({ groups: [{ canonical: '学业', from: ['第213章'] }] })
+    assert(viaMerge.ok === false, 'merge 该拒：' + JSON.stringify(viaMerge))
+    assert(/改用 `rename`|改用 rename/.test(viaMerge.error), '该指向 rename：' + viaMerge.error)
+    // rename 的空入参文案说的是「改名」，与 merge 的「合并组」区分开
+    assert(/改名/.test(S.renameTags({ groups: [] }).error), 'rename 该说"改名"')
+    assert(/合并组/.test(S.mergeTags({ groups: [] }).error), 'merge 该说"合并组"')
+    // 0 命中时两边也该各说各的
+    const missRename = S.renameTags({ groups: [{ canonical: '学业', from: ['根本没有这个标签'] }] })
+    assert(/改名/.test(missRename.error), '★ 0 命中时该说"改名"而不是"归一化"：' + missRename.error)
   })
 }
 

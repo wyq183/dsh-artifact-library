@@ -63,8 +63,10 @@ const run = (name, args) => tools.get(name).execute(args, {})
 console.log('\n=== [1] 工具清单与契约 ===')
 freshStore()
 {
-  check('★ 注册了 15 个工具（数出来的，不是记的）', () => {
-    assert(tools.size === 15, '实际 ' + tools.size + ': ' + [...tools.keys()].join(', '))
+  check('★ 注册了 16 个工具（数出来的，不是记的）', () => {
+    // 15 → 16：Step 3c 加了 `artifact_tags`。这个数字**故意写死**——
+    // 加/删工具时要人**主动**来改它，顺便想一遍"这个工具该不该存在"。
+    assert(tools.size === 16, '实际 ' + tools.size + ': ' + [...tools.keys()].join(', '))
   })
   check('每个工具的 parameters 是合法 JSON Schema（type=object + properties + required 子集）', () => {
     for (const [name, tool] of tools) {
@@ -97,7 +99,7 @@ freshStore()
     const local = new Map()
     const localCtx = { tools: { register: (t) => { local.set(t.name, t); return () => local.delete(t.name) } } }
     const destroy = registerArtifactTools(localCtx, new ArtifactStore(dir).load())
-    assert(local.size === 15, '装了 ' + local.size + ' 个')
+    assert(local.size === 16, '装了 ' + local.size + ' 个')
     destroy()
     assert(local.size === 0, '卸载后还剩 ' + local.size + ' 个')
   })
@@ -530,6 +532,153 @@ console.log('\n=== [N] artifact_categories（含删除的安全契约）===')
     assert(bare, '没接设置时注册失败')
     assert(typeof bareList === 'string' && bareList.length > 0, '该给人话')
     assert(/共 0 个/.test(bareList), '没有表时该报 0 个：' + bareList.slice(0, 60))
+  })
+}
+
+// ═══ [O] 标签工具 artifact_tags（Step 3c）════════════════════════════════
+//
+// 这一节的靶子和 [N] 同型：**破坏性动作的安全契约**。
+//   ① **默认 dry-run** —— 不传 `confirm:true` 就一个字都不许改
+//      （这是唯一会改写**已有记录内容**的工具，一次可能动十几条）
+//   ② **merge 与 rename 的分工** —— 前者机械（同串两写）、后者是人的决定（具体→抽象）。
+//      划错会丢用户信息；而只给 merge 不给 rename，用户会发现"我要的大类没人能建"。
+//
+// ⚠️ 同样按本文件套路：`await run(...)` 放**语句层**，`check()` 只放同步断言。
+console.log('\n=== [O] artifact_tags（默认 dry-run + merge/rename 分工）===')
+{
+  const dir = path.join(TMP, 'tagstore')
+  fs.mkdirSync(dir, { recursive: true })
+  const store = new ArtifactStore(dir).load()
+  ctx.tools.allowReplace = true
+  registerArtifactTools(ctx, store)
+  ctx.tools.allowReplace = false
+  const tags = (args) => tools.get('artifact_tags').execute(args, {})
+
+  // 造一组真库同型的重复 + 几个"具体"标签
+  const mk = (f, t) => store.register({ path: makeFile('tag-' + f, 'x'), title: f, tags: t })
+  const recA = mk('a.md', ['DSH', 'godot'])
+  const recB = mk('b.md', ['dsh'])
+  const recC = mk('c.md', ['dsh', 'DSH'])       // ★ 记录内两个变体都有
+  const recD = mk('d.md', ['超星'])
+  const recE = mk('e.md', ['弹幕梗'])
+  const tagsOf = (rec) => JSON.stringify(store.get(rec.id).tags)
+
+  check('★ 工具已注册，action 枚举完整，且明确写了"默认只预演"', () => {
+    const t = tools.get('artifact_tags')
+    assert(t, 'artifact_tags 没注册')
+    const prop = t.parameters.properties.action
+    assert(JSON.stringify(prop.enum) === JSON.stringify(['list', 'suggest', 'merge', 'rename', 'undo-merge']),
+      JSON.stringify(prop.enum))
+    assert(/confirm/.test(Object.keys(t.parameters.properties).join(',')), '该有 confirm 参数')
+    assert(/默认只预演|不落盘/.test(t.description), '描述该说清默认 dry-run：' + t.description.slice(0, 120))
+  })
+
+  const listOut = (await tags({ action: 'list' })).text
+  check('list：报出长尾率与**重复组明细**（这是"能收敛多少"的答案）', () => {
+    assert(/不同标签/.test(listOut) && /长尾率/.test(listOut), listOut.slice(0, 160))
+    assert(/重复|两种写法/.test(listOut), '该报重复组：' + listOut.slice(0, 240))
+    assert(/DSH/.test(listOut) && /dsh/.test(listOut), listOut.slice(0, 240))
+    assert(/不要去动|具体/.test(listOut), '该提醒别动那些具体标签')
+  })
+
+  const suggOut = (await tags({ action: 'suggest' })).text
+  check('★ suggest：只读线索 + 长尾说明（且不自动改）', () => {
+    assert(/只读|不会自动改/.test(suggOut), suggOut.slice(0, 120))
+    assert(/长尾/.test(suggOut), suggOut)
+    assert(/rename/.test(suggOut), '该指出归大类要用 rename')
+  })
+  check('suggest 不改任何记录', () => {
+    assert(tagsOf(recA) === JSON.stringify(['DSH', 'godot']), tagsOf(recA))
+    assert(tagsOf(recB) === JSON.stringify(['dsh']), tagsOf(recB))
+  })
+
+  // ── ★★ 核心安全契约：不传 confirm = 一个字都不改 ──────────────────────────
+  const dryMerge = (await tags({ action: 'merge' })).text
+  check('★★ merge 不传 confirm → 只预演：报影响面，但**记录一条都没改**', () => {
+    assert(/预演/.test(dryMerge), dryMerge.slice(0, 160))
+    assert(/一个字都没改/.test(dryMerge), '该明确说没改：' + dryMerge.slice(0, 300))
+    assert(/会改写/.test(dryMerge), '该报影响面')
+    assert(store.meta.lastTagMerge === null, '★ 预演竟然留下了撤销凭据')
+  })
+  check('★★ 预演后记录仍然原样（逐条查，不是看它自己的话）', () => {
+    assert(tagsOf(recA) === JSON.stringify(['DSH', 'godot']), 'A: ' + tagsOf(recA))
+    assert(tagsOf(recB) === JSON.stringify(['dsh']), 'B: ' + tagsOf(recB))
+    assert(tagsOf(recC) === JSON.stringify(['dsh', 'DSH']), 'C: ' + tagsOf(recC))
+  })
+
+  const realMerge = (await tags({ action: 'merge', confirm: true })).text
+  check('merge + confirm → 真执行（变体归一、记录内重复也治掉）', () => {
+    assert(/✅ 已改写/.test(realMerge), realMerge.slice(0, 240))
+    assert(tagsOf(recB) === JSON.stringify(['DSH']), 'B: ' + tagsOf(recB))
+    assert(tagsOf(recC) === JSON.stringify(['DSH']), '★ C 记录内重复该被治：' + tagsOf(recC))
+    assert(tagsOf(recA) === JSON.stringify(['DSH', 'godot']), 'A 的 godot 不该被动：' + tagsOf(recA))
+    assert(store.meta.lastTagMerge !== null, '该留下撤销凭据')
+  })
+
+  const undo1 = (await tags({ action: 'undo-merge' })).text
+  check('★ undo-merge → 整份还原，并说清撤的是哪一种', () => {
+    assert(/已撤销/.test(undo1), undo1)
+    assert(/归一化/.test(undo1), '该说清撤的是归一化：' + undo1)
+    assert(tagsOf(recC) === JSON.stringify(['dsh', 'DSH']), 'C 该整份还原：' + tagsOf(recC))
+  })
+  const undo2 = (await tags({ action: 'undo-merge' })).text
+  check('undo-merge 没有可撤销时说人话，不抛', () => {
+    assert(/没有可撤销/.test(undo2), undo2)
+  })
+
+  // ── ★★ merge 与 rename 的分工 ────────────────────────────────────────────
+  const semViaMerge = (await tags({ action: 'merge', groups: [{ canonical: '学业', from: ['超星'] }] })).text
+  check('★★ merge 拒绝「具体→抽象」，并**指出出路是 rename**', () => {
+    assert(/❌/.test(semViaMerge), semViaMerge.slice(0, 200))
+    assert(/rename/.test(semViaMerge), '★ 拒绝时该告诉 agent 改走 rename：' + semViaMerge.slice(0, 300))
+    assert(tagsOf(recD) === JSON.stringify(['超星']), '被拒时不该改记录：' + tagsOf(recD))
+  })
+
+  const renameNoGroups = (await tags({ action: 'rename' })).text
+  check('★★ rename 不给 groups 被拒（目标名不能由规则层猜 —— 那是人的决定）', () => {
+    assert(/❌/.test(renameNoGroups), renameNoGroups.slice(0, 200))
+    assert(/明确给出改法|groups/.test(renameNoGroups), renameNoGroups.slice(0, 240))
+    assert(/人的决定/.test(renameNoGroups), '该说清为什么必须人给：' + renameNoGroups.slice(0, 300))
+  })
+
+  const renameDry = (await tags({ action: 'rename', groups: [{ canonical: '学业', from: ['超星', '弹幕梗'] }] })).text
+  check('★ rename 预演：接受「具体→抽象」，且警告会丢掉原名', () => {
+    assert(/预演/.test(renameDry), renameDry.slice(0, 160))
+    assert(/两个字都没改|一个字都没改/.test(renameDry) || /一个字都没改/.test(renameDry), renameDry.slice(0, 240))
+    assert(/丢掉/.test(renameDry), '该警告 rename 会丢原名（与 merge 不同）：' + renameDry.slice(0, 320))
+    assert(tagsOf(recD) === JSON.stringify(['超星']) && tagsOf(recE) === JSON.stringify(['弹幕梗']),
+      '预演不该改：' + tagsOf(recD) + ' / ' + tagsOf(recE))
+  })
+
+  const renameReal = (await tags({ action: 'rename', groups: [{ canonical: '学业', from: ['超星', '弹幕梗'] }], confirm: true })).text
+  check('★★ rename + confirm → 真能建大类（这就是"我要的大类有人能建"）', () => {
+    assert(/✅ 已改写/.test(renameReal), renameReal.slice(0, 240))
+    assert(tagsOf(recD) === JSON.stringify(['学业']), '超星该归成学业：' + tagsOf(recD))
+    assert(tagsOf(recE) === JSON.stringify(['学业']), '弹幕梗该归成学业：' + tagsOf(recE))
+  })
+  const undo3 = (await tags({ action: 'undo-merge' })).text
+  check('★ rename 的撤销走同一个入口（两者共用凭据），并说清是"改名"', () => {
+    assert(/已撤销/.test(undo3) && /改名/.test(undo3), undo3)
+    assert(tagsOf(recD) === JSON.stringify(['超星']), '该还原：' + tagsOf(recD))
+  })
+
+  // ── 简写 from+to + 边界 ──────────────────────────────────────────────────
+  const shortOut = (await tags({ action: 'rename', from: '超星', to: '课程作业', confirm: true })).text
+  check('rename 支持简写 from + to（用户/agent 不必手拼 groups）', () => {
+    assert(/✅ 已改写/.test(shortOut), shortOut.slice(0, 200))
+    assert(tagsOf(recD) === JSON.stringify(['课程作业']), tagsOf(recD))
+  })
+  await tags({ action: 'undo-merge' })
+
+  const badAction = (await tags({ action: 'destroy' })).text
+  check('不认识的 action → 说清有哪些合法值', () => {
+    assert(/不认识的 action/.test(badAction), badAction)
+    assert(/list \/ suggest \/ merge \/ rename \/ undo-merge/.test(badAction), badAction)
+  })
+
+  const emptyMerge = (await tags({ action: 'merge', groups: [{ canonical: 'DSH', from: ['DSH'] }] })).text
+  check('merge 给了组但等于没改 → 明确被拒，不假装成功', () => {
+    assert(/❌/.test(emptyMerge), emptyMerge.slice(0, 200))
   })
 }
 
