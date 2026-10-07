@@ -2,10 +2,10 @@
  * 离线 harness：标签治理规则层（lib/tags.js，Step 3a）
  *
  * 六节，按「出错后果」从重到轻：
- *   A normalizeTag：与项目名归一化**同源**（复用它，不另写一份）
+ *   A normalizeTag：**装饰符折叠、语义符号保留**（与项目名归一化**刻意分家**）
  *   B ★★ 范围边界：只做「同串两写」的归一，**不做「具体→抽象」**
  *   C pickCanonicalTag：五条规则的**确定性**与优先级
- *   D findTagDuplicates：真库那 9 组能全数找出 + 空归一化标签不误并
+ *   D findTagDuplicates：真重复能全数找出 + 空归一化标签不误并
  *   E suggestTagFamilies：只读线索 + **必须带反例警示** + 不重复出组
  *   F tagStats：长尾率口径
  *
@@ -36,16 +36,35 @@ function check(name, fn) {
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed') }
 
 // ═══ [A] normalizeTag ═════════════════════════════════════════════════════
-console.log('\n=== [A] normalizeTag：与项目名归一化同源 ===')
+// ⚠️ 2026-10-07 改：**归一化不再复用 `normalizeProjectName`**（旧断言「完全同源」现在是假的）。
+//    原因见 `lib/tags.js` 的 `normalizeTag` 注释：项目名要**宽松**的 key（四档匹配还有人核对），
+//    标签的 key 就是**最终判据**、必须**保守**。这里要把这条差异**钉住**，
+//    否则它会悄悄漂回去 —— 「同源」这个说法当时看着合理，代价是 `C++` 被并成 `C`。
+console.log('\n=== [A] normalizeTag：装饰符折叠，但语义符号必须保留 ===')
 {
-  check('★ 与 normalizeProjectName 完全同源（同样的输入给同样的输出）', () => {
-    const samples = ['DSH', 'dsh', '卫龙榴莲辣条·留恋计划', '卫龙榴莲辣条留恋计划', 'ＡＢＣ', '  gpNext  ', 'GP-Next', '日本語タグ', '···', '', null, undefined]
-    for (const s of samples) {
+  check('★★ 与项目名归一化**刻意分家**：装饰符上一致，语义符号上必须分歧', () => {
+    // ① 装饰符（空白 / · / - / _）两者一致 —— 这是「同串两写」要折叠的部分
+    const decorOnly = ['DSH', 'dsh', '卫龙榴莲辣条·留恋计划', '卫龙榴莲辣条留恋计划', 'ＡＢＣ', '  gpNext  ', 'GP-Next', '日本語タグ']
+    for (const s of decorOnly) {
       assert(normalizeTag(s) === normalizeProjectName(s),
-        `${JSON.stringify(s)}: tags→${JSON.stringify(normalizeTag(s))} vs project→${JSON.stringify(normalizeProjectName(s))}`)
+        `装饰符类样本该一致：${JSON.stringify(s)}: tags→${JSON.stringify(normalizeTag(s))} vs project→${JSON.stringify(normalizeProjectName(s))}`)
+    }
+    // ② ⭐ 语义符号（+ # .）上**必须**分歧 —— 项目名抹掉它们，标签保留
+    for (const s of ['C++', 'C#', 'F#', '.NET', 'v0.3.0', 'AGENTS.md']) {
+      assert(normalizeTag(s) !== normalizeProjectName(s),
+        `★ ${JSON.stringify(s)} 两者归一化结果竟然相同（${JSON.stringify(normalizeTag(s))}）——`
+        + '说明 normalizeTag 又变回"抹掉所有符号"了，那会把 C++/C#/C 并成一个')
     }
   })
-  check('大小写 / 分隔符 / 空白 / 全角 归一后相同', () => {
+  check('★★ 语义符号不同的标签**永不归成一键**（这是本版修的那个真洞）', () => {
+    const keys = ['C', 'C++', 'C#'].map(normalizeTag)
+    assert(new Set(keys).size === 3, 'C/C++/C# 撞键了：' + JSON.stringify(keys))
+    assert(new Set(['F', 'F#'].map(normalizeTag)).size === 2, 'F/F# 撞键')
+    assert(new Set(['NET', '.NET'].map(normalizeTag)).size === 2, 'NET/.NET 撞键')
+    assert(findTagDuplicates(['C', 'C++', 'C#']).groups.length === 0,
+      '★ findTagDuplicates 还是把它们当一组了 —— 建议层会主动提议合并它们')
+  })
+  check('装饰符折叠：大小写 / 连字符 / 空白 / 全角 / `·`', () => {
     assert(normalizeTag('DSH') === normalizeTag('dsh'))
     assert(normalizeTag('GP-Next') === normalizeTag('gpNext'))
     assert(normalizeTag('卫龙榴莲辣条·留恋计划') === normalizeTag('卫龙榴莲辣条留恋计划'))
@@ -532,11 +551,141 @@ console.log('\n=== [I] HTTP /suggest-cleanup 透传标签字段 ===')
   })
 }
 
+// ═══ [J] 两个真洞的回归守卫（2026-10-07 小琪琪独立复核逮到的）══════════════
+//
+// ⚠️ 这一节的意义**不是覆盖率**，是**钉住两条被实测复现过的数据丢失路径**。
+//    两条都是"从正常路径就能踩到"的 —— 不是谁手构造攻击，是**建议层自己会提议**。
+console.log('\n=== [J] 两个真洞的回归守卫（都是实测复现过的丢数据路径）===')
+
+{
+  const mkStore = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alf-tags-hole-'))
+    TMP_DIRS.push(dir)
+    return { dir, store: new ArtifactStore(dir).load() }
+  }
+
+  // ── 洞① 符号被抹平：`C++` / `C#` 会被并成 `C` ────────────────────────────
+  check('★★ J1 洞①：`C` / `C++` / `C#` 是三个不同的键（曾被抹成同一个 `c`）', () => {
+    const keys = ['C', 'C++', 'C#'].map(normalizeTag)
+    assert(new Set(keys).size === 3, '又撞键了：' + JSON.stringify(keys))
+    assert(findTagDuplicates(['C', 'C++', 'C#']).groups.length === 0,
+      'findTagDuplicates 又把它们归成一组了')
+  })
+  check('★★ J2 洞①的**正常路径**：suggestCleanup 不会主动建议合并它们', () => {
+    const { dir, store } = mkStore()
+    let i = 0
+    for (const tag of ['C', 'C++', 'C#', 'F', 'F#', '.NET 8', 'NET 8']) {
+      store.register({ path: path.join(dir, 'r' + (i += 1) + '.txt'), title: 'r' + i, tags: [tag] })
+    }
+    const plan = store.suggestCleanup().tagMerges
+    assert(plan.length === 0,
+      '★ 建议层还在提议合并符号标签 —— 用户/agent 照着点一下就丢数据：' + JSON.stringify(plan))
+  })
+  check('★★ J3 洞①的**执行层**：硬把 `C++` 并成 `C` 也会被闸门拦住', () => {
+    const { store } = mkStore()
+    const r = store.mergeTags({ groups: [{ canonical: 'C', from: ['C++', 'C#'] }] })
+    assert(r.ok === false, '★ 闸门放行了具体→抽象的符号合并：' + JSON.stringify(r))
+  })
+  check('★ J4 反向守卫：`.` 也有语义（`v0.3.0` 与 `v030` 不同）', () => {
+    assert(normalizeTag('v0.3.0') !== normalizeTag('v030'),
+      '版本号被抹平了：' + normalizeTag('v0.3.0') + ' vs ' + normalizeTag('v030'))
+    assert(findTagDuplicates(['.NET 8', 'NET 8']).groups.length === 0, '.NET/NET 被并了')
+  })
+
+  // ── 洞② 撤销跨批次：标签合并的撤销会冲掉项目合并加的 tag ────────────────
+  check('★★ J5 洞②：撤销标签合并**不会**冲掉项目合并刚加的 tag', () => {
+    const { dir, store } = mkStore()
+    const rec = store.register({ path: path.join(dir, 'a.txt'), title: 'a', project: '旧项目', tags: ['dsh'] })
+    assert(store.mergeTags({ groups: [{ canonical: 'DSH', from: ['dsh'] }] }).ok === true, '标签合并该成功')
+    assert(store.mergeProjects({ names: ['旧项目'], to: '新项目' }).ok === true, '项目合并该成功')
+    assert(rec.tags.includes('旧项目'), '项目合并该把原名写进 tags（这是设计）')
+    // 互斥：项目合并已经清掉了标签合并的凭据 ⇒ 这次撤销**应当被拒**
+    const u = store.undoTagMerge()
+    assert(u.ok === false, '★ 跨批次撤销竟然成功了 —— 那会静默丢数据：' + JSON.stringify(u))
+    assert(rec.tags.includes('旧项目'), '★「旧项目」tag 被冲掉了：' + JSON.stringify(rec.tags))
+  })
+  check('★★ J6 互斥是双向的（三份凭据只留最近一次）', () => {
+    const { dir, store } = mkStore()
+    store.register({ path: path.join(dir, 'a.txt'), title: 'a', project: '旧项目', tags: ['dsh'] })
+    store.mergeProjects({ names: ['旧项目'], to: '新项目' })
+    assert(store.meta.lastProjectMerge !== null, '项目合并后该有凭据')
+    store.mergeTags({ groups: [{ canonical: 'DSH', from: ['dsh'] }] })
+    assert(store.meta.lastProjectMerge === null, '★ 标签合并后，项目合并凭据该被清掉')
+    assert(store.meta.lastTagMerge !== null, '标签合并凭据该在')
+    assert(store.undoProjectMerge().ok === false, '被清掉的凭据不该还能撤')
+  })
+  check('★ J7 互斥没有把「撤销最近一次」弄坏（自身仍然可撤、可还原）', () => {
+    const { dir, store } = mkStore()
+    const rec = store.register({ path: path.join(dir, 'a.txt'), title: 'a', tags: ['dsh'] })
+    store.mergeTags({ groups: [{ canonical: 'DSH', from: ['dsh'] }] })
+    const u = store.undoTagMerge()
+    assert(u.ok === true && u.restored === 1, JSON.stringify(u))
+    assert(JSON.stringify(rec.tags) === JSON.stringify(['dsh']), JSON.stringify(rec.tags))
+  })
+  check('★ J8 空操作不许顶掉别人的凭据（`reassignArtifactType` 0 条那条路）', () => {
+    const { dir, store } = mkStore()
+    store.register({ path: path.join(dir, 'a.txt'), title: 'a', tags: ['dsh'] })
+    store.mergeTags({ groups: [{ canonical: 'DSH', from: ['dsh'] }] })
+    assert(store.meta.lastTagMerge !== null, '先有一份标签凭据')
+    const moved = store.reassignArtifactType('不存在的分类', {})
+    assert(moved.ok === true && moved.changed === 0, '空分类该直接成功：' + JSON.stringify(moved))
+    assert(store.meta.lastTagMerge !== null,
+      '★ 一个"什么都没改"的操作把标签合并的撤销凭据顶掉了 —— 用户白丢唯一退路')
+  })
+
+  // ── CSS：data-plugin（热载不重插的真根因，行号会漂所以按内容切）─────────
+  check('★★ J9 CSS：`injectCss` 必须打上 `data-plugin`（否则热载后新 CSS 永远进不来）', () => {
+    const src = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+    const i = src.indexOf('function injectCss()')
+    assert(i > 0, '找不到 injectCss（它被改名/搬走了？这条守卫要跟着改）')
+    const body = src.slice(i, i + 2200)
+    assert(body.includes('setAttribute("data-plugin-css"'), '原有的 data-plugin-css 丢了')
+    assert(body.includes('setAttribute("data-plugin"'),
+      '★ data-plugin 没打上 —— 宿主 removeOwnedStyles 删不掉旧 style，'
+      + '热载后新 CSS 进不来（这就是"CSS 不重插"的真根因）')
+    // ⚠️ id 必须是**包名**（宿主 ownerId 来自 client 模块清单的 row.id，那是按包扫出来的）。
+    //    它现在住在 `PLUGIN_ID` 常量里，所以两边都要查 —— 光查 injectCss 会漏掉常量被改坏。
+    assert(body.includes('PLUGIN_ID'), 'injectCss 该用 PLUGIN_ID 常量（不要写字面量）')
+    const decl = /var PLUGIN_ID = "([^"]+)"/.exec(src)
+    assert(decl, '找不到 PLUGIN_ID 的声明')
+    assert(decl[1] === '@dsh-external/dsh-artifact-library',
+      '★ PLUGIN_ID 该是 package.json 里的包名，实际 ' + JSON.stringify(decl[1]))
+    const pkgName = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).name
+    assert(decl[1] === pkgName, `★ PLUGIN_ID 与 package.json 的 name 不一致：${decl[1]} vs ${pkgName}`)
+  })
+  check('★ J10 CSS：旧标签会被**就地认领**（否则过渡期非刷新不可）', () => {
+    const src = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+    const i = src.indexOf('function injectCss()')
+    const body = src.slice(i, i + 2200)
+    assert(/if \(existing\)/.test(body),
+      '★ injectCss 没有"已有标签就认领"的分支：那本次改动之前注入的那个未打标标签'
+      + '会让新 CSS 一直进不来，**非得刷新页面**才行')
+    assert(body.includes('existing.setAttribute("data-plugin"'), '认领动作不见了')
+    assert(body.includes('existing.textContent = css'), '内容同步不见了（热载后 CSS 值不会更新）')
+  })
+}
+
 // ── [G] 真库只读体检（有数据才跑，没有就跳过）────────────────────────────
-const REAL_DIR = process.argv[2] || path.join(os.homedir(), '.dsh', 'artifact-library')
-const REAL_FILE = path.join(REAL_DIR, 'artifacts.json')
-if (fs.existsSync(REAL_FILE)) {
+//
+// ⚠️ 2026-10-07 两处修正（都是小琪琪独立复核提的，都成立）：
+//
+// ① **不再用 `os.homedir()` 猜真库路径**。原来缺省值 = `~/.dsh/artifact-library`，
+//    于是在**任何非 Windows 机器**上都会拿到那边碰巧存在的目录当"真库"，
+//    断言 9 组 → 实际 0 组 → **平白红两条**（她机器上就有一个 3 条的测试床残留）。
+//    ⇒ 改成显式环境变量 `ALF_REAL_DIR`；找不到就**打印跳过原因**，
+//      **绝不拿一个"碰巧存在的目录"当断言目标**。
+//
+// ② **那两条断言不许再硬编码 9 / 18**。它们是**当时的观察**，不是规律：
+//    她真跑过一次合并，证明「合并前 9 组 → 合并后 0 组」——
+//    也就是说**等依琪哪天真点了合并，这两条必然变红，而代码完全正确**。
+//    "做成了反而红"的测试会训练出"红了就 --force"的习惯，那是最贵的一种坏。
+//    ⇒ 改成钉**不变量**（自洽 + 每个 from 与 canonical 同键），
+//      真库数字**降级成日志**。（`longTailRate` 那条区间断言本来就是这个形状，保持。）
+const REAL_DIR = process.argv[2] || process.env.ALF_REAL_DIR || ''
+const REAL_FILE = REAL_DIR ? path.join(REAL_DIR, 'artifacts.json') : ''
+if (REAL_FILE && fs.existsSync(REAL_FILE)) {
   console.log('\n=== [G] 真库只读体检（只读，不写）===')
+  console.log('    （真库路径来自 ' + (process.argv[2] ? 'argv[2]' : '环境变量 ALF_REAL_DIR') + '：' + REAL_DIR + '）')
   try {
     const items = JSON.parse(fs.readFileSync(REAL_FILE, 'utf8'))
     const live = items.filter((r) => !r.trashed_at)
@@ -545,35 +694,66 @@ if (fs.existsSync(REAL_FILE)) {
     const input = [...cnt.entries()].map(([tag, count]) => ({ tag, count }))
     const st = tagStats(input)
     const dup = findTagDuplicates(input)
-    check(`真库（${live.length} 条有效）里重复标签组数为 9、涉及 18 个（实测口径）`, () => {
-      assert(dup.groups.length === 9, `实际 ${dup.groups.length} 组：` + dup.groups.map((g) => g.key).join(','))
-      assert(dup.duplicateTags === 18, `实际 ${dup.duplicateTags} 个标签`)
+
+    // ⭐ 不变量（合并前/合并后都必须成立，所以可以永远钉住）
+    check('★ 重复组自洽：duplicateTags === Σ(每组 1 + from 数)、mergeable === Σ from 数', () => {
+      const expectTags = dup.groups.reduce((n, g) => n + 1 + g.from.length, 0)
+      const expectMergeable = dup.groups.reduce((n, g) => n + g.from.length, 0)
+      assert(dup.duplicateTags === expectTags, `duplicateTags ${dup.duplicateTags} != 自洽值 ${expectTags}`)
+      assert(dup.mergeable === expectMergeable, `mergeable ${dup.mergeable} != 自洽值 ${expectMergeable}`)
+    })
+    check('★★ 每个 from 都与 canonical **同归一键**（这才是「不跨族」的不变量）', () => {
+      for (const g of dup.groups) {
+        assert(g.variants.length >= 2, `${g.key} 只有 ${g.variants.length} 个变体`)
+        for (const v of g.variants) {
+          assert(normalizeTag(v.tag) === g.key,
+            `「${v.tag}」归一到 ${JSON.stringify(normalizeTag(v.tag))}，却不属于键 ${JSON.stringify(g.key)}`)
+        }
+        for (const f of g.from) {
+          assert(normalizeTag(f) !== '', `from「${f}」归一化后为空 —— 不该进组`)
+          assert(f !== g.canonical, 'from 里混进了 canonical')
+        }
+      }
     })
     check('真库长尾率在 60%~80% 之间（这是个「标签没收敛」的量化信号）', () => {
       const pct = st.longTailRate * 100
       assert(pct >= 60 && pct <= 80, `长尾率 ${pct.toFixed(1)}% —— 超出预期区间，重新审视第 3 步的前提`)
     })
-    console.log(`    真库：不同标签 ${st.distinct} / 单次 ${st.oneOff} / 长尾率 ${(st.longTailRate * 100).toFixed(1)}%`)
+    // ⚠️ 以下是**日志不是断言** —— 它们是"2026-10-07 当时的观察"，会随库里数据变。
+    //    （原来这两行是 assert，会因"合并成功"而变红。见本节头注释 ②。）
+    console.log(`    真库：${live.length} 条有效 / 不同标签 ${st.distinct} / 单次 ${st.oneOff} / 长尾率 ${(st.longTailRate * 100).toFixed(1)}%`)
+    console.log(`    真库重复标签：${dup.groups.length} 组 / 涉及 ${dup.duplicateTags} 个（2026-10-07 观察值 9 / 18；被合并过就会变小，这是正常的）`)
 
-    // ── ★★ 对真库跑一遍**只读**的 dry-run：这是「3b 真能治真库那 9 组」的唯一实证 ──
+    // ── ★★ 对真库跑一遍**只读**的 dry-run：这是「3b 真能治真库」的实证 ──
     // 做法：把 artifacts.json **复制**到临时目录，在副本上建 store。真库只读。
-    check('★★ 对真库跑 dry-run：报出 9 组 / 涉及 18 个标签，且**磁盘字节不变**', () => {
+    check('★★ 对真库跑 dry-run：dry-run 本身**一个字节都不写**，且报告自洽', () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alf-tags-real-'))
       TMP_DIRS.push(dir)
       fs.copyFileSync(REAL_FILE, path.join(dir, 'artifacts.json'))
       const store = new ArtifactStore(dir).load()
       const plan = store.suggestCleanup().tagMerges
-      assert(plan.length === 9, `真库该报 9 组，实际 ${plan.length}：` + plan.map((g) => g.key).join(','))
-      const variants = plan.reduce((n, g) => n + 1 + g.from.length, 0)
-      assert(variants === 18, `涉及标签该 18 个，实际 ${variants}`)
+      // ⚠️ 不钉死组数（见本节头注释②）；钉的是**plan 与库现状自洽**
+      const expectedVariants = plan.reduce((n, g) => n + 1 + g.from.length, 0)
+      assert(expectedVariants === plan.reduce((n, g) => n + g.from.length + 1, 0), 'plan 自洽性')
+      for (const g of plan) {
+        assert(Array.isArray(g.from) && g.from.length > 0, `${g.canonical} 的 from 为空 —— 不该进计划`)
+      }
       // ⚠️ 快照必须在 `load()` **之后**取：load 会回填老记录缺失字段并写一次盘
       //    （那是既有行为，不是 dry-run 造成的）。要证明的是**dry-run 本身**不写盘。
       const artifactsBefore = fs.readFileSync(path.join(dir, 'artifacts.json'))
       const metaExisted = fs.existsSync(path.join(dir, 'meta.json'))
       const metaBefore = metaExisted ? fs.readFileSync(path.join(dir, 'meta.json')) : null
-      const dry = store.mergeTags({ groups: plan, dryRun: true })
-      assert(dry.ok === true, '真库 dry-run 应成功：' + JSON.stringify(dry).slice(0, 300))
-      assert(dry.changed > 0, '真库 dry-run 该有命中记录，实际 ' + dry.changed)
+      if (plan.length) {
+        const dry = store.mergeTags({ groups: plan, dryRun: true })
+        assert(dry.ok === true, '真库 dry-run 应成功：' + JSON.stringify(dry).slice(0, 300))
+        assert(dry.changed > 0, '真库 dry-run 该有命中记录，实际 ' + dry.changed)
+        console.log(`    真库 dry-run：${dry.groups} 组 → 会改 ${dry.changed} 条记录、去掉 ${dry.tagsRemoved} 个重复标签`)
+        for (const p of plan.slice(0, 3)) {
+          console.log(`      ${p.canonical}  ←  ${p.from.join('、')}  （${p.total} 次引用）`)
+        }
+      } else {
+        console.log('    真库已无重复标签（被合并过）—— 跳过 dry-run 的命中检查')
+      }
       // 关键：dry-run 前后 artifacts.json 与 meta.json **逐字节相同**
       assert(artifactsBefore.equals(fs.readFileSync(path.join(dir, 'artifacts.json'))),
         'dry-run 竟然改动了 artifacts.json 的字节！')
@@ -582,16 +762,15 @@ if (fs.existsSync(REAL_FILE)) {
       else assert(metaBefore.equals(metaNow), 'dry-run 竟然改动了 meta.json 的字节！')
       const fresh = new ArtifactStore(dir).load()
       assert(fresh.meta.lastTagMerge == null, 'dry-run 不该留下撤销凭据')
-      console.log(`    真库 dry-run：${dry.groups} 组 → 会改 ${dry.changed} 条记录、去掉 ${dry.tagsRemoved} 个重复标签`)
-      for (const p of plan.slice(0, 3)) {
-        console.log(`      ${p.canonical}  ←  ${p.from.join('、')}  （${p.total} 次引用）`)
-      }
     })
   } catch (e) {
     console.log('  （真库读取失败，跳过该节：' + e.message + '）')
   }
 } else {
-  console.log('\n=== [G] 真库只读体检：跳过（本机没有 ' + REAL_FILE + '）===')
+  console.log('\n=== [G] 真库只读体检：跳过（没给真库路径）===')
+  console.log('    要给就跑：node test/tags.test.mjs "C:\\Users\\<你>\\.dsh\\artifact-library"')
+  console.log('    或设环境变量 ALF_REAL_DIR。⚠️ 故意**不**用 os.homedir() 猜 ——')
+  console.log('    那会在别的机器上拿一个碰巧存在的目录当"真库"，平白报红（2026-10-07 修）。')
 }
 
 // ── 收尾：临时目录一律删掉（P1 那条「绝不在仓库里留垃圾」）────────────────
