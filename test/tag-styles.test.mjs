@@ -7,7 +7,7 @@
  *   C ★★ **反向断言**：hex 必须被拒（证明守卫真的会拦，不是在空转）
  *   D normalizeStyle：白名单、不夹紧、不静默
  *   E ★★★ 分层判据：**样式不是判据**（本文件最重要的一节）
- *   F 受管上限：超了拒绝，绝不静默顶掉
+ *   F 受管上限：**默认不限** + 可自定义；「不限」≠「校验失效」（含反向对照）
  *   G 面（surface）：字号在芯片上被摘掉，**且必须说出理由**
  *   H 展示映射：无 hex、字号不破 R-9 下限
  *   I 可内联：纯数据 + 自包含（ui-core 内联方案的依据）
@@ -20,7 +20,7 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
   TAG_STYLE_TABLE, buildTagStyleRule, TAG_COLOR_SLOTS, TAG_ICONS,
-  TAG_WEIGHTS, TAG_SIZES, TAG_STYLE_FIELDS, MANAGED_TAG_LIMIT,
+  TAG_WEIGHTS, TAG_SIZES, TAG_STYLE_FIELDS, MANAGED_TAG_LIMIT_UNLIMITED,
   resolveTagColor, normalizeTagStyle, validateManagedTags, tagLayer, managedTagEntry,
   channelsForSurface, applyTagStyleSurface, styleToPresentation, resolveTagStyle,
   splitTagsByLayer, checkManagedTagBudget, checkAutoTag,
@@ -476,38 +476,137 @@ console.log('\n=== [E] ★★★ 受管 / 自由：判据是「进过受管表�
   })
 }
 
-/* ═══ [F] 受管上限 ═════════════════════════════════════════════════════════ */
-console.log('\n=== [F] 受管上限：超了拒绝，绝不静默顶掉 ===')
+/* ═══ [F] 受管上限：默认不限 + 可自定义；「不限」≠「校验失效」 ════════════ */
+console.log('\n=== [F] 受管上限：默认不限、可自定义；上限不松别的校验 ===')
 {
   const make = (n) => Array.from({ length: n }, (_, i) => ({ id: 't' + i, tag: 'tag' + i }))
 
-  check('上限之内合法、正好到上限合法', () => {
-    assert(validateManagedTags(make(MANAGED_TAG_LIMIT)).ok === true, '正好到上限该合法')
-    assert(checkManagedTagBudget(make(MANAGED_TAG_LIMIT)).ok === true, '预算检查该 ok')
+  check('★ 默认就是「不限」：表里是那个**具名**的哨兵，不是某个数字', () => {
+    // ⚠️ 钉的是**规律**（默认不限），不是「16」这种**当时的观察值** ——
+    //    上一版把「有上限」当事实钉住（「超一个就拒」），依琪一改口径它就变成「反过来的事实」。
+    // ⚠️ 直接断言**值本身**，不靠 `[I] I1` 的逐字节往返：`Infinity` 会序列化成 `null`、
+    //    而且往返**稳定**，所以那条往返检查**抓不到**它 —— 那正是「假绿」，必须另设一条。
+    assert(MANAGED_TAG_LIMIT_UNLIMITED === null, '「不限」的哨兵该是 null（0 / Infinity 的陷阱见该常量注释）')
+    assert(TAG_STYLE_TABLE.limit === MANAGED_TAG_LIMIT_UNLIMITED,
+      '`limit` 不是那个具名哨兵：' + JSON.stringify(TAG_STYLE_TABLE.limit))
   })
 
-  check('★ 超一个就拒，且理由要说清「已有几个 / 上限几个」和「不许顶掉」', () => {
-    const r = validateManagedTags(make(MANAGED_TAG_LIMIT + 1))
-    assert(r.ok === false, '超限竟然放行了')
-    assert(r.reason.includes(String(MANAGED_TAG_LIMIT + 1)) && r.reason.includes(String(MANAGED_TAG_LIMIT)),
-      '理由里没给出数量：' + r.reason)
-    assert(r.reason.includes('不'), '理由里没说清「不替你顶掉最后一个」：' + r.reason)
+  check('★ 不限模式下**任意条数**都通过（钉「没有闸门」，不钉某个具体数）', () => {
+    // 16 / 17 这两个点故意留着 —— 它们正是**上一版的上限**。现在它们必须平淡地通过：
+    // 这就是「本收窄取消」在测试里的样子。
+    for (const n of [0, 1, 16, 17, 200, 900]) {
+      const r = validateManagedTags(make(n))
+      assert(r.ok === true, '不限模式下 ' + n + ' 条被拒了：' + JSON.stringify(r.reason || ''))
+      assert(r.value.length === n, n + ' 条被截成了 ' + r.value.length + ' 条 —— 不限 ≠ 悄悄截断')
+      const b = checkManagedTagBudget(make(n))
+      assert(b.ok === true && b.unlimited === true, '预算报告没让人看出「不限」：' + JSON.stringify(b))
+      assert(b.count === n, 'count 不对：' + JSON.stringify(b))
+      assert(b.limit === null && b.free === null,
+        '不限时 limit / free 该是 null（**不是 0、不是 Infinity**）：' + JSON.stringify(b))
+    }
   })
 
-  check('★ checkManagedTagBudget 只报告、不腾位（超限时不返回被删掉的条目）', () => {
-    const over = make(MANAGED_TAG_LIMIT + 3)
-    const frozen = JSON.stringify(over)
-    const b = checkManagedTagBudget(over)
-    assert(b.ok === false && b.count === over.length && b.limit === MANAGED_TAG_LIMIT && b.free === 0, JSON.stringify(b))
-    assert(typeof b.reason === 'string' && b.reason.length > 0, '超限没给理由')
-    assert(JSON.stringify(over) === frozen, '预算检查改了入参')
+  check('★★ 反向对照：**不限模式下，非法条目照旧一个都跑不掉**（防「不设上限」被做成「把闸门拆掉」）', () => {
+    // 这一条防的就是那种改法：把「默认不限」实现成 `validateManaged` 直接 `return {ok:true}`。
+    // 依琪说的是「不设上限」，**不是**「不要校验」—— 上限和条目校验是两道闸，这里钉住第二道还在。
+    const bad = [
+      ['tag 为空串', [{ id: 'a', tag: '' }], '不能为空'],
+      ['没有 tag 字段', [{ id: 'a' }], 'tag'],
+      ['tag 不是字符串', [{ id: 'a', tag: 7 }], 'tag'],
+      ['tag 首尾带空白（死配置）', [{ id: 'a', tag: ' x' }], '死配置'],
+      ['缺 id', [{ tag: 'x' }], 'id'],
+      ['id 形状非法', [{ id: 'A', tag: 'x' }], '不合法'],
+      ['id 重复', [{ id: 'a', tag: 'x' }, { id: 'a', tag: 'y' }], 'id 重复'],
+      ['tag 重复', [{ id: 'a', tag: 'x' }, { id: 'b', tag: 'x' }], 'tag 重复'],
+      ['非对象条目', [{ id: 'a', tag: 'x' }, 42], '对象'],
+      ['null 条目', [null], '对象'],
+      ['只有样式没有 id', [{ tag: 'x', color: 'red' }], '进过受管表'],
+      ['颜色是 hex', [{ id: 'a', tag: 'x', color: '#ff0000' }], 'hex'],
+      ['图标是自造的', [{ id: 'a', tag: 'x', icon: 'rocket' }], 'icons.js'],
+      ['字号越出档位', [{ id: 'a', tag: 'x', size: 'huge' }], '三档'],
+      ['整张表不是数组', { id: 'a' }, '数组'],
+    ]
+    for (const [label, value, needle] of bad) assertRejects(() => validateManagedTags(value), needle, label)
+
+    // ★ 再拿一个**「已知有病」的版本**跑同一批样本：证明上面这批断言**真的会红**。
+    //   「抓不到已知 bug 的守卫 = 安全感的假象，比没有守卫更坏」（本仓库刚立的规矩）。
+    //   下面 broken 精确照抄「默认不限」最容易做歪的那个形状 —— 在 `validateManaged` 里加一句
+    //   `if (不限) return {ok:true, value, notes:[]}`：**数组检查还在、条目校验被拆掉**。
+    //   ⚠️ 整张表形状那条（不是数组）不在「条目校验」范围内，拿它算会虚高，所以剔掉。
+    const brokenEntries = (value) => ({ ok: true, value, notes: [] })
+    const entrySamples = bad.filter(([, value]) => Array.isArray(value))
+    assert(entrySamples.length >= 10, '条目级样本太少（' + entrySamples.length + '）—— 这条反向对照就没分量了')
+    let caught = 0
+    for (const [label, value] of entrySamples) {
+      let thrown = false
+      try { assertRejects(() => brokenEntries(value), null, label) } catch { thrown = true }
+      if (thrown) caught += 1
+    }
+    assert(caught === entrySamples.length,
+      '「已知有病」的版本只被这套断言抓到 ' + caught + '/' + entrySamples.length + ' 条 ——'
+      + ' 说明上面那批反向断言在**空转**，它们绿了也不可信')
   })
 
-  check('上限是**从表里读的**（改一个常量即可，逻辑不写死）', () => {
+  check('★ 用户**自己设**的上限必须真的生效（正好到上限过 / 超一个拒 / free 跟着算）', () => {
+    for (const cap of [1, 2, 32]) {
+      // 走一遍 JSON：内联进客户端就是这条路（表是纯 JSON 数据，见 [I]）
+      const rule = buildTagStyleRule(JSON.parse(JSON.stringify({ ...TAG_STYLE_TABLE, limit: cap })), normalizeTag)
+      assert(rule.checkBudget([]).unlimited === false, '设了上限却仍报「不限」：' + JSON.stringify(rule.checkBudget([])))
+      assert(rule.checkBudget([]).limit === cap, '上限没从表里读出来：' + JSON.stringify(rule.checkBudget([])))
+      assert(rule.validateManaged(make(cap)).ok === true, '正好 ' + cap + ' 条该合法')
+      assert(rule.checkBudget(make(cap)).free === 0, '正好到上限时 free 该是 0')
+      const over = rule.validateManaged(make(cap + 1))
+      assert(over.ok === false, '超过**自己设的**上限 ' + cap + ' 竟然放行')
+      assert(over.reason.includes(String(cap)) && over.reason.includes(String(cap + 1)), '理由里没给出数量：' + over.reason)
+      assert(over.reason.includes('不会'), '理由里该说清「不替你顶掉」：' + over.reason)
+      const b = rule.checkBudget(make(cap + 3))
+      assert(b.ok === false && b.unlimited === false && b.limit === cap && b.count === cap + 3 && b.free === 0,
+        '超限的预算报告不对：' + JSON.stringify(b))
+    }
+  })
+
+  check('★ 超限**只报告、不腾位**（这条依琪**没否决**，只是默认触发不到）', () => {
     const rule = buildTagStyleRule({ ...TAG_STYLE_TABLE, limit: 2 })
-    assert(rule.limit() === 2, 'limit 参数没生效')
-    assert(rule.validateManaged([{ id: 'a', tag: 'x' }, { id: 'b', tag: 'y' }, { id: 'c', tag: 'z' }]).ok === false,
-      '把上限调成 2 之后三条仍然放行')
+    const over = make(5)
+    const frozen = JSON.stringify(over)
+    assert(rule.checkBudget(over).ok === false, '超限却没报')
+    assert(JSON.stringify(over) === frozen, '预算检查改了入参')
+    const r = rule.validateManaged(over)
+    assert(r.ok === false && !('value' in r) && !('notes' in r),
+      '被拒时却回了字段 —— 调用方会以为拿到一张能用的表（静默腾位就是这么开始的）：' + JSON.stringify(r))
+    assert(JSON.stringify(over) === frozen, '校验改了入参')
+  })
+
+  check('★★ 反向断言：`limit` 写成 0 / 负数 / 小数 / 字符串 ⇒ **明确报错**（不悄悄当不限、也不悄悄变回某个数）', () => {
+    // `0` 是这里最要紧的一个：它**同时**被用来表示「不限」（ulimit 那套惯例）
+    // 和「一个都不许」。静默按其中一种办 = 「同一个值承载两种语义」= 本仓库反复栽的病。
+    // （旧代码更糟：`0` 会被 `Number.isFinite(...) && > 0 ? … : 16` **静默变成 16**。）
+    for (const badLimit of [0, -1, 2.5, '32', true, []]) {
+      const rule = buildTagStyleRule({ ...TAG_STYLE_TABLE, limit: badLimit })
+      assertRejects(() => rule.validateManaged([]), 'limit', 'limit=' + JSON.stringify(badLimit))
+      const b = rule.checkBudget([])
+      assert(b.ok === false && b.unlimited === false,
+        'limit=' + JSON.stringify(badLimit) + ' 该报配置错误、且**不能**被当成「不限」：' + JSON.stringify(b))
+      assert(b.reason.indexOf('null') >= 0, '理由该告诉写配置的人「不限」怎么写：' + b.reason)
+    }
+
+    // ★ 反向对照（**已知有病的版本**）：假如「非法值被悄悄当不限」，同一批断言必须红。
+    //   拿 `limit: null` 扮演那个坏版本的**后果**（`ok:true` + `unlimited:true`）——
+    //   它**不满足**上面断言的合取，所以那条断言真有分辨力，不是在空转。
+    const silent = buildTagStyleRule({ ...TAG_STYLE_TABLE, limit: null }).checkBudget([])
+    assert(!(silent.ok === false && silent.unlimited === false),
+      '反向对照失败：坏版本（非法值当不限）竟然也满足「该报配置错误」—— 那条断言分辨不出好坏')
+  })
+
+  check('`limit: null`（显式写）与**删掉这个字段**等价 = 不限', () => {
+    const noField = { ...TAG_STYLE_TABLE }
+    delete noField.limit
+    for (const table of [{ ...TAG_STYLE_TABLE, limit: null }, noField]) {
+      const rule = buildTagStyleRule(table, normalizeTag)
+      const b = rule.checkBudget(make(50))
+      assert(b.unlimited === true && b.limit === null, JSON.stringify(b))
+      assert(rule.validateManaged(make(50)).ok === true, '50 条在不限模式下该过')
+    }
   })
 }
 
@@ -686,13 +785,21 @@ console.log('\n=== [I] 可内联：纯数据 + 自包含 ===')
       assert(JSON.stringify(rule.resolve(t, managed)) === JSON.stringify(resolveTagStyle(t, managed)), 'resolve 不一致：' + t)
     }
     assert(rule.colorSlots().join() === TAG_COLOR_SLOTS.join(), 'colorSlots 不一致')
-    assert(rule.checkBudget(managed).limit === checkManagedTagBudget(managed).limit, 'checkBudget 不一致')
+    // ⚠️ 默认不限时 `limit` 是 `null`，**光比 `limit` 等于在空转**（null === null 什么也没证明）——
+    //    所以整份预算报告逐字段比，并**再加一张设了上限的表**，把数值这条路真的走到。
+    assert(JSON.stringify(rule.checkBudget(managed)) === JSON.stringify(checkManagedTagBudget(managed)),
+      'checkBudget 不一致：' + JSON.stringify([rule.checkBudget(managed), checkManagedTagBudget(managed)]))
+    const capped = buildTagStyleRule(JSON.parse(JSON.stringify({ ...TAG_STYLE_TABLE, limit: 3 })), normalizeTag)
+    const cb = capped.checkBudget(managed)
+    // 钉的是**关系**（free = limit − count），不是某个当时的数
+    assert(cb.limit === 3 && cb.unlimited === false && cb.ok === true && cb.free === 3 - managed.length,
+      '设了上限的表在 JSON 往返后没生效（内联进客户端走的就是这条路）：' + JSON.stringify(cb))
   })
 
   check('★ buildTagStyleRule 自包含：在「没有模块私有作用域」的环境里照样能跑', () => {
     // 只把函数的**源码**取出来，用 new Function 在全局作用域里重建 ——
     // 模块私有的 TAG_STYLE_TABLE / COLOR_SOURCES / SIZE_VALUES / WEIGHT_VALUES /
-    // MANAGED_LIMIT / normalizeTag 在这里都不存在。
+    // MANAGED_TAG_LIMIT_UNLIMITED / normalizeTag 在这里都不存在。
     // 能跑且结果一致，才证明这段能整段粘进 client.js。
     const rebuild = new Function('table', 'keyOf', 'return (' + String(buildTagStyleRule) + ')(table, keyOf)')
     const isolated = rebuild(JSON.parse(JSON.stringify(TAG_STYLE_TABLE)), normalizeTag)
@@ -701,7 +808,9 @@ console.log('\n=== [I] 可内联：纯数据 + 自包含 ===')
       assert(JSON.stringify(isolated.resolve(t, managed)) === JSON.stringify(resolveTagStyle(t, managed)),
         '隔离环境结果不一致：' + t)
     }
-    assert(isolated.limit() === MANAGED_TAG_LIMIT, '隔离环境的 limit 不一致')
+    const isoBudget = isolated.checkBudget(managed)
+    assert(isoBudget.unlimited === true && isoBudget.limit === MANAGED_TAG_LIMIT_UNLIMITED,
+      '隔离环境里的「不限」没一致：' + JSON.stringify(isoBudget))
     // 再静态确认没有直接引用模块级私有常量名。
     // ⚠️ 先剥掉注释与字符串 —— 函数体的 JSDoc 与错误信息里**必然会提到**这些名字，
     //    那是文档价值；「引用一个名字」和「在字符串里提到它」必须分得开。
@@ -711,7 +820,7 @@ console.log('\n=== [I] 可内联：纯数据 + 自包含 ===')
     assert(stripped.code.length > 1000, '剥离后只剩 ' + stripped.code.length + ' 字符 —— 剥多了或切错了')
     assert(stripped.code.length < String(buildTagStyleRule).length, '剥离后没变短 —— 剥离器在空转')
     for (const leaked of ['TAG_STYLE_TABLE', 'COLOR_SOURCES', 'SIZE_VALUES', 'WEIGHT_VALUES',
-      'MANAGED_LIMIT', 'normalizeTag', 'FILE_TYPE_COLORS', 'ICON_TABLE']) {
+      'MANAGED_TAG_LIMIT_UNLIMITED', 'normalizeTag', 'FILE_TYPE_COLORS', 'ICON_TABLE']) {
       assert(!stripped.code.includes(leaked), '函数体引用了模块私有名字：' + leaked)
     }
     // ★ 反向对照：证明这个扫描**真的能抓到泄漏** —— 否则它可能在空转
