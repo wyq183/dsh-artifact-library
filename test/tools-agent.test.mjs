@@ -682,6 +682,70 @@ console.log('\n=== [O] artifact_tags（默认 dry-run + merge/rename 分工）==
   })
 }
 
+// ═══ [P] 三个真问题的回归守卫（2026-10-08 · verifier-3c 独立对抗性验证逮到的）═══════
+//
+// 这三条都是**独立验证者**在"默认假设这里有洞"的立场下打出来的，不是我想出来的。
+// 其中 F1 的性质最坏：**一个类型失误被放大成整库改写**。
+console.log('\n=== [P] verifier-3c 逮到的三个真问题（回归守卫）===')
+{
+  const dir = path.join(TMP, 'tagguard')
+  fs.mkdirSync(dir, { recursive: true })
+  const store = new ArtifactStore(dir).load()
+  ctx.tools.allowReplace = true
+  registerArtifactTools(ctx, store)
+  ctx.tools.allowReplace = false
+  const tags = (args) => tools.get('artifact_tags').execute(args, {})
+  store.register({ path: makeFile('guard-a.md', 'x'), title: 'ga', tags: ['dsh'] })
+  store.register({ path: makeFile('guard-b.md', 'x'), title: 'gb', tags: ['DSH'] })
+  const snap = () => JSON.stringify(store.items.map((r) => r.tags))
+
+  // ── F1：groups 类型错误**不许**静默降级成"全库归一化" ─────────────────────
+  // ⚠️ 为什么要这条（原来写法是 `Array.isArray(a.groups) ? a.groups : null`）：
+  //    它把「**没传**（合理：用规则层的全库组）」与「**传了但类型错**（agent 失误）」
+  //    混成同一个 `null` ⇒ 叠加"省略 groups + confirm:true 会跳过预演直接改写"，
+  //    就成了**一个类型失误被放大成整库改写**的链路（而 store 层对同样入参是明确报错的）。
+  //    ⇒ 这正是本仓库反复栽的「同一个值承载两种语义」。
+  //
+  // ⚠️ 下面这五条 `check` 各自内部就断言（不另设一条"总结性"的 —— 那种**没有断言的 check**
+  //    正是我刚写进规矩里的"空转守卫"：它会绿，但什么也没守）。
+  const beforeF1 = snap()
+  for (const bad of [42, 'x', {}, { canonical: 'X' }, true]) {
+    const out = (await tags({ action: 'merge', confirm: true, groups: bad })).text
+    check(`★★ P1 groups=${JSON.stringify(bad)} → 被拒（不是"降级为全库"）`, () => {
+      assert(/❌/.test(out), '★ 竟然放行了 —— 一个类型失误会被放大成整库改写：' + out.slice(0, 160))
+      assert(/数组/.test(out), '该说清要传数组：' + out.slice(0, 200))
+      assert(/不要传 groups|省略/.test(out), '该告诉它"想全库就别传 groups"：' + out.slice(0, 260))
+    })
+  }
+  check('★ P1b 五次类型错误之后，**记录一个字节都没变**', () => {
+    assert(snap() === beforeF1, '★ 被"类型错误"的操作改了数据：' + snap())
+  })
+
+  // ── F4：组数口径执行/撤销必须一致 ────────────────────────────────────────
+  // ⚠️ 本 harness 的 `check()` **不 await 回调** ⇒ `await` 一律放**语句层**
+  //    （把 async 塞进 check 是"假通过"，这条这个文件顶上就写着）。
+  const beforeF4 = snap()
+  const exec1 = await tags({ action: 'merge', confirm: true, groups: [{ canonical: 'DSH', from: ['dsh'] }] })
+  const undoOut = (await tags({ action: 'undo-merge' })).text
+  check('F4 执行与撤销报的是同一个"组数"（原来一组含 2 个 from 时会报 1 vs 2）', () => {
+    assert(/✅/.test(exec1.text), exec1.text.slice(0, 160))
+    assert(/涉及 1 组/.test(undoOut), '撤销该报"1 组"（与执行同口径），实际：' + undoOut)
+  })
+  check('F4b 撤销把数据还回来了（善后）', () => {
+    assert(snap() === beforeF4, '没还回来：' + snap())
+  })
+
+  // ── F2：注释比实现乐观 —— 已改成如实描述（这条守卫钉注释，不钉行为）─────────
+  check('★ P2 `renameTags` 的注释必须如实说明"merge 也允许库里没有的目标名"', () => {
+    // 真缺陷是**注释比实现乐观**（原来写"mergeTags 由规则层保证目标名来自库内"，
+    // 而那只对"省略 groups"的调用成立）。⇒ 修的是注释，这里把它钉住，别再漂回去。
+    const src = fs.readFileSync(new URL('../lib/store.js', import.meta.url), 'utf8')
+    assert(/只有"省略 groups"的调用/.test(src),
+      '★ 注释又变回"由规则层保证"那种乐观说法了 —— 那只对省略 groups 的调用成立')
+    assert(/回退/.test(src), '该如实记下"加过校验又回退了"以及原因')
+  })
+}
+
 // ── 收尾 ─────────────────────────────────────────────────────────────────
 try { fs.rmSync(TMP, { recursive: true, force: true }) } catch { /* 忽略 */ }
 
