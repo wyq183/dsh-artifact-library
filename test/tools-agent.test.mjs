@@ -793,6 +793,52 @@ console.log('\n=== [Q] 落盘失败 ⇒ 工具不许承诺可撤销（F3 的用�
   if (fs.existsSync(metaPath) && fs.statSync(metaPath).isDirectory()) fs.rmdirSync(metaPath)
 }
 
+// ═══ [R] `warning` 不许被工具吃掉（2026-10-08 · 修 F3 时我自己发现的第一个漏洞）═══════
+//
+// store 在"记录已还原、但凭据已用掉没落盘"时回 `ok:true + warning`（撤销**确实成功了**，
+// 谎报失败会让人以为没撤成、又撤一次）。⚠️ **但工具层第一版把 `warning` 直接丢了** ——
+// 于是 agent 看不到"重启后这份凭据可能还在"，等于**静默**。
+// ⇒ 这条钉的是**"工具说了什么"**：warning 必须出现在给 agent 的文案里。
+console.log('\n=== [R] 撤销的 warning 必须转达到文案里（不许静默）===')
+{
+  const dir = path.join(TMP, 'undowarn')
+  fs.mkdirSync(dir, { recursive: true })
+  const store = new ArtifactStore(dir).load()
+  ctx.tools.allowReplace = true
+  registerArtifactTools(ctx, store)
+  ctx.tools.allowReplace = false
+  const tags = (args) => tools.get('artifact_tags').execute(args, {})
+  store.register({ path: makeFile('uw-a.md', 'x'), title: 'uwa', tags: ['dsh'] })
+  store.register({ path: makeFile('uw-b.md', 'x'), title: 'uwb', tags: ['DSH'] })
+
+  // 先成功合并一次，留下凭据
+  const m = await tags({ action: 'merge', confirm: true, groups: [{ canonical: 'DSH', from: ['dsh'] }] })
+  check('R0 前置：合并成功且回了"如要退回"', () => {
+    assert(/✅/.test(m.text) && /如要退回/.test(m.text), m.text.slice(0, 200))
+  })
+
+  // ⭐ 让「凭据已消费」落不下去：把 meta.json 换成同名目录。
+  //    注意此时**记录能正常落盘**（artifacts.json 没被动）⇒ 撤销本身会成功、只差"凭据已用掉"。
+  const metaPath = path.join(dir, 'meta.json')
+  if (fs.existsSync(metaPath)) fs.rmSync(metaPath, { recursive: true, force: true })
+  fs.mkdirSync(metaPath)
+  const undo = await tags({ action: 'undo-merge' })
+  if (fs.existsSync(metaPath) && fs.statSync(metaPath).isDirectory()) fs.rmdirSync(metaPath)
+
+  check('★ R1 撤销仍然报成功（它**确实**撤成了 —— 不许谎报失败）', () => {
+    assert(/↩️/.test(undo.text), '该报成功：' + undo.text.slice(0, 240))
+    assert(!/❌/.test(undo.text), '谎报了失败：' + undo.text.slice(0, 240))
+  })
+  check('★★ R2 但 `warning` **必须出现在文案里**（不许被吃掉 = 静默）', () => {
+    assert(/⚠️/.test(undo.text), '★ warning 被工具吃掉了，agent 看不到：' + undo.text.slice(0, 300))
+    assert(/凭据/.test(undo.text), '★ 该说清是凭据没落盘：' + undo.text.slice(0, 300))
+  })
+  check('★ R3 数据确实还原了（撤销真的生效，不是只在嘴上）', () => {
+    const all = JSON.parse(fs.readFileSync(path.join(dir, 'artifacts.json'), 'utf8')).flatMap((r) => r.tags || [])
+    assert(all.includes('dsh'), '盘上没还原：' + JSON.stringify(all))
+  })
+}
+
 // ── 收尾 ─────────────────────────────────────────────────────────────────
 try { fs.rmSync(TMP, { recursive: true, force: true }) } catch { /* 忽略 */ }
 
