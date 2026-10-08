@@ -63,10 +63,13 @@ const run = (name, args) => tools.get(name).execute(args, {})
 console.log('\n=== [1] 工具清单与契约 ===')
 freshStore()
 {
-  check('★ 注册了 16 个工具（数出来的，不是记的）', () => {
+  check('★ 注册了 17 个工具（数出来的，不是记的）', () => {
     // 15 → 16：Step 3c 加了 `artifact_tags`。这个数字**故意写死**——
     // 加/删工具时要人**主动**来改它，顺便想一遍"这个工具该不该存在"。
-    assert(tools.size === 16, '实际 ' + tools.size + ': ' + [...tools.keys()].join(', '))
+    // 16 → 17：Step 3d 接线加了 `artifact_tag_styles`（受管标签表的读写）。
+    //   想过的那个问题、以及"为什么不并进 artifact_tags"，写在 tools.js 里
+    //   `managedTagStylesTool` 的注释里（两个同名不同义的 `limit` 是主要理由）。
+    assert(tools.size === 17, '实际 ' + tools.size + ': ' + [...tools.keys()].join(', '))
   })
   check('每个工具的 parameters 是合法 JSON Schema（type=object + properties + required 子集）', () => {
     for (const [name, tool] of tools) {
@@ -99,7 +102,7 @@ freshStore()
     const local = new Map()
     const localCtx = { tools: { register: (t) => { local.set(t.name, t); return () => local.delete(t.name) } } }
     const destroy = registerArtifactTools(localCtx, new ArtifactStore(dir).load())
-    assert(local.size === 16, '装了 ' + local.size + ' 个')
+    assert(local.size === 17, '装了 ' + local.size + ' 个')
     destroy()
     assert(local.size === 0, '卸载后还剩 ' + local.size + ' 个')
   })

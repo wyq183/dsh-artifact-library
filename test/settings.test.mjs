@@ -108,6 +108,10 @@ function makeDeps(settingsStore, extra = {}) {
         update: (patch) => settingsStore.update(patch),
         export: (legacy) => settingsStore.exportPayload(legacy),
         import: (payload) => settingsStore.importPayload(payload),
+        // ⚠️ 必须和 `lib/index.js` 那份适配器**逐字段对齐** ——
+        //    漏一个字段不会报错，只会让「磁盘上被丢弃」和「从来没配过」长得一样
+        //    （`GET /managed-tags` 的守卫就靠它，见 lib/http.js 的注释）。
+        rejectedKeys: () => settingsStore.rejected,
       },
       listDir: (dir, opts) => listDirectory(dir, opts),
       // /files/* 分支要求 fileIndex 存在（否则 503）—— 给个最小替身，
