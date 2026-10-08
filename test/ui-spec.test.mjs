@@ -86,21 +86,45 @@ function assert(cond, message) {
 /**
  * 去掉 JS 注释（**逐字符 1:1 替换**，保证去掉后行号不变）。
  * 保留字符串内容 —— hex 颜色就住在字符串里，不能连它一起删。
- * 注：JS 里 `//` 与 `/*` 永远是注释（空正则字面量在 JS 里非法），
- * 所以不需要区分「除号 / 正则字面量」。
+ *
+ * ⚠️ **2026-10-08 修（client-3d 发现，Lead 独立复核后落地）**：
+ * 原版注释写着「JS 里 `//` 与 `/*` 永远是注释，所以不需要区分除号 / 正则字面量」——
+ * **前半句对，推论错**。`//` 与 `/*` 确实是注释，但**引号**才是把词法带偏的那个：
+ * `client.js` 里有一行
+ *     if (/[\u0000-\u001f\u007f-\u009f"]/.test(p)) return "";
+ * 正则**字符类里那个 `"`** 被原版当成「字符串开始」⇒ 词法从此错位 ⇒
+ * **从那一行起 328 处 `/* … *​/` 注释根本没被剥掉**（实测：剥完还剩 328 个 `/*`）。
+ * 剥注释于是**空转**，而它正是**本文件 120 条断言的输入预处理**。
+ *
+ * 症状为什么现在才冒出来：之前原文里没有 hex 落在「没被剥掉的注释」里。
+ * 3d 内联的 JSDoc 里有一个反例 `#ff0000`，于是 hex 门禁抓到了**注释里的文档**
+ * （而 `tag-styles.test.mjs` 的 `[I]` 节明说注释里的反例是**允许**的）。
+ *
+ * 修法：多一条「这个 `/` 能不能起正则字面量」的判定 —— 能，则把整段正则**吞掉**
+ * （于是字符类里的引号不再被当成字符串开头）。
+ * 判据取通行的启发式：`/` 是正则开头 **当且仅当**它前面最近的有效 token
+ * 不是 标识符 / 数字 / `)` / `]` / `}`（那些位置后面跟的 `/` 是**除号**）。
+ *
+ * ⚠️⚠️ 这段是**启发式**，不是完整 JS 词法分析器。它有一个已知的失效方向：
+ * 若某处 `/` 被**误判成正则开头**，会吞掉后面的代码 —— 但「吞掉」只会**多剥**
+ * （把真代码当注释），而本文件的自检断言（见下面 `stripComments 自检` 一节）
+ * 会盯着**长度不变**与**真代码行逐字不变**，所以误判会**红**、不会静默。
  */
 function stripComments(src) {
   let out = '';
   let i = 0;
   let quote = null;
+  let prev = '';
   const n = src.length;
+  // 前面最近的有效 token 决定 `/` 是除号还是正则开头
+  const regexAllowed = () => !/[A-Za-z0-9_$)\]}"]/.test(prev);
   while (i < n) {
     const c = src[i];
     const c2 = src[i + 1];
     if (quote) {
       out += c;
-      if (c === '\\') { out += c2 === undefined ? '' : c2; i += 2; continue; }
-      if (c === quote) quote = null;
+      if (c === '\\') { out += c2 === undefined ? '' : c2; prev = 'x'; i += 2; continue; }
+      if (c === quote) { quote = null; prev = 'x'; }
       i += 1;
       continue;
     }
@@ -119,7 +143,31 @@ function stripComments(src) {
       if (i < n) { out += '  '; i += 2; }
       continue;
     }
+    // ★ 正则字面量：整段吞掉（字符类里的引号不再被当成字符串开头）
+    if (c === '/' && regexAllowed()) {
+      let j = i + 1;
+      let inClass = false;
+      let closed = false;
+      while (j < n) {
+        const d = src[j];
+        if (d === '\\') { j += 2; continue; }
+        if (d === '\n') break;
+        if (d === '[') inClass = true;
+        else if (d === ']') inClass = false;
+        else if (d === '/' && !inClass) { closed = true; break; }
+        j += 1;
+      }
+      if (closed) {
+        let k = j + 1;
+        while (k < n && /[a-z]/i.test(src[k])) k += 1;
+        out += src.slice(i, k);
+        prev = 'x';
+        i = k;
+        continue;
+      }
+    }
     out += c;
+    if (!/\s/.test(c)) prev = c;
     i += 1;
   }
   return out;
@@ -190,6 +238,113 @@ const CLIENT_RAW = fs.readFileSync(CLIENT_PATH, 'utf8');
 const CLIENT_SRC = stripComments(CLIENT_RAW);
 const CSS_TEXT = extractCssText(CLIENT_SRC);
 const CSS_RULES = cssRules(CSS_TEXT);
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * [0/46] ★★ 输入预处理自检：`stripComments` 真的在剥注释吗
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ 为什么这一节必须存在（2026-10-08 立，起因是一个**真实发生过的** bug）：
+ *
+ *   本文件**其余每一条**断言扫的都是 `CLIENT_SRC = stripComments(CLIENT_RAW)`。
+ *   所以 `stripComments` 一旦坏掉，坏的不是**一条**断言，是**全部 120 处引用** ——
+ *   而且它坏的方式是「注释没被剥掉」⇒ 那些断言在**扫着带注释的原文**做判断。
+ *   方向不定（可能假绿、可能误报），**并且不会自己喊**。
+ *
+ *   这个 bug 真的发生过：`client.js` 里
+ *       if (/[\u0000-\u001f\u007f-\u009f"]/.test(p)) return "";
+ *   正则字符类里那个 `"` 被原版当成「字符串开始」⇒ 词法错位 ⇒
+ *   **从那一行起 328 处 `/* … *​/` 注释根本没被剥掉**。
+ *   它一直没暴露，只因为原文里没有 hex 落在那些「没被剥掉的注释」里 ——
+ *   直到 3d 内联的 JSDoc 里出现一个反例 `#ff0000`（那是**合法文档**，
+ *   见 `tag-styles.test.mjs` 的 `[I]` 节），hex 门禁才误报出来。
+ *
+ *   ⇒ 规矩（§八「**守卫的输入预处理也必须被验**」）：**先验预处理，再验断言**。
+ *     否则整份文件是**安全感的假象** —— 全绿，但绿得没有意义。
+ */
+
+console.log('\n[0/46] ★★ 输入预处理自检：stripComments 真的在剥注释（它坏了 = 全部 120 处一起空转）');
+
+check('[§0]', '★★ 剥注释是 1:1 替换：长度必须**逐字符不变**（否则行号会漂，所有行号类断言跟着错）', OWNER_CLIENT, () => {
+  assert(CLIENT_SRC.length === CLIENT_RAW.length,
+    '剥完长度变了（' + CLIENT_RAW.length + ' → ' + CLIENT_SRC.length + '）—— 行号会漂，本文件的行号类断言全部不可信');
+});
+
+check('[§0]', '★★ 剥完**不该再有块注释开头**（残留 = 有注释没被剥掉 = 断言扫的是原文）', OWNER_CLIENT, () => {
+  const leftover = [];
+  const lines = CLIENT_SRC.split('\n');
+  for (let i = 0; i < lines.length; i++) if (lines[i].indexOf('/*') >= 0) leftover.push(i + 1);
+  assert(leftover.length === 0,
+    '还有 ' + leftover.length + ' 行含 `/*`（前几个行号：' + leftover.slice(0, 8).join(', ') + '）'
+    + ' ⇒ 那些注释没被剥掉，本文件的断言在扫**带注释的原文**');
+});
+
+check('[§0]', '★★ 反向对照：把**已知有病**的旧实现跑一遍，它必须**抓不住**（否则上面那条自检是空转的）', OWNER_CLIENT, () => {
+  // 旧实现（2026-10-08 之前那版）：不认识正则字面量 ⇒ 正则字符类里的引号把词法带偏。
+  // ⚠️ 这一段**刻意照抄**旧代码 —— 它不是"备用实现"，是**已知有病的标本**。
+  function stripCommentsBroken(src) {
+    let out = '';
+    let i = 0;
+    let quote = null;
+    const n = src.length;
+    while (i < n) {
+      const c = src[i];
+      const c2 = src[i + 1];
+      if (quote) {
+        out += c;
+        if (c === '\\') { out += c2 === undefined ? '' : c2; i += 2; continue; }
+        if (c === quote) quote = null;
+        i += 1;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === '`') { quote = c; out += c; i += 1; continue; }
+      if (c === '/' && c2 === '/') {
+        while (i < n && src[i] !== '\n') { out += ' '; i += 1; }
+        continue;
+      }
+      if (c === '/' && c2 === '*') {
+        out += '  ';
+        i += 2;
+        while (i < n && !(src[i] === '*' && src[i + 1] === '/')) {
+          out += src[i] === '\n' ? '\n' : ' ';
+          i += 1;
+        }
+        if (i < n) { out += '  '; i += 2; }
+        continue;
+      }
+      out += c;
+      i += 1;
+    }
+    return out;
+  }
+  // ① 病态构造（正是 client.js 里那一行的形状）：正则字符类里带引号，后面跟块注释
+  const sick = 'const p = "x";\n'
+    + 'if (/[\\u0000-\\u001f"]/.test(p)) return "";\n'
+    + '/* 这条注释必须被剥掉 */\n'
+    + 'const after = 1;\n';
+  const good = stripComments(sick);
+  const bad = stripCommentsBroken(sick);
+  assert(good.indexOf('这条注释必须被剥掉') < 0,
+    '修好版竟然没剥掉病态构造后面的注释 —— 那么上面那条「残留 = 0」是空转的');
+  assert(bad.indexOf('这条注释必须被剥掉') >= 0,
+    '旧实现竟然也剥掉了 —— 说明这段构造挑得不对，反向对照失去意义'
+    + '（那上面那条自检就分辨不出好坏）');
+  // ② 长度也必须都不变（两个版本都该是 1:1）
+  assert(good.length === sick.length && bad.length === sick.length,
+    '1:1 替换被破坏：good ' + good.length + ' / bad ' + bad.length + ' / 原文 ' + sick.length);
+  // ③ ★ 在**真文件**上：旧实现的残留必须远大于 0（证明这个 bug 真的存在于真文件，不是构造出来的）
+  const badOnReal = stripCommentsBroken(CLIENT_RAW).split('\n').filter((l) => l.indexOf('/*') >= 0).length;
+  assert(badOnReal > 0,
+    '旧实现跑真文件竟然也没残留 —— 那说明真文件里已经没有病态构造了，'
+    + '这条自检的「真文件」那半边可以退休（**别默默删掉，要留下这条提示**）');
+});
+
+check('[§0]', '★ 字符串内容必须被保留（hex 就住在字符串里，剥掉字符串 = 把要抓的东西一起删了）', OWNER_CLIENT, () => {
+  const probe = 'const a = "#ff0000";\n/* 注释里的 #00ff00 */\nconst b = "\\u0000";\n';
+  const out = stripComments(probe);
+  assert(out.indexOf('#ff0000') >= 0, '字符串里的 hex 被一起剥掉了 ⇒ hex 门禁永远抓不到东西（假绿）');
+  assert(out.indexOf('#00ff00') < 0, '注释里的 hex 没被剥掉 ⇒ hex 门禁会误报注释（正是这次的症状）');
+  assert(out.length === probe.length, '1:1 被破坏');
+});
 
 /** lib/icons.js 是 ESM 独立模块，先真 import 一次，供第 6/7 条复用。 */
 const icons = { exists: fs.existsSync(ICONS_PATH), ok: false, mod: null, error: null, src: '' };
