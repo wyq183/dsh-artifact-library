@@ -460,6 +460,190 @@ check('★ 校准④：监听器没有一轮一轮堆积（假 React 的 cleanup
 });
 
 // ══════════════════════════════════════════════════════════════════════════
+// §1.5 ★★ 漂移守卫：capture 阶段的 Escape 处理器**只有已知那几个**
+// ══════════════════════════════════════════════════════════════════════════
+// 【为什么必须有这条 —— 由 Linux 侧小琪琪在独立复核里提出，我认了】
+//
+// F2（`blockEscape` 让路）的确定性，**依赖一个会随新代码漂移的前提**：
+//   「在浮层之前，没有别的 capture 阶段 Escape 处理器把事件截掉」。
+//
+// 机制：同节点（`document`）、同阶段（capture）的监听器**按注册顺序跑**，
+//   而 `stopPropagation()` **拦不住同一节点上的兄弟**（见 §0 的分发模型注释）。
+//   ⇒ 只要有人新增一个 capture 阶段的 Escape 处理器、且它**先注册**、
+//     且它调 `stopPropagation()` —— 浮层就收不到 Esc，「按两下」当场复发。
+//
+// ⇒ 这条守卫**钉住那张清单**：新增一个 capture 处理器就必须来这里显式登记，
+//   并当场回答「它会不会截胡浮层」。**漏登记 = 红**，不会静默漂移。
+//
+// ⚠️ 这也是本仓库既有的先例：`client-render.test.mjs` 的 `EXPECTED_HOOK_CALLS`
+//    就是同一种「总数校准」——**会漂移的结构，用一个会响的数钉住**。
+const KNOWN_CAPTURE_HANDLERS = [
+  { owner: 'PanelInner', why: '媒体预览浮层自己（最上层，**必须**跑）' },
+  { owner: 'SettingsPanel', why: '设置页：面板**整块替换**（early return）⇒ 与浮层不可能同时挂载' },
+  { owner: 'ImportPanel', why: '导入页：见下面「已知理论洞」' },
+  { owner: 'DetailDrawer', why: '详情抽屉：靠 `blockEscape` 让路' },
+];
+
+// ── ⚠️ 已知理论洞：`ImportPanel` 与浮层**理论上能共存**（我审计时发现的，**没修**）──
+//
+// 与 `SettingsPanel` 不同，`ImportPanel` 是 push 进 `bodyKids` 的（**不是** early return），
+// 所以它和面板末尾渲染的浮层**在状态上可以同时为真**。
+// 而它的 `onEscKey` 会 `stopPropagation()` 并关掉自己（`lib/client.js:8360`）——
+// **若它先注册**（即先挂载），一次 Esc 就只关导入页、浮层收不到 ⇒「按两下」复发。
+//
+// **为什么现在没修**（如实记，别假装不存在）：
+//   ① 实测**UI 上不可达**：`filters["import"] = true` 只有两个来源
+//      （工具栏那两个按钮，`lib/client.js:4238` / `:4481`），
+//      而浮层是 `position:fixed;inset:0;z-index:60` **全屏覆盖** ——
+//      浮层开着时点不到工具栏；反过来导入页显示时**没有卡片可点**（浮层打不开）。
+//   ② 修它要么给 `ImportPanel` 也接一根 `blockEscape`（多一层手工接线，
+//      正是 F2 的已知代价），要么让浮层在切换视图时自动关闭（改的是别的行为）。
+//      两个都不是"顺手改一下"，属于**该单独决策**的事。
+//   ⇒ 所以这里**只钉住清单**：真有人加/改了 capture 处理器，这条会红，
+//     并强迫当场回答「它会不会先截胡」。**这是把未知风险变成可见风险，不是消除它。**
+//
+// 📌 给将来的人：如果你正要新增一个 capture 阶段的 Escape 处理器，
+//    先读上面这段，再决定是「让它让路」还是「换个阶段」。
+
+/**
+ * 扫出源码里所有 **capture 阶段** 的 `keydown` 注册，并判断各自属于哪个组件。
+ * @returns {{owner:string, handler:string, line:number}[]}
+ */
+function scanCaptureKeydown(source) {
+  const text = source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
+  const lines = text.split('\n');
+  const re = /addEventListener\(\s*["']keydown["']\s*,\s*([A-Za-z_$][\w$]*)\s*,\s*true\s*\)/;
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = lines[i].match(re);
+    if (!m) continue;
+    // 往回找**最近的** 4 空格缩进 `function X(` —— 那是它所属的组件。
+    // ⚠️ 窗口给足 700 行：浮层那个 effect 离 `function PanelInner` 有 ~495 行，
+    //    我第一版只给 400 行 ⇒ 归属算成 '?'（**判据自己写错了**，不是代码错）。
+    let owner = '?';
+    for (let j = i - 1; j >= 0 && j > i - 700; j -= 1) {
+      const om = lines[j].match(/^ {4}function ([A-Za-z_$][\w$]*)\(/);
+      if (om) { owner = om[1]; break; }
+    }
+    out.push({ owner, handler: m[1], line: i + 1 });
+  }
+  return out;
+}
+
+check('★★ 漂移守卫：capture 阶段的 Escape 处理器**恰好**是已知那 4 个', () => {
+  const found = scanCaptureKeydown(src);
+  const got = found.map((f) => f.owner);
+  const want = KNOWN_CAPTURE_HANDLERS.map((k) => k.owner);
+
+  // ① 归属必须都认得出来（认不出来就是判据失效，不能当"通过"）
+  assert(!got.includes('?'),
+    '★ 有 capture 阶段的 keydown 注册**认不出所属组件**（归属算成 "?"）—— '
+    + '说明函数声明形态变了（例如改成了 `var X = function` / 箭头函数 / 缩进变了）。'
+    + '**这是判据失效，不是通过**：请同步 scanCaptureKeydown() 的归属算法。'
+    + '实测位置：' + JSON.stringify(found.filter((f) => f.owner === '?')));
+
+  // ② 数量与归属逐一比对
+  assert(got.length === want.length,
+    '★★ capture 阶段的 Escape 处理器从 ' + want.length + ' 个变成了 ' + got.length + ' 个。\n'
+    + '     现在：' + JSON.stringify(got) + '\n'
+    + '     期望：' + JSON.stringify(want) + '\n'
+    + '     ⚠️ **新增的那个必须来这里显式登记**（加进 KNOWN_CAPTURE_HANDLERS），'
+    + '并当场回答一句：**它会不会在浮层之前把 Esc 截掉？**\n'
+    + '     因为 F2（`blockEscape` 让路）的确定性依赖「没有别人先截胡」，'
+    + '     而同节点同阶段按注册顺序跑、`stopPropagation()` 拦不住兄弟 ——'
+    + '     一个先注册又 stopPropagation 的新处理器，会让「按两下 Esc」当场复发。');
+  assert(got.join('|') === want.join('|'),
+    '★★ capture 阶段的 Escape 处理器**变了**（数量一样但归属不同）。\n'
+    + '     现在：' + JSON.stringify(got) + '\n'
+    + '     期望：' + JSON.stringify(want) + '\n'
+    + '     ⚠️ 顺序也有意义（同节点同阶段**按注册顺序**跑）：排在前面的会先跑。'
+    + '请确认新顺序不会让某个处理器抢在浮层之前把 Esc 截掉。');
+});
+
+check('★ 漂移守卫（反向对照）：扫描器**能**数出新增的 capture 处理器（用固定最小源码，与 src 现状无关）', () => {
+  // ⚠️ 反向对照必须**独立造**，不能从当前源码 replace 出坏版本 ——
+  //    那样一旦源码先坏，替换就找不到锚点，报错会变成「造不出来」（误导）。
+  // ⚠️ 也**不能**基于 `src` 拼 —— 我第一版那么写，结果源码里真的多了一个处理器时，
+  //    这条会跟着一起红、并报「上面那条守卫是空转的」——**那句话是错的**
+  //    （守卫明明抓到了，是这条自己数错了）。**报错信息误导比不报更坏。**
+  //    ⇒ 改成喂一个**固定的小源码**，专测扫描器本身。
+  const MINI = [
+    '    function Alpha(props) {',
+    '      React.useEffect(function () {',
+    '        function onKey(e) { if (e.key === "Escape") props.onClose(); }',
+    '        document.addEventListener("keydown", onKey, true);',
+    '        return function () { document.removeEventListener("keydown", onKey, true); };',
+    '      }, []);',
+    '      return null;',
+    '    }',
+    '    function Beta(props) {',
+    '      React.useEffect(function () {',
+    '        function onEsc(e) { if (e.key === "Escape") props.onClose(); }',
+    '        document.addEventListener("keydown", onEsc, true);',
+    '        return function () { document.removeEventListener("keydown", onEsc, true); };',
+    '      }, []);',
+    '      return null;',
+    '    }',
+  ].join('\n');
+
+  const two = scanCaptureKeydown(MINI);
+  assert(two.length === 2, '扫描器在固定最小源码上应数出 2 个，实际 ' + two.length
+    + ' ⇒ 扫描器本身坏了（那主守卫的"4 个"也不可信）');
+  assert(two.map((f) => f.owner).join('|') === 'Alpha|Beta',
+    '★ 归属识别错了：' + JSON.stringify(two.map((f) => f.owner)) + '（期望 Alpha|Beta）');
+
+  // 加第三个 ⇒ 必须数出 3
+  const three = scanCaptureKeydown(MINI + '\n' + [
+    '    function Gamma(props) {',
+    '      React.useEffect(function () {',
+    '        function onKey(e) { if (e.key === "Escape") props.onClose(); }',
+    '        document.addEventListener("keydown", onKey, true);',
+    '        return function () { document.removeEventListener("keydown", onKey, true); };',
+    '      }, []);',
+    '      return null;',
+    '    }',
+  ].join('\n'));
+  assert(three.length === 3,
+    '★ 加了一个 capture 处理器后扫描器只数出 ' + three.length + ' 个（期望 3）'
+    + ' ⇒ 主守卫抓不到新增 ⇒ **F2 的漂移风险没人看着**');
+
+  // 反向的另一半：**bubble** 阶段的不该被数进来（否则判据过宽、天天误报）
+  const withBubble = scanCaptureKeydown(MINI + '\n' + [
+    '    function Delta(props) {',
+    '      React.useEffect(function () {',
+    '        function onKey(e) { if (e.key === "Escape") props.onClose(); }',
+    '        document.addEventListener("keydown", onKey);',
+    '        return function () { document.removeEventListener("keydown", onKey); };',
+    '      }, []);',
+    '      return null;',
+    '    }',
+  ].join('\n'));
+  assert(withBubble.length === 2,
+    '★ 把 **bubble** 阶段的注册也算进来了（数出 ' + withBubble.length + '，期望 2）'
+    + ' ⇒ 判据过宽，会把无害的处理器也判红');
+});
+
+check('★ 漂移守卫：输入预处理自检（剥注释真的剥了、且锚点还在）', () => {
+  // 本仓库有过「120 条断言全建在没剥干净的源码上」的事故 ⇒ 预处理必须自证。
+  assert(CODE.includes('addEventListener'), '★ 剥注释后的源码里没有 addEventListener —— 剥过头了');
+  // ⚠️ 反向对照必须挑一个**确实存在于 client.js 注释里**的句子。
+  //    我第一版写的是 `'已知理论洞'` —— 那个词只在**本测试文件**里，
+  //    client.js 里根本没有 ⇒ `CODE.includes(...)` **永远为 false** ⇒ 断言恒真（空转）。
+  //    **这正是本仓库反复栽的「守卫空转」**：它看起来在验预处理，其实什么都没验。
+  //    ⇒ 现在这个句子实测：原文有 = true、剥注释后 = false（两个方向都被钉住）。
+  const COMMENT_ONLY = '浮层开着时的键盘';
+  assert(src.includes(COMMENT_ONLY),
+    '★ 拿来做反向对照的句子 `' + COMMENT_ONLY + '` 在 client.js 原文里都找不到 —— '
+    + '那下面那句 `CODE.includes` 必然为 false，**断言恒真、什么都没验**（换一句真实存在的注释原文）');
+  assert(!CODE.includes(COMMENT_ONLY),
+    '★ 剥注释后仍能搜到注释原文 `' + COMMENT_ONLY + '` ⇒ 注释没剥干净，本文件所有静态判据都可能建在错的输入上');
+  // 锚点：本文件依赖的那些符号必须还在
+  for (const anchor of ['blockEscape', 'MediaLightbox', 'DetailDrawer']) {
+    assert(src.includes(anchor), '★ 源码里找不到锚点 `' + anchor + '` —— 组件改名了，请同步本文件');
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
 // §2 C1：浮层 + 抽屉都开着 ⇒ 一次 Esc 只关浮层
 // ══════════════════════════════════════════════════════════════════════════
 console.log('\n── C1：两层同时开着，一次 Esc 只关最上面那层 ──');
