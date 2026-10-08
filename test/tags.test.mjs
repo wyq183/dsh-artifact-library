@@ -537,7 +537,13 @@ console.log('\n=== [H] store.mergeTags / undoTagMerge（临时目录，不碰真
     const trashed = mkRec(S3, D3, 'gone.txt', ['dsh'])
     S3.trash(trashed.id)
     const r = S3.mergeTags({ groups: [{ canonical: 'DSH', from: ['dsh'] }] })
-    assert(r.ok === false, '只有回收站记录命中 → 应报「没有命中」，实际 ' + JSON.stringify(r))
+    // ⚠️ 这条原来写的是 `r.ok === false` —— 那**把错行为钉成了期望**（2026-10-08 修 `ok:false` 双语义时改）。
+    //    「只有回收站记录命中」= 请求合法、只是没有**可改的**记录 ⇒ 那是 `noop`，不是失败。
+    //    **意图一字没变**（回收站不参与），只是判据换成了三态里正确的那一个 ——
+    //    而且更强：`noop:true` 明说「什么都没做」，而 `ok:false` 分不清是"没命中"还是"参数错"。
+    assert(r.ok === true, '★ 不该是失败（请求本身合法）：' + JSON.stringify(r))
+    assert(r.noop === true, '★ 只有回收站记录命中 ⇒ 应是 noop（无事可做）：' + JSON.stringify(r))
+    assert(r.changed === 0, '★ 一条都不该被改：' + JSON.stringify(r))
     assert(JSON.stringify(trashed.tags) === JSON.stringify(['dsh']), '回收站记录的 tags 不该被改')
   })
 
@@ -943,8 +949,14 @@ console.log('\n=== [K] buildTagSwap / renameTags（两个入口共用一个引�
     assert(/改名/.test(S.renameTags({ groups: [] }).error), 'rename 该说"改名"')
     assert(/合并组/.test(S.mergeTags({ groups: [] }).error), 'merge 该说"合并组"')
     // 0 命中时两边也该各说各的
+    // ⚠️ 2026-10-08：0 命中**不再是失败**（`ok:false` 双语义修掉）⇒ 文案从 `error` 挪到了
+    //    `reason`。**断言意图一字没变**（该说"改名"而不是"归一化"），只是换了字段 ——
+    //    并**顺手加强**：0 命中必须同时是「不是失败」。
     const missRename = S.renameTags({ groups: [{ canonical: '学业', from: ['根本没有这个标签'] }] })
-    assert(/改名/.test(missRename.error), '★ 0 命中时该说"改名"而不是"归一化"：' + missRename.error)
+    assert(missRename.ok === true && missRename.noop === true,
+      '★ 0 命中应是 noop，不是失败：' + JSON.stringify(missRename))
+    assert(/改名/.test(missRename.reason), '★ 0 命中时该说"改名"而不是"归一化"：' + missRename.reason)
+    assert(missRename.error === undefined, '★ noop 不该带 error 字段（那会诱使调用方按失败处理）')
   })
 }
 
