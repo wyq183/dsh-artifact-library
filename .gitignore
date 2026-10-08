@@ -15,6 +15,11 @@ vendor/everything/Everything-*.ini
 vendor/everything/Everything-*.ini.backup
 vendor/everything/Everything-*.db
 lib/index/tmp/
+# Everything 自己在 GUI 里记的「运行历史」CSV —— 是它的副产品，**不是**本插件的产物。
+# ⚠️ 它长得像数据文件（有 `.csv` 后缀、里面是真实路径），很容易被顺手 `git add` 进去。
+#    内容全是**本机绝对路径**（`C:\Users\Administrator\.dsh\workspace\...`）——
+#    提交它等于把本机目录结构写进版本库。留在这里当一道明示的闸门。
+vendor/everything/Run History-*.csv
 
 # 自验产生的数据
 selftest-data/
