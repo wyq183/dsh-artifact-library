@@ -134,5 +134,21 @@ await check('⑥ 落盘后重新 load 与落盘时的内存一致', () => {
 
 console.log('\n结果：' + passed + ' 通过 / ' + failed + ' 失败')
 if (failed) { console.log('失败清单：'); for (const f of failures) console.log('  - ' + f) }
-console.log('临时目录：' + TMP)
+
+// ── 临时目录清理（2026-10-09 补）────────────────────────────────────────────
+// ⚠️ 原来这里**只打印、不删** —— 实测每跑一次全套就漏一个 `alf-r15-*` 到 `%TEMP%`，
+//    实测证据：跑前 184 个、跑后 185 个，新增的正是本文件建的那个。
+//    （`%TEMP%` 里已经积了 184 个，绝大多数是这类"建了不删"的遗留。）
+// ★ **失败时保留、成功才删**：失败时那个目录是**排查现场**，删掉等于销毁证据；
+//    成功时它只是垃圾。这是刻意的，别"顺手"改成无条件删。
+if (!failed) {
+  try {
+    fs.rmSync(TMP, { recursive: true, force: true })
+  } catch (error) {
+    // 删不掉不是测试失败（Windows 上文件被占用是常事）—— 但要让人看见，别静默
+    console.log('（临时目录没删掉，不影响结果：' + TMP + ' —— ' + error.message + '）')
+  }
+} else {
+  console.log('临时目录（**失败时保留，供排查**）：' + TMP)
+}
 process.exit(failed ? 1 : 0)
