@@ -899,11 +899,37 @@ check('[§11.2]', 'role=dialog 有可访问名，且有焦点管理（打开移�
   }
 
   // ② 打开时焦点移入：每个对话框附近要有 autoFocus 或一次 .focus()
+  //
+  // ⚠️ **2026-10-08 修正窗口**：原来只看 `[d.index - 200, d.index + 1200]`，
+  //    而 `MediaLightbox` 的焦点管理写在**渲染之前**的 effect 里
+  //    （`lbRef.current.focus()` 在 role="dialog" 那行**上方**约 40 行 ≈ 2000 字符）
+  //    ⇒ 被切到窗口外 ⇒ **误报**。
+  //    ⚠️ 这与 `persist-fail.test.mjs` 的 `[G]` 那次**是同一个形状**（窗口开得太小）——
+  //    那次是假绿、这次是误报，根因相同：**静态扫描的窗口大小本身是个会被写错的判据，
+  //    而它错了不会有人喊。**
+  //    ⇒ 改成**按函数边界取窗口**：从**本函数**的函数头（dialog 之前最近的那个）到
+  //    下一个函数头。这样「组件自己写的焦点管理」无论写在 dialog 之前还是之后都在窗内。
   for (const d of dialogs) {
     const line = lineOf(CLIENT_SRC, d.index);
-    const window = CLIENT_SRC.slice(Math.max(0, d.index - 200), d.index + 1200);
+    const FN_HEAD = /^[ \t]*(?:function\s+[A-Za-z_$][\w$]*|var\s+[A-Za-z_$][\w$]*\s*=\s*function)/m;
+    // 向前：找**紧邻的、在 dialog 之前**的那个函数头（而不是全文最后一个）
+    const beforeAll = CLIENT_SRC.slice(0, d.index);
+    const headRe = /^[ \t]*(?:function\s+[A-Za-z_$][\w$]*|var\s+[A-Za-z_$][\w$]*\s*=\s*function)/gm;
+    let fnStart = 0;
+    let m2;
+    while ((m2 = headRe.exec(beforeAll)) !== null) {
+      // 只认「起点在 dialog 之前」的；持续覆盖 ⇒ 循环结束时是**最近的那个**
+      fnStart = m2.index;
+    }
+    if (fnStart > d.index) fnStart = 0;   // 理论上不会发生；发生了就退化成全文窗口
+    // 向后：下一个函数头（封顶 8000 字符，防止巨型函数把窗口拉爆）
+    const afterAll = CLIENT_SRC.slice(d.index);
+    const nextHead = afterAll.search(FN_HEAD);
+    const fnEnd = nextHead > 0 ? d.index + nextHead : CLIENT_SRC.length;
+    const window = CLIENT_SRC.slice(fnStart, Math.min(fnEnd, d.index + 8000));
     if (!/autoFocus/.test(window) && !/\.focus\s*\(/.test(window)) {
-      problems.push('client.js:' + line + ' 的对话框没有「打开移入焦点」的痕迹（既无 autoFocus 也无 .focus( )）');
+      problems.push('client.js:' + line + ' 的对话框没有「打开移入焦点」的痕迹（既无 autoFocus 也无 .focus( )）'
+        + '［窗口 ' + fnStart + '..' + Math.min(fnEnd, d.index + 8000) + '，' + window.length + ' 字符］');
     }
   }
 

@@ -142,6 +142,11 @@ function renderDir(entries, extra) {
     (extra && extra.panelSel) || { ids: {}, anchor: -1 },  // sPanelSel
     null,                     // sRefineUndo（取消优先标记的凭据；第 10 位 —— 在 sArtMenu **之前**）
     null,                     // sArtMenu（产物右键菜单；task-13 新增，第 11 位）
+    // ⚠️ **2026-10-08 新增第 12 位**：`sLightbox`（媒体预览浮层的状态；依琪要的
+    //    「卡片跟列表只要可以快速预览放大图片跟快捷播放视频音频」）。
+    //    刻意声明在 `sArtMenu` **之后** ⇒ 前 11 个槽位的位置**一个都没动**，
+    //    老断言的语义不受影响。`EXPECTED_HOOK_CALLS` 同步 33 → 34。
+    (extra && extra.lightbox !== undefined) ? extra.lightbox : null,   // sLightbox
     'C:\\proj', entries, (extra && extra.phase) || 'ready', '', ['C:\\proj'], { by: 'name', dir: 'asc' },
     // ⚠️ sDensity 是**手动覆盖**（null = 未覆盖 → 取设置里的值）。
     //    验「设置真的生效」必须喂 null；喂 'standard' 等于「用户行内改过」，设置会被（正确地）忽略 ——
@@ -432,26 +437,39 @@ check('卡片尺寸改了，渲染树跟着变（galleryThumbSize 48 ↔ 160）'
 // ── 显示形式必须**收成一个**按钮（2026-10-06 · 依琪反馈 + 真机复验）──────────────
 // 背景：第一版把 卡片/列表/画廊 从顶部导航搬出来，却只是塞进 ViewControl 的**又一个分段控件**
 // ⇒ 真机截图里还是 7 个按钮并排、总数一个没少（依琪原话要治的正是「按钮太多……不简洁不直观」）。
-// 这几条钉住「3 个按钮 → 1 个」以及「选项在浮层里、当前项有勾」，防止哪天又并排长回去。
+// 这几条钉住「N 个按钮 → 1 个」以及「选项在浮层里、当前项有勾」，防止哪天又并排长回去。
+//
+// ⚠️ **2026-10-08：档位从 3 收到 2**（画廊退役，见 `lib/client.js` 的 `VIEW_KINDS`）。
+//    依琪原话「不需要画廊啊，卡片跟列表只要可以快速预览放大图片跟快捷播放视频音频啥的不就好了」——
+//    他要的是**能快速看见内容**，而画廊是想用"换一种视图"去解决同一件事（实测真库媒体只占 13%）。
+//    ⇒ 本节判据从**写死 3** 改成**跟随档位表**：这样下次增删档位时，它验的仍是
+//      「浮层里恰好列出全部档位、且有且只有一个带 ✓」，而不会又变成一条
+//      **钉住当时档位数**的守卫（那种守卫在需求变时必然红，而代码是对的 —— 本仓库栽过好几次）。
 // ⚠️ 本文件的元素形状是 `{type, props, children}` —— **文案在 `children` 里，不在 `props.children`**。
 //    （第一版断言我写成 `props.children`，于是「找不到按钮」误报了一次；`cls`/`data-*` 那些判据没这个问题。）
 const txt = (n) => (Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string').join('') : String(n.children == null ? '' : n.children));
+/** 当前档位表（与 `lib/client.js` 的 `VIEW_KINDS` 同步；改档位要一起改这里）。 */
+const VIEW_LABELS = ['卡片', '列表'];
 check('显示形式收成一个紧凑按钮，而不是又一条并排的分段控件', () => {
   const btn = rCompact.nodes.find((n) => n.type === 'button' && /^显示：/.test(txt(n)));
   assert(btn, '找不到「显示：xx ▾」按钮 —— 显示形式控件没有收成单个按钮');
   assert(/▾$/.test(txt(btn)), '按钮文本应带 ▾ 提示可展开：' + txt(btn));
-  const inlineOpts = rCompact.nodes.filter((n) => n.type === 'button' && ['卡片', '列表', '画廊'].includes(txt(n)));
+  const inlineOpts = rCompact.nodes.filter((n) => n.type === 'button' && VIEW_LABELS.includes(txt(n)));
   assert(inlineOpts.length === 0, '关着浮层时仍渲染了 ' + inlineOpts.length + ' 个并排的视图选项按钮（退回了「一排按钮」）：' + inlineOpts.map(txt).join('/'));
 });
-check('显示形式浮层：3 个选项、恰好 1 个带 ✓ 的当前项，且跟随 dirView', () => {
+check('显示形式浮层：恰好列出全部档位、有且只有 1 个带 ✓ 的当前项，且跟随 dirView', () => {
   const rOpen = renderDir(entries, { prefs: prefsCompact, dirView: 'list', density: null, viewOpen: true });
   const items = rOpen.nodes.filter((n) => n.props && n.props.role === 'menuitemradio');
-  assert(items.length === 3, '浮层里应有 3 个选项，实际 ' + items.length);
+  // ★ 判据跟随档位表，不写死数字
+  assert(items.length === VIEW_LABELS.length, '浮层里应有 ' + VIEW_LABELS.length + ' 个选项，实际 ' + items.length);
+  const labels = items.map(txt).join(' ');
+  for (const want of VIEW_LABELS) assert(labels.includes(want), '浮层里少了档位「' + want + '」：' + labels);
+  assert(!labels.includes('画廊'), '★ 画廊已退役，浮层里不该再出现它：' + labels);
   const checked = items.filter((n) => n.props['aria-checked'] === 'true');
   assert(checked.length === 1, '应恰好 1 个当前项，实际 ' + checked.length);
   assert(txt(checked[0]).includes('列表'), 'dirView=list 时当前项应是「列表」，实际：' + txt(checked[0]));
   assert(txt(checked[0]).includes('✓'), '当前项要带 ✓ 标记：' + txt(checked[0]));
-  // 另外两项必须**不带**勾 —— 否则「当前在哪一档」就看不出来了
+  // 另外几项必须**不带**勾 —— 否则「当前在哪一档」就看不出来了
   const others = items.filter((n) => n.props['aria-checked'] !== 'true');
   assert(others.every((n) => !txt(n).includes('✓')), '非当前项不该出现 ✓');
 });
@@ -462,7 +480,8 @@ console.log('\n── 校准护栏（见文件头维护须知）──');
 // 后面所有值整体后移，按位置喂的 states 会静默错位 —— 断言可能「用错状态也过」。
 // 相等判定会把「增删改 hook」一律变成响亮的失败，逼人重新校准。改组件 hook 结构就改这个数。
 // 32 → 33（2026-10-06）：`ViewControl` 新增 `sViewOpen`（显示形式浮层开合）。
-const EXPECTED_HOOK_CALLS = 33;
+// 33 → 34（2026-10-08）：`PanelInner` 新增 `sLightbox`（媒体预览浮层；画廊退役后接棒的能力）。
+const EXPECTED_HOOK_CALLS = 34;
 console.log('  hook 调用 = ' + out.useStateCalls + ' / 期望 = ' + EXPECTED_HOOK_CALLS + ' / 状态槽位 = ' + out.stateSlots);
 check('状态队列仍与组件 hook 结构对得上（校准护栏）', () => {
   assert(
@@ -472,6 +491,187 @@ check('状态队列仍与组件 hook 结构对得上（校准护栏）', () => {
       '上面断言的结果不可信。请重新校准 renderDir() 的 states，并把 EXPECTED_HOOK_CALLS 改成新值。'
   );
 });
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// 媒体预览浮层（`MediaLightbox`；2026-10-08）
+// ══════════════════════════════════════════════════════════════════════════
+// 背景：依琪原话「不需要画廊啊，卡片跟列表只要可以快速预览放大图片跟快捷播放视频音频
+// 啥的不就好了」⇒ 画廊退役（见 `VIEW_KINDS`），预览浮层接棒。
+//
+// ⚠️ 本节**只测浮层自己**（纯展示组件，喂 props 就能断言），接线另有两节：
+//    · [接线] 卡片缩略图真的调 `openLightbox`（不是"写了个组件没人用"）
+//    · [接线] 点缩略图**必须** stopPropagation（否则浮层与详情抽屉会**同时**打开）
+console.log('\n── 媒体预览浮层（纯展示 + 接线）──');
+
+const IMG = { id: 'art_i', title: '图.png', path: 'C:\\p\\图.png', mime_type: 'image/png', exists: true, tags: [], stars: 0, artifact_type: 'image' };
+const VID = { id: 'art_v', title: '片.mp4', path: 'C:\\p\\片.mp4', mime_type: 'video/mp4', exists: true, tags: [], stars: 0, artifact_type: 'video' };
+const AUD = { id: 'art_a', title: '音.mp3', path: 'C:\\p\\音.mp3', mime_type: 'audio/mpeg', exists: true, tags: [], stars: 0, artifact_type: 'audio' };
+const DOC = { id: 'art_d', title: '文.md', path: 'C:\\p\\文.md', mime_type: 'text/markdown', exists: true, tags: [], stars: 0, artifact_type: 'document' };
+const cardFilters = { q: '', kind: '', refine: '', project: '', sort: 'created_desc', view: 'card', trash: false };
+const dataWith = (items) => ({ items, stats: {}, cats: { projects: [], types: [], tags: [] }, loading: false, error: '' });
+/** 渲染「卡片视图 + 浮层开着」的树。 */
+const renderLb = (items, lb, extra) => renderDir([], Object.assign({ filters: cardFilters, data: dataWith(items), lightbox: lb }, extra || {}));
+const lbNode = (r) => r.nodes.find((n) => cls(n) === 'alf__lb');
+
+check('浮层：role=dialog + 可访问名 + 有焦点移入（§11.2，键盘用户不会卡住）', () => {
+  const r = renderLb([IMG], { items: [IMG], index: 0, zoom: 0, nat: null });
+  const lb = lbNode(r);
+  assert(lb, '找不到浮层根节点（class alf__lb）—— 浮层没渲染');
+  assert(lb.props.role === 'dialog', 'role 该是 dialog：' + lb.props.role);
+  assert(lb.props['aria-modal'] === 'true', 'aria-modal 该是 true');
+  assert(lb.props['aria-label'], 'dialog 必须有可访问名（aria-label）');
+  assert(lb.props.tabIndex === -1, 'tabIndex 该是 -1（可编程聚焦、不占 Tab 位）');
+  assert(lb.props.autoFocus === true, '★ 该有 autoFocus（打开移入焦点）');
+});
+
+check('图片：渲染 <img>，且**适应窗口时不定宽高**（交给 CSS，别自己猜尺寸）', () => {
+  const r = renderLb([IMG], { items: [IMG], index: 0, zoom: 0, nat: null });
+  const img = r.nodes.find((n) => n.type === 'img' && cls(n) === 'alf__lbimg');
+  assert(img, '找不到浮层里的 img');
+  assert(img.props.src && img.props.src.includes('/art_i/file'), 'src 该指向该记录的 /file 端点：' + img.props.src);
+  assert(img.props.style === null, '★ zoom=0（适应窗口）时**不该**写死宽高 —— 否则小图会被拉大：' + JSON.stringify(img.props.style));
+});
+
+check('★★ 图片：**zoom=0 但已知原图尺寸**时也必须不写宽高（放大后缩回适应窗口的真实场景）', () => {
+  // ⚠️ 这条是**补的**：我第一版只用 `{zoom:0, nat:null}` 验「适应窗口」，
+  //    而那个用例里 `nat` 也是空的 ⇒ 把判据从 `zoom>0 && nat` 错写成 `nat`，
+  //    它照样绿（变异测试当场证明了这一点）。**真实场景**是：用户放大看了之后
+  //    再点一下缩回适应窗口 —— 此时 `nat` **是有值的**，判据必须只看 `zoom`。
+  const r = renderLb([IMG], { items: [IMG], index: 0, zoom: 0, nat: { w: 800, h: 600 } });
+  const img = r.nodes.find((n) => n.type === 'img' && cls(n) === 'alf__lbimg');
+  assert(img, '找不到浮层里的 img');
+  assert(img.props.style === null,
+    '★ zoom=0 时**无论知不知道原图尺寸**都必须适应窗口；'
+    + '否则用户放大后再点一下缩不回去（尺寸被写死了）：' + JSON.stringify(img.props.style));
+  assert(img.props['data-zoom'] === null, 'zoom=0 时不该打 data-zoom 标记（CSS 靠它切 cursor）');
+});
+
+check('★ 图片：zoom>0 且已知原图尺寸 ⇒ 按**原图像素 × 比例**定宽（放大真的放大）', () => {
+  const r = renderLb([IMG], { items: [IMG], index: 0, zoom: 2, nat: { w: 800, h: 600 } });
+  const img = r.nodes.find((n) => n.type === 'img' && cls(n) === 'alf__lbimg');
+  assert(img, '找不到浮层里的 img');
+  assert(img.props.style && img.props.style.width === '1600px',
+    '★ 2 倍该是 800×2=1600px，实际 ' + JSON.stringify(img.props.style));
+  assert(img.props.style.maxWidth === 'none' && img.props.style.maxHeight === 'none',
+    '放大时必须解除 max-width/height，否则被 CSS 卡回原尺寸（点了没反应）');
+  assert(img.props['data-zoom'] === '1', '该打上 data-zoom 标记（CSS 靠它切 cursor）');
+});
+
+check('★ 图片：zoom>0 但**原图尺寸未知** ⇒ 退化成适应窗口（不许拿 0 去乘）', () => {
+  const r = renderLb([IMG], { items: [IMG], index: 0, zoom: 2, nat: null });
+  const img = r.nodes.find((n) => n.type === 'img' && cls(n) === 'alf__lbimg');
+  assert(img.props.style === null,
+    '★ 不知道原图多大时**不能**写死宽高（会得到 0px 或 NaN）—— 该退化成适应窗口：' + JSON.stringify(img.props.style));
+});
+
+check('视频：渲染 <video controls autoPlay>，且 key 带 id（切条时元素必须重建）', () => {
+  const r = renderLb([VID], { items: [VID], index: 0, zoom: 0, nat: null });
+  const v = r.nodes.find((n) => n.type === 'video');
+  assert(v, '找不到浮层里的 video');
+  assert(v.props.controls === true, '该有播放控件');
+  assert(v.props.autoPlay === true, '★ 依琪要「快捷播放」⇒ 打开就该播，不该再点一次');
+  assert(String(v.props.key || '').includes(VID.id),
+    '★ key 必须带记录 id：否则切上一条时 React 复用同一个 <video>，出现「切了但还在放上一条」');
+});
+
+check('音频：渲染 <audio controls autoPlay>（同一个口径）', () => {
+  const r = renderLb([AUD], { items: [AUD], index: 0, zoom: 0, nat: null });
+  const a = r.nodes.find((n) => n.type === 'audio');
+  assert(a, '找不到浮层里的 audio');
+  assert(a.props.controls === true && a.props.autoPlay === true, '该有控件且自动播放');
+  assert(String(a.props.key || '').includes(AUD.id), 'key 要带 id（同 video）');
+});
+
+check('★ 左右切换：单条时**不渲染**导航按钮；多条时到头那侧 disabled（不循环）', () => {
+  const one = renderLb([IMG], { items: [IMG], index: 0, zoom: 0, nat: null });
+  assert(!one.nodes.some((n) => cls(n).includes('__lbnav')), '★ 只有一条时不该出现左右按钮（没有可切的东西）');
+  const three = renderLb([IMG, VID, AUD], { items: [IMG, VID, AUD], index: 0, zoom: 0, nat: null });
+  const navs = three.nodes.filter((n) => cls(n).includes('__lbnav'));
+  assert(navs.length === 2, '多条时该有 2 个导航按钮，实际 ' + navs.length);
+  const prev = navs.find((n) => cls(n).includes('--prev'));
+  const next = navs.find((n) => cls(n).includes('--next'));
+  assert(prev.props.disabled === true, '★ 第 0 条时「上一条」该 disabled（到头停住，不循环）');
+  assert(next.props.disabled !== true, '第 0 条时「下一条」该可用');
+  const last = renderLb([IMG, VID, AUD], { items: [IMG, VID, AUD], index: 2, zoom: 0, nat: null });
+  const navs2 = last.nodes.filter((n) => cls(n).includes('__lbnav'));
+  assert(navs2.find((n) => cls(n).includes('--next')).props.disabled === true, '最后一条时「下一条」该 disabled');
+});
+
+check('计数与提示：显示「第几条 / 共几条」，并提示键盘用法', () => {
+  const r = renderLb([IMG, VID], { items: [IMG, VID], index: 1, zoom: 0, nat: null });
+  const all = r.nodes.map(txt).join(' ');
+  assert(all.includes('2 / 2'), '该显示「2 / 2」：' + all.slice(0, 200));
+  assert(all.includes('Esc'), '该提示 Esc 关闭（键盘用户要看得见怎么退）');
+  assert(all.includes('← →'), '该提示左右键切换');
+});
+
+check('★ 反向对照：喂一个**空 items** ⇒ 浮层渲染成 null（不许崩，也不许渲染半个空壳）', () => {
+  const r = renderLb([], { items: [], index: 0, zoom: 0, nat: null });
+  assert(!lbNode(r), '★ 空 items 时该返回 null；渲染出空壳会让用户看到一块黑屏又关不掉');
+});
+
+// ── 接线（**静态检查**，不是渲染树）────────────────────────────────────────
+// ⚠️ 为什么这里改用静态检查：卡片渲染要经过「数据 → 筛选 → 视图分支」好几层，
+//    在测试里把那一整条路都喂对，成本高、而且**测的是测试床而不是接线本身**。
+//    接线的三条要害都能在源码上判死：
+//      ① 卡片缩略图挂了 `onPreview`
+//      ② 点它**必须** `stopPropagation`（否则浮层与详情抽屉同时开）
+//      ③ 只有**媒体**才挂（非媒体给了点击 = "点了没反应"的假暗示）
+//    ⚠️ 判据用**剥过注释的**源码：注释里提到这些词不算数（本仓库栽过三次的坑）。
+const CODE = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
+
+check('★ 接线：卡片缩略图挂了 onPreview，且只有**媒体**才挂', () => {
+  assert(/onPreview\s*:/.test(CODE), '★ 全文件没有任何 `onPreview:` —— 组件写了却没人接（"写了个组件没人用"）');
+  // 卡片里那处：`isMediaRecord(record) && act.onPreview ? function (event) {…} : undefined`
+  assert(/isMediaRecord\(record\)\s*&&\s*act\.onPreview/.test(CODE),
+    '★ 卡片缩略图的 onClick 没有「是媒体 && 有 onPreview」这道判断 —— '
+    + '非媒体也会挂上点击入口（点了没反应，比没有这个功能更让人困惑）');
+  // 详情抽屉那处
+  assert(/onPreview:\s*function\s*\(record\)/.test(CODE), '★ 详情抽屉没接 onPreview（依琪要求「详情里面点缩略图也可」）');
+});
+
+check('★★ 接线：点缩略图**必须** stopPropagation（否则浮层与详情抽屉会同时打开）', () => {
+  const at = CODE.indexOf('isMediaRecord(record) && act.onPreview');
+  assert(at >= 0, '找不到卡片缩略图的点击分支（前提失效，请同步本断言）');
+  const window = CODE.slice(at, at + 400);
+  assert(/stopPropagation/.test(window),
+    '★★ 那段 onClick 里没有 stopPropagation ⇒ 卡片自己的 onClick 会跟着触发，'
+    + '于是「浮层开了、详情抽屉也开了」两层叠在一起');
+});
+
+check('★ 接线：详情抽屉里只有**图片**包了点击（视频不包，否则拖进度条会弹浮层）', () => {
+  const at = CODE.indexOf('function preview()');
+  assert(at >= 0, '找不到 preview()（前提失效）');
+  const body = CODE.slice(at, at + 1400);
+  const imgAt = body.indexOf('isImage(record)');
+  assert(imgAt >= 0, 'preview() 里找不到 isImage 分支');
+  // 图片分支里该有 onClick
+  assert(/onClick:\s*openIt/.test(body.slice(imgAt, imgAt + 400)), '图片预览没有包点击（详情里点不开浮层）');
+  // 视频分支里**不该**有 onClick（它有自己的播放器控件）
+  const vidAt = body.indexOf('video/');
+  assert(vidAt >= 0, 'preview() 里找不到视频分支');
+  const vidSeg = body.slice(vidAt, vidAt + 400);
+  assert(!/onClick/.test(vidSeg),
+    '★ 视频预览被包了点击 ⇒ 用户想拖进度条却弹了浮层（这条是**反着**验的：不许有）');
+});
+
+check('浮层用到的每个 class 都在 CSS 里有定义（真机上没样式 = 裸文字）', () => {
+  const used = ['__lb', '__lbhead', '__lbtitle', '__lbcount', '__lbbody', '__lbimg', '__lbmedia',
+    '__lbnav', '__lbnav--prev', '__lbnav--next', '__lbfoot', '__lbhint'];
+  // 判据：CSS 里得有以这个后缀开头的选择器（`__lb{` / `__lb[...` / `__lb ` / `__lb.`）。
+  // ⚠️ 组件里的 class 是**拼出来的**（`NS + "__lb"`），所以不能只搜字面量。
+  // ⚠️ 本文件读源码用的是 `src`（不是 `CLIENT_SRC` —— 那是 ui-spec 的叫法）。
+  const hasDef = (c) => new RegExp('\\' + c.replace(/-/g, '\\-') + '(?:\\{|\\[|\\s|\\.)').test(src);
+  const cssMissing = used.filter((c) => !hasDef(c));
+  assert(cssMissing.length === 0, '这些 class 只有使用、没有 CSS 定义（真机上是裸文字）：' + cssMissing.join(', '));
+});
+
+check('★ 反向对照：一个**不存在**的 class 会被上面那条判据抓出来', () => {
+  const hasDef = (c) => new RegExp('\\' + c.replace(/-/g, '\\-') + '(?:\\{|\\[|\\s|\\.)').test(src);
+  assert(!hasDef('__lbdoesnotexist'), '★ 判据对不存在的 class 也返回"有定义" ⇒ 它是恒真的（空转）');
+});
+
 
 if (failureList.length) {
   console.log('\n── 失败清单 ──');
