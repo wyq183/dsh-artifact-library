@@ -839,6 +839,72 @@ console.log('\n=== [R] 撤销的 warning 必须转达到文案里（不许静默
   })
 }
 
+// ── R4 / R5：**另外两处**撤销入口也必须有守卫（2026-10-08 · verifier-3c 的 F3-B）──────
+//
+// ⚠️ 为什么补这两条：她用**变异测试**证明 —— 把这两处的 warning 转达**删掉**，
+//    整套测试仍然全绿（她记作 M7 / M8「逃逸」）。
+//    也就是说：**代码当时是对的，但改坏了没有任何测试会红** ⇒
+//    同样的病在这两处可以**无声复发**。（只补一处守卫 = 只守住三分之一的入口。）
+console.log('\n=== [R] 续：另外两处撤销入口也必须转达 warning（M7/M8 曾逃逸）===')
+{
+  /** 共用的构造：先做一次真操作留下凭据 → 把 meta.json 换成同名目录 → 撤销。
+   *  ⚠️ 此时**记录仍能正常落盘**（artifacts.json 没被动）⇒ 正好落进
+   *  "撤销成功、只差『凭据已用掉』没落盘" 那条分支。 */
+  function sabotageMeta(dir) {
+    const p = path.join(dir, 'meta.json')
+    if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true })
+    fs.mkdirSync(p)
+    return () => { if (fs.existsSync(p) && fs.statSync(p).isDirectory()) fs.rmdirSync(p) }
+  }
+
+  // ── R4：`artifact_projects undo` ──────────────────────────────────────────
+  const dirP = path.join(TMP, 'undowarn-proj')
+  fs.mkdirSync(dirP, { recursive: true })
+  const storeP = new ArtifactStore(dirP).load()
+  ctx.tools.allowReplace = true
+  registerArtifactTools(ctx, storeP)
+  ctx.tools.allowReplace = false
+  const callP = (name, args) => tools.get(name).execute(args, {})
+  storeP.register({ path: makeFile('uwp-a.md', 'x'), title: 'uwpa', project: '旧项目' })
+  storeP.register({ path: makeFile('uwp-b.md', 'x'), title: 'uwpb', project: '旧项目' })
+  const mergedP = await callP('artifact_merge_projects', { names: ['旧项目'], to: '新项目' })
+  const repairP = sabotageMeta(dirP)
+  const undoneP = await callP('artifact_merge_projects', { undo: true })
+  repairP()
+  check('R4 前置：项目合并成功（否则撤销无事可做）', () => {
+    assert(/✅/.test(mergedP.text), mergedP.text.slice(0, 200))
+  })
+  check('★ R4 `artifact_projects undo` 也必须转达 warning（M7 曾逃逸）', () => {
+    assert(/↩️/.test(undoneP.text), '该报成功：' + undoneP.text.slice(0, 240))
+    assert(/⚠️/.test(undoneP.text), '★ warning 被吃掉了 —— 这条入口改坏了不会红：' + undoneP.text.slice(0, 300))
+    assert(/凭据/.test(undoneP.text), '★ 该说清是凭据没落盘：' + undoneP.text.slice(0, 300))
+  })
+
+  // ── R5：`artifact_categories undo-remove` ────────────────────────────────
+  const dirC = path.join(TMP, 'undowarn-cat')
+  fs.mkdirSync(dirC, { recursive: true })
+  const storeC = new ArtifactStore(dirC).load()
+  const settingsC = new SettingsStore({ file: path.join(dirC, 'settings.json') }).load()
+  storeC.setCategoriesProvider(() => settingsC.get().categories)
+  ctx.tools.allowReplace = true
+  registerArtifactTools(ctx, storeC, settingsC)
+  ctx.tools.allowReplace = false
+  const callC = (name, args) => tools.get(name).execute(args, {})
+  await callC('register_artifact', { path: makeFile('uwc-a.png', 'x') }) // → image
+  // ⚠️ 不能用 'other' 当起点：它是兜底分类，store 明确拒绝改派它（verifier-3c 踩过这条）
+  const removedC = await callC('artifact_categories', { action: 'remove', id: 'image', reassign_to: 'document' })
+  const repairC = sabotageMeta(dirC)
+  const undoneC = await callC('artifact_categories', { action: 'undo-remove' })
+  repairC()
+  check('R5 前置：分类删除（改派）成功', () => {
+    assert(/✅/.test(removedC.text), removedC.text.slice(0, 200))
+  })
+  check('★ R5 `artifact_categories undo-remove` 也必须转达 warning（M8 曾逃逸）', () => {
+    assert(/✅/.test(undoneC.text), '该报成功：' + undoneC.text.slice(0, 240))
+    assert(/⚠️/.test(undoneC.text), '★ warning 被吃掉了 —— 这条入口改坏了不会红：' + undoneC.text.slice(0, 300))
+  })
+}
+
 // ── 收尾 ─────────────────────────────────────────────────────────────────
 try { fs.rmSync(TMP, { recursive: true, force: true }) } catch { /* 忽略 */ }
 
