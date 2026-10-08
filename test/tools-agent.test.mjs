@@ -746,6 +746,53 @@ console.log('\n=== [P] verifier-3c 逮到的三个真问题（回归守卫）===
   })
 }
 
+// ═══ [Q] 落盘失败时，工具**不许**再印「如要退回」（2026-10-08 · 修 F3）═══════════
+//
+// 这是 F3 的**用户可见症状**：store 层落盘失败时旧代码照样回 `{ok:true, undo:true}`，
+// 于是工具印出「如要退回：action=undo-merge」——**而重启后根本没有可撤销的东西**。
+// 守 store 层的那批断言在 `test/persist-fail.test.mjs`；这里只钉"工具这一层说了什么"。
+console.log('\n=== [Q] 落盘失败 ⇒ 工具不许承诺可撤销（F3 的用户可见面）===')
+{
+  const dir = path.join(TMP, 'persistfail')
+  fs.mkdirSync(dir, { recursive: true })
+  const store = new ArtifactStore(dir).load()
+  ctx.tools.allowReplace = true
+  registerArtifactTools(ctx, store)
+  ctx.tools.allowReplace = false
+  const tags = (args) => tools.get('artifact_tags').execute(args, {})
+  store.register({ path: makeFile('pf-a.md', 'x'), title: 'pfa', tags: ['dsh'] })
+  store.register({ path: makeFile('pf-b.md', 'x'), title: 'pfb', tags: ['DSH'] })
+
+  // 把 meta.json 换成一个同名目录 ⇒ 写凭据必失败（Windows 上比 chmod 只读可靠）
+  const metaPath = path.join(dir, 'meta.json')
+  if (fs.existsSync(metaPath)) fs.rmSync(metaPath, { recursive: true, force: true })
+  fs.mkdirSync(metaPath)
+  const artBefore = fs.readFileSync(path.join(dir, 'artifacts.json'), 'utf8')
+
+  let out = ''
+  let threw = null
+  try {
+    out = (await tags({ action: 'merge', confirm: true, groups: [{ canonical: 'DSH', from: ['dsh'] }] })).text
+  } catch (e) { threw = e }
+
+  check('★★ Q1 凭据写不下去时，工具**明确报失败**（不许说"已改写"）', () => {
+    assert(threw === null, '工具抛异常穿出来了（该回一段 ❌ 文案）：' + (threw && threw.message))
+    assert(/❌/.test(out), '没报失败：' + out.slice(0, 200))
+    assert(!/已改写/.test(out), '★ 谎报了"已改写"：' + out.slice(0, 200))
+  })
+  check('★★ Q2 **不许**印「如要退回」—— 那正是 F3 的靶心（退路是假的）', () => {
+    assert(!/如要退回/.test(out), '★ 还在承诺可撤销：' + out.slice(0, 240))
+    assert(!/undo-merge/.test(out), '★ 还在指路 undo-merge：' + out.slice(0, 240))
+  })
+  check('★ Q3 记录一个字节都没改（失败就要真的什么都没干）', () => {
+    assert(fs.readFileSync(path.join(dir, 'artifacts.json'), 'utf8') === artBefore, '盘上数据被改了')
+  })
+  check('★ Q4 错误文案要说清是"落盘"这一层（否则用户会以为是自己参数写错了）', () => {
+    assert(/凭据/.test(out) || /落盘/.test(out), '错误文案没点出落盘这一层：' + out.slice(0, 240))
+  })
+  if (fs.existsSync(metaPath) && fs.statSync(metaPath).isDirectory()) fs.rmdirSync(metaPath)
+}
+
 // ── 收尾 ─────────────────────────────────────────────────────────────────
 try { fs.rmSync(TMP, { recursive: true, force: true }) } catch { /* 忽略 */ }
 
