@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>事件传播 · 自动化探针</title></head>
+<body>
+<div id="out">RUNNING</div>
+<script>
+"use strict";
+/* 本页给自动化跑用：结果全部写进 #out 的 textContent，供 --dump-dom 或 CDP 抓取。
+   使用真实浏览器引擎，事件用 CDP Input.dispatchKeyEvent 发出（isTrusted=true）。 */
+var L = [];
+function say(s) { L.push(s); }
+function flush() { document.getElementById("out").textContent = L.join("\n"); }
+
+/* ── 靶元素 ─────────────────────────────────────────────────────────── */
+var d = document.createElement("div");
+d.id = "target";
+d.tabIndex = 0;
+d.textContent = "target";
+document.body.appendChild(d);
+
+/* ══ Q1：stopPropagation 是否阻止同一元素上的其他监听器？═══════════════ */
+say("=== Q1 stopPropagation vs stopImmediatePropagation ===");
+(function () {
+  var q1 = [];
+  var el = document.createElement("div"); document.body.appendChild(el);
+  function a(e) { q1.push("A"); e.stopPropagation(); }
+  function b() { q1.push("B"); }
+  function c() { q1.push("C"); }
+  el.addEventListener("keydown", a, false);
+  el.addEventListener("keydown", b, false);
+  el.addEventListener("keydown", c, false);
+  el.dispatchEvent(new KeyboardEvent("keydown", { key: "F1", bubbles: true }));
+  say("Q1a 同元素3个监听器，第1个调 stopPropagation → 实际被调用的: " + JSON.stringify(q1)
+      + "  （期望 [A,B,C] = 同元素其他监听器**照跑**）");
+  el.remove();
+
+  var q1b = [];
+  var el2 = document.createElement("div"); document.body.appendChild(el2);
+  function a2(e) { q1b.push("A"); e.stopImmediatePropagation(); }
+  function b2() { q1b.push("B"); }
+  function c2() { q1b.push("C"); }
+  el2.addEventListener("keydown", a2, false);
+  el2.addEventListener("keydown", b2, false);
+  el2.addEventListener("keydown", c2, false);
+  el2.dispatchEvent(new KeyboardEvent("keydown", { key: "F2", bubbles: true }));
+  say("Q1b 同元素3个监听器，第1个调 stopImmediatePropagation → 实际被调用的: " + JSON.stringify(q1b)
+      + "  （期望 [A] = 同元素其他监听器**全部不跑**）");
+  el2.remove();
+
+  /* 同元素、跨阶段（capture 监听器 vs bubble 监听器）*/
+  var q1c = [];
+  var el3 = document.createElement("div"); document.body.appendChild(el3);
+  el3.addEventListener("keydown", function (e) { q1c.push("capture-1"); e.stopPropagation(); }, true);
+  el3.addEventListener("keydown", function () { q1c.push("bubble-1"); }, false);
+  el3.dispatchEvent(new KeyboardEvent("keydown", { key: "F3", bubbles: true }));
+  say("Q1c 同元素 capture 监听器调 stopPropagation → 实际: " + JSON.stringify(q1c)
+      + "  （capture 与 bubble 是**两个不同阶段**，同元素也拦不住）");
+  el3.remove();
+})();
+
+/* ══ Q2：同节点同阶段多监听器的调用顺序 ═════════════════════════════════ */
+say("");
+say("=== Q2 同节点同阶段的调用顺序 ===");
+(function () {
+  var q2 = [];
+  var el = document.createElement("div"); document.body.appendChild(el);
+  function mk(tag) { return function () { q2.push(tag); }; }
+  el.addEventListener("keydown", mk("reg1"), false);
+  el.addEventListener("keydown", mk("reg2"), false);
+  el.addEventListener("keydown", mk("reg3"), false);
+  el.dispatchEvent(new KeyboardEvent("keydown", { key: "F4", bubbles: true }));
+  say("Q2a document/同元素 bubble 按注册顺序 reg1,reg2,reg3 → 实际: " + JSON.stringify(q2));
+
+  var q2b = [];
+  var el2 = document.createElement("div"); document.body.appendChild(el2);
+  function mk2(tag) { return function () { q2b.push(tag); }; }
+  el2.addEventListener("keydown", mk2("bubble-reg1"), false);
+  el2.addEventListener("keydown", mk2("capture-reg2"), true);
+  el2.addEventListener("keydown", mk2("bubble-reg3"), false);
+  el2.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true }));
+  say("Q2b 同元素混合注册：bubble先注册、capture后注册 → 实际: " + JSON.stringify(q2b)
+      + "  （capture 先跑，**与注册顺序无关**；同阶段内才按注册顺序）");
+
+  /* 整条路径上的阶段顺序 */
+  var q2c = [];
+  window.addEventListener("keydown", function () { q2c.push("window-capture"); }, true);
+  document.addEventListener("keydown", function () { q2c.push("document-capture"); }, true);
+  document.addEventListener("keydown", function () { q2c.push("document-bubble"); }, false);
+  window.addEventListener("keydown", function () { q2c.push("window-bubble"); }, false);
+  el2.dispatchEvent(new KeyboardEvent("keydown", { key: "F6", bubbles: true }));
+  say("Q2c 整条路径 window/doc 各挂 capture+bubble → 实际: " + JSON.stringify(q2c));
+  el.remove(); el2.remove();
+})();
+
+/* ══ Q3：捕获阶段的路径是否包含 window ═════════════════════════════════ */
+say("");
+say("=== Q3 事件路径是否包含 window ===");
+(function () {
+  var path = null, order = [];
+  function probe(e) { path = e.composedPath().map(function (n) {
+    if (n === window) return "window";
+    if (n === document) return "document";
+    if (n === document.documentElement) return "html";
+    if (n === document.body) return "body";
+    if (n && n.id) return "#" + n.id;
+    return (n && n.nodeName) || String(n);
+  }); }
+  window.addEventListener("keydown", probe, true);
+  window.addEventListener("keydown", function () { order.push("window-capture"); }, true);
+  document.addEventListener("keydown", function () { order.push("document-capture"); }, true);
+  window.addEventListener("keydown", probe, true);
+  document.getElementById("target").dispatchEvent(
+    new KeyboardEvent("keydown", { key: "F7", bubbles: true, composed: true }));
+  say("Q3a composedPath()（window capture 里读）: " + JSON.stringify(path));
+  say("Q3b window-capture 是否先于 document-capture 跑 → 实际顺序: " + JSON.stringify(order));
+  window.removeEventListener("keydown", probe, true);
+})();
+
+/* ══ Q4：window capture 里 stopPropagation，document capture 还收得到吗 ══ */
+say("");
+say("=== Q4 window capture 调 stopPropagation 后 document capture ===");
+(function () {
+  var seen = [];
+  function onWin(e) { seen.push("window-capture"); e.stopPropagation(); }
+  function onDoc(e) { seen.push("document-capture"); }
+  function onDocBubble(e) { seen.push("document-bubble"); }
+  function onWinBubble(e) { seen.push("window-bubble"); }
+  window.addEventListener("keydown", onWin, true);
+  document.addEventListener("keydown", onDoc, true);
+  document.addEventListener("keydown", onDocBubble, false);
+  window.addEventListener("keydown", onWinBubble, false);
+  document.getElementById("target").dispatchEvent(
+    new KeyboardEvent("keydown", { key: "F8", bubbles: true, composed: true }));
+  say("Q4a window capture 里 stopPropagation 后，实际被调用的: " + JSON.stringify(seen)
+      + "  （期望只剩 [window-capture]）");
+  window.removeEventListener("keydown", onWin, true);
+  document.removeEventListener("keydown", onDoc, true);
+  document.removeEventListener("keydown", onDocBubble, false);
+  window.removeEventListener("keydown", onWinBubble, false);
+})();
+
+/* ══ Q4b：window capture 里 stopPropagation 能否拦住 document capture 上的
+       「抽屉」（即 F1 是否真的能实现「一次 Esc 只关最上层」）═══════════ */
+say("");
+say("=== Q4b F1 场景模拟（window capture 浮层 vs document capture 抽屉）===");
+(function () {
+  var seq = [], drawer = true, lightbox = true;
+  function drawerOnKey(e) {
+    if (e.key !== "Escape") return;
+    seq.push("drawer(document-capture)");
+    drawer = false; e.stopPropagation();
+  }
+  function lightboxOnKey(e) {
+    if (e.key !== "Escape") return;
+    seq.push("lightbox(window-capture)");
+    lightbox = false; e.stopPropagation();
+  }
+  document.addEventListener("keydown", drawerOnKey, true);
+  window.addEventListener("keydown", lightboxOnKey, true);
+  document.getElementById("target").dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+  say("F1 一次 Esc 后: 调用顺序=" + JSON.stringify(seq)
+      + "  抽屉=" + (drawer ? "还开着" : "已关闭") + "  浮层=" + (lightbox ? "还开着" : "已关闭"));
+  document.removeEventListener("keydown", drawerOnKey, true);
+  window.removeEventListener("keydown", lightboxOnKey, true);
+})();
+
+/* ══ 现状复现（F0）：两条都挂 document capture，注册顺序 = 抽屉先 ═══════ */
+say("");
+say("=== F0 现状复现：两条都在 document capture，抽屉先注册 ===");
+(function () {
+  var seq = [], drawer = true, lightbox = true;
+  function drawerOnKey(e) {
+    if (e.key !== "Escape") return;
+    seq.push("drawer(document-capture,#1)");
+    drawer = false; e.stopPropagation();
+  }
+  function lightboxOnKey(e) {
+    if (e.key !== "Escape") return;
+    seq.push("lightbox(document-capture,#2)");
+    lightbox = false; e.stopPropagation();
+  }
+  document.addEventListener("keydown", drawerOnKey, true);
+  document.addEventListener("keydown", lightboxOnKey, true);
+  document.getElementById("target").dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+  say("F0 一次 Esc 后: 调用顺序=" + JSON.stringify(seq)
+      + "  抽屉=" + (drawer ? "还开着" : "已关闭") + "  浮层=" + (lightbox ? "还开着" : "已关闭"));
+  document.removeEventListener("keydown", drawerOnKey, true);
+  document.removeEventListener("keydown", lightboxOnKey, true);
+})();
+
+/* ══ F2 场景模拟 ═══════════════════════════════════════════════════════ */
+say("");
+say("=== F2 场景模拟（抽屉知道上层有浮层 → 直接 return，不 stopPropagation）===");
+(function () {
+  var seq = [], drawer = true, lightbox = true, hasOverlay = true;
+  function drawerOnKey(e) {
+    if (e.key !== "Escape") return;
+    if (hasOverlay) { seq.push("drawer(document-capture) 直接return"); return; }
+    seq.push("drawer(document-capture) 关闭抽屉");
+    drawer = false; e.stopPropagation();
+  }
+  function lightboxOnKey(e) {
+    if (e.key !== "Escape") return;
+    seq.push("lightbox(document-bubble)");
+    lightbox = false; e.stopPropagation();
+  }
+  document.addEventListener("keydown", drawerOnKey, true);
+  document.addEventListener("keydown", lightboxOnKey, false);
+  document.getElementById("target").dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+  say("F2 一次 Esc 后: 调用顺序=" + JSON.stringify(seq)
+      + "  抽屉=" + (drawer ? "还开着" : "已关闭") + "  浮层=" + (lightbox ? "还开着" : "已关闭"));
+  document.removeEventListener("keydown", drawerOnKey, true);
+  document.removeEventListener("keydown", lightboxOnKey, false);
+})();
+
+say("");
+say("=== 环境 ===");
+say("navigator.userAgent = " + navigator.userAgent);
+say("isSecureContext = " + String(window.isSecureContext));
+say("REAL_KEY_TEST_MARKER_BEFORE = " + String(window.__realKeySeen === true));
+
+/* 真实按键（CDP Input.dispatchKeyEvent）的观察窗：记录 isTrusted 的 Escape */
+(function () {
+  window.__realKeyLog = [];
+  window.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    window.__realKeyLog.push({
+      trusted: e.isTrusted,
+      path: e.composedPath().map(function (n) {
+        if (n === window) return "window";
+        if (n === document) return "document";
+        if (n === document.body) return "body";
+        return (n && n.nodeName) || String(n);
+      })
+    });
+  }, true);
+})();
+
+flush();
+window.__probeDone = true;
+</script>
+</body>
+</html>

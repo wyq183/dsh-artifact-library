@@ -1,0 +1,133 @@
+=== 浏览器 ===
+Browser: Chrome/150.0.7871.125
+Protocol-Version: 1.3
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/150.0.0.0 Safari/537.36
+
+WS 握手：成功（无 Origin 头）
+
+══════════════════════════════════════════════════════════
+ q1-q4.html（Chrome 150.0.7871.125 真实引擎）
+══════════════════════════════════════════════════════════
+=== Q1 stopPropagation vs stopImmediatePropagation ===
+Q1a 同元素3个监听器，第1个调 stopPropagation → 实际被调用的: ["A","B","C"]  （期望 [A,B,C] = 同元素其他监听器**照跑**）
+Q1b 同元素3个监听器，第1个调 stopImmediatePropagation → 实际被调用的: ["A"]  （期望 [A] = 同元素其他监听器**全部不跑**）
+Q1c 同元素 capture 监听器调 stopPropagation → 实际: ["capture-1"]  （capture 与 bubble 是**两个不同阶段**，同元素也拦不住）
+
+=== Q2 同节点同阶段的调用顺序 ===
+Q2a document/同元素 bubble 按注册顺序 reg1,reg2,reg3 → 实际: ["reg1","reg2","reg3"]
+Q2b 同元素混合注册：bubble先注册、capture后注册 → 实际: ["capture-reg2","bubble-reg1","bubble-reg3"]  （capture 先跑，**与注册顺序无关**；同阶段内才按注册顺序）
+Q2c 整条路径 window/doc 各挂 capture+bubble → 实际: ["window-capture","document-capture","document-bubble","window-bubble"]
+
+=== Q3 事件路径是否包含 window ===
+Q3a composedPath()（window capture 里读）: ["#target","body","html","document","window"]
+Q3b window-capture 是否先于 document-capture 跑 → 实际顺序: ["window-capture","document-capture"]
+
+=== Q4 window capture 调 stopPropagation 后 document capture ===
+Q4a window capture 里 stopPropagation 后，实际被调用的: ["window-capture"]  （期望只剩 [window-capture]）
+
+=== Q4b F1 场景模拟（window capture 浮层 vs document capture 抽屉）===
+F1 一次 Esc 后: 调用顺序=["lightbox(window-capture)"]  抽屉=还开着  浮层=已关闭
+
+=== F0 现状复现：两条都在 document capture，抽屉先注册 ===
+F0 一次 Esc 后: 调用顺序=["drawer(document-capture,#1)","lightbox(document-capture,#2)"]  抽屉=已关闭  浮层=已关闭
+
+=== F2 场景模拟（抽屉知道上层有浮层 → 直接 return，不 stopPropagation）===
+F2 一次 Esc 后: 调用顺序=["drawer(document-capture) 直接return","lightbox(document-bubble)"]  抽屉=还开着  浮层=已关闭
+
+=== 环境 ===
+navigator.userAgent = Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/150.0.0.0 Safari/537.36
+isSecureContext = true
+REAL_KEY_TEST_MARKER_BEFORE = false
+
+══════════════════════════════════════════════════════════
+ 真实按键测试（CDP Input.dispatchKeyEvent，非页面合成）
+══════════════════════════════════════════════════════════
+按键前 __realKeyLog = []
+按键后 __realKeyLog = [{"trusted":true,"path":["DIV","body","HTML","document","window"]}]
+document.activeElement = target
+
+══════════════════════════════════════════════════════════
+ probe.html · 场景 A · 现状：D(document capture) + L0(document bubble)
+══════════════════════════════════════════════════════════
+已注册：当前注册的监听器：D 抽屉 · capture　+　L0 浮层 · bubble　+　判定器 · capture
+层状态：抽屉=关着 | 浮层=开着
+调用日志：
+  1. — A 现状：D(document capture) + L0(document bubble) — — 两层都开着，请按一次 Esc
+  2. D 抽屉（document capture） — 关掉抽屉，并调用 stopPropagation()
+判定：
+❌ 一次 Esc 关掉的是底下的抽屉，最上层浮层还开着 —— 这就是「要按两下」的成因。
+按键来源：真实按键（isTrusted=true）
+实际调用顺序：D 抽屉
+按键后 —— 抽屉：已关闭　浮层：还开着
+
+抽屉处理器被调用：是　浮层处理器被调用：否
+看上面日志的行序：谁先出现 = 谁先跑。
+
+══════════════════════════════════════════════════════════
+ probe.html · 场景 B · F1：D(document capture) + L1(window capture)
+══════════════════════════════════════════════════════════
+已注册：当前注册的监听器：D 抽屉 · capture　+　L1 浮层 · capture　+　判定器 · capture
+层状态：抽屉=开着 | 浮层=关着
+调用日志：
+  1. — B F1：D(document capture) + L1(window capture) — — 两层都开着，请按一次 Esc
+  2. L 浮层（window capture · F1） — 关掉浮层，并调用 stopPropagation()
+判定：
+✅ 一次 Esc 只关掉了最上层浮层，抽屉还在 —— 这就是目标行为。
+按键来源：真实按键（isTrusted=true）
+实际调用顺序：L 浮层
+按键后 —— 抽屉：还开着　浮层：已关闭
+
+抽屉处理器被调用：否　浮层处理器被调用：是
+看上面日志的行序：谁先出现 = 谁先跑。
+
+══════════════════════════════════════════════════════════
+ probe.html · 场景 C · F2：D(document capture, 有上层浮层→return) + L0
+══════════════════════════════════════════════════════════
+已注册：当前注册的监听器：D 抽屉 · capture　+　L0 浮层 · bubble　+　判定器 · capture
+层状态：抽屉=开着 | 浮层=关着
+调用日志：
+  1. — C F2：D(document capture, 有上层浮层→return) + L0(document bubble) — — 两层都开着，请按一次 Esc
+  2. D 抽屉（document capture） — F2：知道上层有浮层开着 → 直接 return，没有 stopPropagation
+  3. L 浮层（document bubble · 现状 L0） — 关掉浮层，并调用 stopPropagation()
+判定：
+✅ 一次 Esc 只关掉了最上层浮层，抽屉还在 —— 这就是目标行为。
+按键来源：真实按键（isTrusted=true）
+实际调用顺序：D 抽屉 → L 浮层
+按键后 —— 抽屉：还开着　浮层：已关闭
+
+抽屉处理器被调用：是　浮层处理器被调用：是
+看上面日志的行序：谁先出现 = 谁先跑。
+
+══════════════════════════════════════════════════════════
+ probe.html · 场景 D · F1 反面：D(document capture) + L1(window bubble)
+══════════════════════════════════════════════════════════
+已注册：当前注册的监听器：D 抽屉 · capture　+　L1 浮层 · bubble　+　判定器 · capture
+层状态：抽屉=关着 | 浮层=开着
+调用日志：
+  1. — D F1 反面：D(document capture) + L1(window **bubble**) — — 两层都开着，请按一次 Esc
+  2. D 抽屉（document capture） — 关掉抽屉，并调用 stopPropagation()
+判定：
+❌ 一次 Esc 关掉的是底下的抽屉，最上层浮层还开着 —— 这就是「要按两下」的成因。
+按键来源：真实按键（isTrusted=true）
+实际调用顺序：D 抽屉
+按键后 —— 抽屉：已关闭　浮层：还开着
+
+抽屉处理器被调用：是　浮层处理器被调用：否
+看上面日志的行序：谁先出现 = 谁先跑。
+
+══════════════════════════════════════════════════════════
+ probe.html · 场景 E · F1 + 注册顺序对调（抽屉后注册）
+══════════════════════════════════════════════════════════
+已注册：当前注册的监听器：L1 浮层 · capture　+　D 抽屉 · capture　+　判定器 · capture
+层状态：抽屉=开着 | 浮层=关着
+调用日志：
+  1. — E F1 + 注册顺序对调（抽屉后注册） — — 两层都开着，请按一次 Esc
+  2. L 浮层（window capture · F1） — 关掉浮层，并调用 stopPropagation()
+判定：
+✅ 一次 Esc 只关掉了最上层浮层，抽屉还在 —— 这就是目标行为。
+按键来源：真实按键（isTrusted=true）
+实际调用顺序：L 浮层
+按键后 —— 抽屉：还开着　浮层：已关闭
+
+抽屉处理器被调用：否　浮层处理器被调用：是
+看上面日志的行序：谁先出现 = 谁先跑。

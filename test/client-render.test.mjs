@@ -62,6 +62,14 @@ console.log(' 被测：' + CLIENT_PATH);
 
 // ── 载入 bundle：假 window/doc，取出 module factory ───────────────────────
 const src = fs.readFileSync(CLIENT_PATH, 'utf8');
+
+// ⚠️ **剥过注释的**源码（静态断言用）。注释里提到某个词**不算数** ——
+//    本仓库栽过三次（`stripComments` 那回最惨：判据本身读错了源码，
+//    120 条断言全建在错的输入上）。
+// ⚠️ 定义在这里（而不是用到它的那一节旁边）：本文件是**顺序执行**的，
+//    常量必须定义在**所有**用它的 check 之前，否则 TDZ 报
+//    「Cannot access 'CODE' before initialization」。
+const CODE = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
 let captured = null;
 const sandbox = {
   window: { __ModuleLoader__: { load: (def) => { captured = def; } } },
@@ -606,6 +614,93 @@ check('计数与提示：显示「第几条 / 共几条」，并提示键盘用�
   assert(all.includes('← →'), '该提示左右键切换');
 });
 
+// ══════════════════════════════════════════════════════════════════════════
+// ★★ 关闭路径（2026-10-08 · 依琪「最好有个 xx 给鼠标点，而不是光按两下 esc」）
+// ══════════════════════════════════════════════════════════════════════════
+// 这句反馈里其实有**两个**问题，都得钉住：
+//   ① **缺明显的鼠标关闭入口** —— 原来只有一个文字「关闭」按钮，
+//      而预览器的习惯位置是右上角的 ×；
+//   ② ⚠️⚠️ **要按两下 Esc 才退** —— 这是**真 bug**，不是样式问题：
+//      详情抽屉（`DetailDrawer`）的 Escape 监听挂在 **capture 阶段**，
+//      而浮层原来挂在 **bubble 阶段** ⇒ 从抽屉里打开浮层时，
+//      capture 阶段的抽屉处理器**先**跑并 `stopPropagation()`，
+//      事件**永远到不了**浮层的处理器 ⇒ 按一次只关掉底下那层。
+//      ⇒ 修法：浮层也挂 capture **且自己 `stopPropagation()`**（它叠在抽屉上面，语义上先归它）。
+
+check('★ 鼠标关闭入口：有一个带 aria-label 的 × 按钮（不只有文字按钮）', () => {
+  const r = renderLb([IMG], { items: [IMG], index: 0, zoom: 0, nat: null });
+  const btns = r.nodes.filter((n) => n.type === 'button');
+  const x = btns.find((n) => txt(n) === '×');
+  assert(x, '★ 找不到 × 按钮 —— 依琪要的「有个 xx 给鼠标点」没兑现');
+  assert(typeof x.props.onClick === 'function', '× 按钮没有 onClick（点了没反应）');
+  // ⚠️ × 是**形状**，读屏听不到 ⇒ 必须有可访问名
+  assert(x.props['aria-label'], '★ × 按钮缺 aria-label —— 读屏用户听到的会是「×」这个符号');
+  assert(x.props.autoFocus === true, '× 该拿到 autoFocus（它是鼠标/键盘的第一落点）');
+});
+
+check('★ 文字「关闭」按钮**仍然保留**（× 是无障碍上的形状，文字是显式标签，不是二选一）', () => {
+  const r = renderLb([IMG], { items: [IMG], index: 0, zoom: 0, nat: null });
+  const btns = r.nodes.filter((n) => n.type === 'button');
+  const textBtn = btns.find((n) => txt(n) === '关闭');
+  assert(textBtn, '★ 文字「关闭」按钮被删了 —— × 对读屏用户没有意义，不能只留它');
+  assert(typeof textBtn.props.onClick === 'function', '文字按钮没有 onClick');
+});
+
+check('★★ Esc 必须挂 **capture 阶段** + `stopPropagation`（否则要按两下才退）', () => {
+  // 静态检查：浮层与抽屉的注册阶段无法从渲染树看出，只能在源码上判。
+  // ⚠️ 用**剥过注释的** CODE（注释里提到 stopPropagation 不算数 —— 本仓库栽过三次）。
+  // ⚠️ 锚点别用 `function MediaLightbox(` —— 那段键盘 effect 在 **`PanelInner`** 里
+  //    （浮层是纯展示组件，状态与 effect 都在外层），用它会切到错的区域
+  //    （我第一版就这么错的，报「没挂 capture」——**假红**）。
+  //    正解：锚在 effect 自己身上 —— 它里面有 `returnFocusTo`（焦点归还用的捕获）。
+  const at = CODE.indexOf('var returnFocusTo = null;');
+  assert(at >= 0, '找不到浮层的键盘 effect（锚点 `returnFocusTo` 没了？请同步本断言）');
+  // 往前一点（含 effect 头），往后取足量
+  const body = CODE.slice(Math.max(0, at - 600), at + 4200);
+  assert(body.includes('setLightbox'), '切片里没有 setLightbox —— 锚点落错了');
+  // ① capture 阶段：`addEventListener("keydown", onKey, true)`
+  assert(/addEventListener\(\s*["']keydown["']\s*,\s*onKey\s*,\s*true\s*\)/.test(body),
+    '★★ 浮层的 keydown 没挂 capture 阶段（第三参 true）—— 详情抽屉挂的是 capture，'
+    + '两者不同阶段时，抽屉会先把 Escape 吃掉并 stopPropagation ⇒ **要按两下才退**');
+  // ② Escape 分支里必须 stopPropagation
+  // ⚠️ 切片**只到下一个分支为止**：我第一版切 `escAt + 500` 字符，
+  //    而**紧跟着的 ArrowLeft 分支也有一个 `stopPropagation`** ⇒ 把 Escape 自己那个
+  //    删掉后，切片里仍然能搜到（来自 ArrowLeft）⇒ **变异测试证明了这条是假绿**。
+  //    ⇒ 切到 `ArrowLeft` 出现处为止，只看 Escape 分支**自己**那一段。
+  const escAt = body.indexOf('key === "Escape"');
+  assert(escAt >= 0, '切片里找不到 Escape 分支');
+  const arrowAt = body.indexOf('ArrowLeft', escAt);
+  assert(arrowAt > escAt, '找不到 Escape 分支的结束位置（下一个分支 ArrowLeft）');
+  const escSeg = body.slice(escAt, arrowAt);
+  assert(escSeg.length > 20, 'Escape 分支切片太短（' + escSeg.length + '）');
+  assert(/stopPropagation/.test(escSeg),
+    '★★ Escape 分支里没有 stopPropagation ⇒ 底下的抽屉/列表会**同时**收到 Escape，'
+    + '表现就是「按一次只关掉一层」');
+  // ③ 清理时也要带同一阶段（否则监听器摘不掉）
+  assert(/removeEventListener\(\s*["']keydown["']\s*,\s*onKey\s*,\s*true\s*\)/.test(body),
+    '★ 摘监听器时没带 capture 参数 ⇒ 摘不掉（关掉浮层后按键还在改一个看不见的状态）');
+});
+
+check('★★ 反向对照：把浮层的 Escape 改回 bubble 阶段 ⇒ 上面那条必须红', () => {
+  const at = CODE.indexOf('var returnFocusTo = null;');
+  const body = CODE.slice(Math.max(0, at - 600), at + 4200);
+  const broken = body
+    .replace(/addEventListener\(\s*["']keydown["']\s*,\s*onKey\s*,\s*true\s*\)/, 'addEventListener("keydown", onKey)')
+    .replace(/stopPropagation\(\);/g, 'void 0;');
+  assert(broken !== body, '反向对照造不出来（替换没生效）⇒ 上面那条可能是空转的');
+  const violates = (b) => {
+    const e = b.indexOf('key === "Escape"');
+    if (e < 0) return true;
+    const a = b.indexOf('ArrowLeft', e);
+    if (a <= e) return true;
+    return !/addEventListener\(\s*["']keydown["']\s*,\s*onKey\s*,\s*true\s*\)/.test(b)
+      || !/stopPropagation/.test(b.slice(e, a));
+  };
+  assert(violates(broken) === true, '★ 坏版本没被抓住 ⇒ 上面那条是空转的');
+  // 反向的另一半：**正确**的实现不许被判据抓（判据不能过严）
+  assert(violates(body) === false, '★ 正确实现被判据抓了 ⇒ 判据过严');
+});
+
 check('★ 反向对照：喂一个**空 items** ⇒ 浮层渲染成 null（不许崩，也不许渲染半个空壳）', () => {
   const r = renderLb([], { items: [], index: 0, zoom: 0, nat: null });
   assert(!lbNode(r), '★ 空 items 时该返回 null；渲染出空壳会让用户看到一块黑屏又关不掉');
@@ -619,7 +714,9 @@ check('★ 反向对照：喂一个**空 items** ⇒ 浮层渲染成 null（不�
 //      ② 点它**必须** `stopPropagation`（否则浮层与详情抽屉同时开）
 //      ③ 只有**媒体**才挂（非媒体给了点击 = "点了没反应"的假暗示）
 //    ⚠️ 判据用**剥过注释的**源码：注释里提到这些词不算数（本仓库栽过三次的坑）。
-const CODE = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
+//    ⚠️ `CODE` 的**定义在文件上方**（紧跟 `src`）—— 这里只解释为什么需要它。
+//       原来它定义在这一行，但后面新增的用例在它**之前**执行 ⇒ TDZ 报错
+//       「Cannot access 'CODE' before initialization」。**常量要定义在所有用它的地方之前。**
 
 check('★ 接线：卡片缩略图挂了 onPreview，且只有**媒体**才挂', () => {
   assert(/onPreview\s*:/.test(CODE), '★ 全文件没有任何 `onPreview:` —— 组件写了却没人接（"写了个组件没人用"）');

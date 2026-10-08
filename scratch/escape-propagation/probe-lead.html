@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Esc 传播 · 决定性实验</title>
+<style>
+  body{font:13px/1.6 Consolas,monospace;background:#111;color:#eee;padding:16px}
+  h2{font-size:14px;margin:18px 0 6px;color:#8cf}
+  .ok{color:#6dff8a}.bad{color:#ff7b7b}.dim{color:#999}
+  table{border-collapse:collapse;margin:6px 0}
+  td,th{border:1px solid #444;padding:3px 8px;text-align:left}
+  #out{white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h2>Esc 传播 · 决定性实验（真实浏览器）</h2>
+<p class="dim">每个场景重建一遍「详情抽屉 + 预览浮层」的监听器拓扑，然后<b>真的派发一次 keydown</b>，
+记录哪些处理器被调用。目标契约：<b>一次 Esc 只关最上层（浮层），抽屉保持打开</b>。</p>
+<div id="out"></div>
+<script>
+const out = [];
+const log = (s) => out.push(s);
+
+/**
+ * 跑一个场景。
+ * @param name 场景名
+ * @param setup 接收 (state) 返回 { teardown }，在其中按需注册监听器
+ */
+function scenario(name, setup) {
+  // 每个场景用**独立的容器**，避免互相污染
+  const host = document.createElement('div');
+  host.tabIndex = -1;
+  document.body.appendChild(host);
+  host.focus();
+
+  const state = { drawerClosed: false, lightboxClosed: false, calls: [], blockEscape: false };
+  const teardown = setup(state, host);
+
+  // 真的派发一次 Escape（bubbles:true ⇒ 会走完整 capture→target→bubble 路径）
+  host.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+  const onlyLightbox = state.lightboxClosed && !state.drawerClosed;
+  const both = state.lightboxClosed && state.drawerClosed;
+  const neither = !state.lightboxClosed && !state.drawerClosed;
+  const onlyDrawer = state.drawerClosed && !state.lightboxClosed;
+
+  let verdict, cls;
+  if (onlyLightbox) { verdict = '✅ 正确 —— 只关了浮层，抽屉还在'; cls = 'ok'; }
+  else if (both) { verdict = '🔴 一次把两层都关了（不是我们要的）'; cls = 'bad'; }
+  else if (onlyDrawer) { verdict = '🔴 只关了抽屉，浮层没关（= 用户说的「要按两下」）'; cls = 'bad'; }
+  else if (neither) { verdict = '🔴 谁都没关'; cls = 'bad'; }
+  else { verdict = '🔴 其它'; cls = 'bad'; }
+
+  log('\n── ' + name + ' ──');
+  log('   调用顺序: ' + (state.calls.length ? state.calls.join(' → ') : '（无）'));
+  log('   抽屉被关: ' + state.drawerClosed + '   浮层被关: ' + state.lightboxClosed);
+  log('   ' + verdict);
+
+  teardown();
+  host.remove();
+  return { name, onlyLightbox, both, onlyDrawer, neither, calls: state.calls };
+}
+
+const results = [];
+
+// ── A · 原始实现（用户报的 bug）──────────────────────────────────────────
+// 抽屉: document capture + stopPropagation；浮层: document bubble
+results.push(scenario('A · 原始：抽屉=document capture，浮层=document bubble', (s) => {
+  const drawer = (e) => { if (e.key !== 'Escape') return; s.calls.push('抽屉'); e.stopPropagation(); s.drawerClosed = true; };
+  const lb = (e) => { if (e.key !== 'Escape') return; s.calls.push('浮层'); s.lightboxClosed = true; };
+  document.addEventListener('keydown', drawer, true);   // 抽屉先注册
+  document.addEventListener('keydown', lb);             // 浮层后注册（bubble）
+  return () => { document.removeEventListener('keydown', drawer, true); document.removeEventListener('keydown', lb); };
+}));
+
+// ── B · 我第一版错的修法（浮层也改 document capture）────────────────────
+results.push(scenario('B · 错修：两层都 document capture + 都 stopPropagation', (s) => {
+  const drawer = (e) => { if (e.key !== 'Escape') return; s.calls.push('抽屉'); e.stopPropagation(); s.drawerClosed = true; };
+  const lb = (e) => { if (e.key !== 'Escape') return; s.calls.push('浮层'); e.stopPropagation(); s.lightboxClosed = true; };
+  document.addEventListener('keydown', drawer, true);   // 抽屉先注册
+  document.addEventListener('keydown', lb, true);       // 浮层后注册（也 capture）
+  return () => { document.removeEventListener('keydown', drawer, true); document.removeEventListener('keydown', lb, true); };
+}));
+
+// ── C · F2（本次采用）：抽屉显式让路 ────────────────────────────────────
+// 抽屉: document capture，但 blockEscape 为真时**直接 return 且不 stopPropagation**
+// 浮层: document capture + stopPropagation
+results.push(scenario('C · F2：抽屉让路（blockEscape）＋ 浮层 document capture', (s) => {
+  s.blockEscape = true;   // 浮层开着
+  const drawer = (e) => {
+    if (e.key !== 'Escape') return;
+    if (s.blockEscape) return;                 // ★ 让路：不 stopPropagation
+    s.calls.push('抽屉'); e.stopPropagation(); s.drawerClosed = true;
+  };
+  const lb = (e) => { if (e.key !== 'Escape') return; s.calls.push('浮层'); e.stopPropagation(); s.lightboxClosed = true; };
+  document.addEventListener('keydown', drawer, true);
+  document.addEventListener('keydown', lb, true);
+  return () => { document.removeEventListener('keydown', drawer, true); document.removeEventListener('keydown', lb, true); };
+}));
+
+// ── D · F1（备选）：浮层挂 window capture ───────────────────────────────
+results.push(scenario('D · F1：浮层=window capture（赌 window 在捕获路径更前）', (s) => {
+  const drawer = (e) => { if (e.key !== 'Escape') return; s.calls.push('抽屉'); e.stopPropagation(); s.drawerClosed = true; };
+  const lb = (e) => { if (e.key !== 'Escape') return; s.calls.push('浮层'); e.stopPropagation(); s.lightboxClosed = true; };
+  window.addEventListener('keydown', lb, true);         // 浮层挂 window
+  document.addEventListener('keydown', drawer, true);   // 抽屉挂 document
+  return () => { window.removeEventListener('keydown', lb, true); document.removeEventListener('keydown', drawer, true); };
+}));
+
+// ── E · 对照：只开浮层（抽屉不在），F2 那条路也该能关 ────────────────────
+results.push(scenario('E · 对照：只开浮层（没有抽屉抢）', (s) => {
+  const lb = (e) => { if (e.key !== 'Escape') return; s.calls.push('浮层'); e.stopPropagation(); s.lightboxClosed = true; };
+  document.addEventListener('keydown', lb, true);
+  return () => { document.removeEventListener('keydown', lb, true); };
+}));
+
+// ── 汇总 ────────────────────────────────────────────────────────────────
+log('\n════ 汇总 ════');
+for (const r of results) {
+  const tag = r.onlyLightbox ? '✅ 只关浮层（契约达成）' : (r.both ? '🔴 关了两层' : (r.onlyDrawer ? '🔴 只关抽屉（两下才退）' : '🔴 谁都没关'));
+  log('   ' + r.name.split(' · ')[0].padEnd(3) + ' ' + tag);
+}
+log('\n══ 判定 ══');
+const c = results.find((r) => r.name.startsWith('C'));
+const b = results.find((r) => r.name.startsWith('B'));
+const d = results.find((r) => r.name.startsWith('D'));
+log('   B（我第一版错修）关了两层吗: ' + (b && b.both ? '是 ⇒ 证明那个修法是错的' : '否'));
+log('   C（F2，本次采用）达成契约吗: ' + (c && c.onlyLightbox ? '是 ✅' : '否 🔴'));
+log('   D（F1）达成契约吗: ' + (d && d.onlyLightbox ? '是（说明 window 在捕获路径里）' : '否（window 不在路径里 / 或另有原因）'));
+
+document.getElementById('out').innerHTML = '<pre>' + out.join('\n')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
+
+// 给 --dump-dom 用的纯文本出口
+const pre = document.createElement('pre');
+pre.id = 'RESULT';
+pre.textContent = 'RESULT_BEGIN\n' + out.join('\n') + '\nRESULT_END';
+document.body.appendChild(pre);
+</script>
+</body>
+</html>

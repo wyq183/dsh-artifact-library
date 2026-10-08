@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Escape 事件传播探针 · 一次 Esc 只关最上层浮层</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.65 system-ui, "Microsoft YaHei", sans-serif; margin: 0; padding: 18px 22px 60px; }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 22px 0 6px; border-bottom: 1px solid #8884; padding-bottom: 3px; }
+  .sub { color: #777; font-size: 12.5px; margin: 0 0 14px; }
+  button { font: inherit; padding: 5px 12px; margin: 0 6px 6px 0; cursor: pointer; border-radius: 6px;
+           border: 1px solid #8886; background: #8881; }
+  button:hover { background: #8882; }
+  button.primary { font-weight: 700; border-color: #2563eb88; background: #2563eb1a; }
+  .layers { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 4px; }
+  .layer { border: 2px solid #8886; border-radius: 8px; padding: 8px 14px; min-width: 160px; }
+  .layer .name { font-weight: 700; }
+  .layer .st { font-size: 12.5px; color: #777; }
+  .layer.on { border-color: #16a34a; background: #16a34a14; }
+  .layer.on .st { color: #15803d; }
+  .layer.off { opacity: .55; }
+  table { border-collapse: collapse; width: 100%; margin-top: 6px; font-size: 13px; }
+  th, td { border: 1px solid #8885; padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: #8881; font-weight: 700; }
+  td.seq { width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
+  td.who { width: 330px; }
+  tr.win  td { background: #16a34a1c; }
+  tr.lose td { background: #dc26261c; }
+  tr.drawer td { background: #f59e0b1c; }
+  .verdict { margin-top: 10px; padding: 10px 14px; border-radius: 8px; border: 1px solid #8886; white-space: pre-wrap; }
+  .verdict.ok   { border-color: #16a34a; background: #16a34a14; }
+  .verdict.bad  { border-color: #dc2626; background: #dc262614; }
+  .verdict.warn { border-color: #f59e0b; background: #f59e0b14; }
+  code { background: #8882; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  #lastKey { font-size: 12.5px; color: #777; }
+  .note { font-size: 12.5px; color: #777; margin-top: 8px; }
+  .live { font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>Escape 事件传播探针</h1>
+<p class="sub">
+  无任何外部依赖，双击即可打开。<b>判定目标：一次 Esc 能不能只关掉最上层浮层。</b><br>
+  三个监听形态都是本页真实注册的原生 DOM 监听器；<b>每个场景只注册该场景该有的监听器</b>，
+  每次按键把「谁被调用、第几个被调用、谁被拦下」打印在下面。
+</p>
+
+<h2>1 · 监听形态（本页真实注册）</h2>
+<table>
+  <tr><th>编号</th><th>处理器</th><th>挂在哪个节点 / 阶段</th><th>收到 Esc 时做什么</th></tr>
+  <tr><td>D</td><td>详情抽屉</td><td><code>document</code> · <b>capture</b></td><td>关抽屉 + <code>stopPropagation()</code>（编辑态则只退编辑）</td></tr>
+  <tr><td>L0</td><td>浮层 · 原样</td><td><code>document</code> · <b>bubble</b></td><td>关浮层 + <code>stopPropagation()</code></td></tr>
+  <tr><td>L1</td><td>浮层 · 候选 F1</td><td><code>window</code> · <b>capture</b></td><td>关浮层 + <code>stopPropagation()</code></td></tr>
+</table>
+<p class="note">
+  三个形态<b>不会同时存在</b>于真实代码里（浮层要么挂 L0、要么挂 L1）。所以下面每个场景
+  只注册该场景该有的那两条 —— 这样「按一次 Esc 的结果」才是一次干净对照。
+</p>
+
+<h2>2 · 跑场景</h2>
+<div>
+  <button class="primary" id="btnA">A · 现状：D(document capture) + L0(document bubble)</button>
+  <button class="primary" id="btnB">B · F1：D(document capture) + L1(window capture)</button>
+  <button class="primary" id="btnC">C · F2：D(document capture, 知道上层有浮层→直接 return) + L0</button>
+  <button class="primary" id="btnD">D · F1 反面：L1 挂 window bubble（不是 capture）</button>
+  <button class="primary" id="btnE">E · F1 + 注册顺序对调（抽屉改成后注册）</button>
+  <button id="btnReset">重置</button>
+</div>
+<p class="note">点一个场景按钮 → 两个层都变「开着」→ <b>然后按一次真实 Esc 键</b>（或点下面那个合成按钮）。</p>
+
+<h2>3 · 浮层状态</h2>
+<div class="layers">
+  <div class="layer" id="lvDrawer"><div class="name">详情抽屉（下层）</div><div class="st">关着</div></div>
+  <div class="layer" id="lvLightbox"><div class="name">媒体预览浮层（最上层）</div><div class="st">关着</div></div>
+</div>
+<div>
+  <button class="primary" id="btnEsc">发一次合成 Esc（keydown, bubbles）</button>
+  <span id="lastKey">还没按键</span>
+</div>
+<p class="note" id="liveReg">当前注册的监听器：<span class="live">（无）</span></p>
+
+<h2>4 · 调用日志</h2>
+<table id="logTable">
+  <tr><th>序</th><th>被调用的处理器</th><th>说明</th></tr>
+</table>
+
+<h2>5 · 判定</h2>
+<div class="verdict" id="verdict">还没跑。</div>
+
+<script>
+"use strict";
+
+/* ══════════════════════════════════════════════════════════════════════════
+   本页刻意用「原生 DOM」而不是 React：被判定的对象是「监听挂在哪个节点、
+   哪个阶段、按什么顺序注册」，React 的 effect 只是决定最后那一条。
+   用原生把变量降到一个，才好判定。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+var seq = 0;
+var logBody = document.getElementById("logTable");
+var verdictEl = document.getElementById("verdict");
+var lastKeyEl = document.getElementById("lastKey");
+var liveRegEl = document.getElementById("liveReg").querySelector("span");
+
+/* ── 被观测的两层状态 ─────────────────────────────────────────────────── */
+var drawerOpen = false, lightboxOpen = false, editing = false;
+
+/* ── 场景配置 ─────────────────────────────────────────────────────────── */
+/* lightboxOn: null | "doc-bubble"(L0) | "win-capture"(L1) | "win-bubble"(L1 反面)
+   f2Guard: 抽屉是否被显式告知「上层有浮层开着」（F2）                       */
+var scenario = { name: "（未选）", lightboxOn: null, f2Guard: false };
+var registered = [];   // 记下真实注册过的监听器，场景切换时全部拆掉
+
+/* ── 日志与渲染 ───────────────────────────────────────────────────────── */
+function clearLog() {
+  seq = 0;
+  var rows = logBody.querySelectorAll("tr");
+  for (var i = rows.length - 1; i >= 1; i--) rows[i].remove();
+  verdictEl.className = "verdict";
+  verdictEl.textContent = "还没跑。";
+}
+function log(who, cls, note) {
+  seq += 1;
+  var tr = document.createElement("tr");
+  if (cls) tr.className = cls;
+  var a = document.createElement("td"); a.className = "seq"; a.textContent = String(seq);
+  var b = document.createElement("td"); b.className = "who"; b.textContent = who;
+  var c = document.createElement("td");
+  // 说明文字里用 **…** 标重点，这里渲染成 <b>（内容全部是本页字面量，无外部输入）
+  c.innerHTML = String(note).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  tr.appendChild(a); tr.appendChild(b); tr.appendChild(c);
+  logBody.appendChild(tr);
+}
+function paint(id, on, text) {
+  var el = document.getElementById(id);
+  el.className = "layer " + (on ? "on" : "off");
+  el.querySelector(".st").textContent = text;
+}
+function render() {
+  paint("lvDrawer", drawerOpen, drawerOpen ? ("开着" + (editing ? "（编辑态）" : "")) : "关着");
+  paint("lvLightbox", lightboxOpen, lightboxOpen ? "开着" : "关着");
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   处理器本体
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* D · 详情抽屉 —— 挂 document capture。真实代码里它**先**挂载（先注册）。 */
+function drawerOnKey(event) {
+  if (event.key !== "Escape") return;
+  if (!drawerOpen) { log("D 抽屉（document capture）", "", "收到 Esc，但抽屉关着 → return"); return; }
+
+  // 【F2】抽屉被显式告知「上层有浮层开着」→ 直接 return，**不调用 stopPropagation**
+  if (scenario.f2Guard && lightboxOpen) {
+    log("D 抽屉（document capture）", "drawer",
+        "F2：知道上层有浮层开着 → 直接 return，**没有** stopPropagation");
+    return;
+  }
+  if (editing) { log("D 抽屉（document capture）", "drawer", "编辑态 → 只退编辑，不关抽屉"); editing = false; render(); return; }
+
+  log("D 抽屉（document capture）", "drawer", "关掉抽屉，并调用 stopPropagation()");
+  drawerOpen = false; render();
+  try { event.stopPropagation(); } catch (e) {}
+}
+
+/* L · 媒体预览浮层 —— 三种候选形态共用同一个函数，靠注册位置区分。 */
+function lightboxOnKey(event) {
+  if (event.key !== "Escape") return;
+  if (!lightboxOpen) { log("L 浮层", "", "收到 Esc，但浮层关着 → return"); return; }
+  var label = scenario.lightboxOn === "win-capture" ? "window capture · F1"
+            : scenario.lightboxOn === "win-bubble"  ? "window bubble · F1 反面"
+            : "document bubble · 现状 L0";
+  log("L 浮层（" + label + "）", "lose", "关掉浮层，并调用 stopPropagation()");
+  lightboxOpen = false; render();
+  try { event.stopPropagation(); } catch (e) {}
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   注册 / 拆卸
+   ══════════════════════════════════════════════════════════════════════════ */
+function unregisterAll() {
+  registered.forEach(function (r) { r.target.removeEventListener("keydown", r.fn, r.capture); });
+  registered = [];
+  liveRegEl.textContent = "（无）";
+}
+function reg(target, name, fn, capture) {
+  target.addEventListener("keydown", fn, capture);
+  registered.push({ target: target, fn: fn, capture: capture });
+  var label = name + (capture ? " · capture" : " · bubble");
+  liveRegEl.textContent = liveRegEl.textContent === "（无）" ? label : liveRegEl.textContent + "　+　" + label;
+}
+
+/* 收尾判定器：注册在最后（bubble），所以它在本次事件里最后一个跑。
+   不依赖 isTrusted，真实按键与合成按键都能触发。 */
+function judgeOnKey(event) {
+  if (event.key !== "Escape") return;
+  var trusted = event.isTrusted;
+  setTimeout(function () { judge(trusted); }, 0);
+}
+
+function armScenario(name, lightboxOn, f2Guard, drawerLast) {
+  unregisterAll();
+  clearLog();
+  scenario = { name: name, lightboxOn: lightboxOn, f2Guard: f2Guard };
+  drawerOpen = true; lightboxOpen = true; editing = false; render();
+
+  // 注册顺序刻意照真实代码：抽屉**先**挂载 ⇒ 它的监听器先注册
+  // （drawerLast=true 时对调，用来验证 F1 到底依不依赖注册顺序）
+  if (!drawerLast) reg(document, "D 抽屉", drawerOnKey, true);
+  if (lightboxOn === "doc-bubble") reg(document, "L0 浮层", lightboxOnKey, false);
+  if (lightboxOn === "win-capture") reg(window, "L1 浮层", lightboxOnKey, true);
+  if (lightboxOn === "win-bubble") reg(window, "L1 浮层", lightboxOnKey, false);
+  if (drawerLast) reg(document, "D 抽屉", drawerOnKey, true);
+  // 判定器挂 **window capture**：它一定在本次事件的最开头跑，
+  // 因此**不会**被任何 stopPropagation 截掉（这正是本页要证的第一条）。
+  // 真正的判定在 setTimeout(0) 里做，那时本次事件已派发完毕。
+  reg(window, "判定器", judgeOnKey, true);
+
+  log("— " + name + " —", "", "两层都开着，请按一次 Esc");
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   判定
+   ══════════════════════════════════════════════════════════════════════════ */
+function judge(trusted) {
+  var hitDrawer = false, hitLightbox = false;
+  var order = [];
+  var rows = logBody.querySelectorAll("tr");
+  for (var i = 1; i < rows.length; i++) {
+    var who = rows[i].querySelector(".who").textContent;
+    if (who.indexOf("D 抽屉") === 0) { hitDrawer = true; order.push("D 抽屉"); }
+    if (who.indexOf("L 浮层") === 0) { hitLightbox = true; order.push("L 浮层"); }
+  }
+  var lines = [];
+  lines.push("按键来源：" + (trusted ? "真实按键（isTrusted=true）" : "合成 dispatchEvent"));
+  lines.push("实际调用顺序：" + (order.length ? order.join(" → ") : "（没有任何处理器被调用）"));
+  lines.push("按键后 —— 抽屉：" + (drawerOpen ? "还开着" : "已关闭")
+           + "　浮层：" + (lightboxOpen ? "还开着" : "已关闭"));
+  lines.push("");
+
+  if (drawerOpen && !lightboxOpen) {
+    verdictEl.className = "verdict ok";
+    lines.unshift("✅ 一次 Esc **只关掉了最上层浮层**，抽屉还在 —— 这就是目标行为。");
+  } else if (!drawerOpen && lightboxOpen) {
+    verdictEl.className = "verdict bad";
+    lines.unshift("❌ 一次 Esc 关掉的是**底下的抽屉**，最上层浮层还开着 —— 这就是「要按两下」的成因。");
+  } else if (!drawerOpen && !lightboxOpen) {
+    verdictEl.className = "verdict bad";
+    lines.unshift("❌ 一次 Esc **把两层一起关了** —— 不是「只关最上层」。");
+  } else {
+    verdictEl.className = "verdict warn";
+    lines.unshift("⚠️ 一次 Esc 什么都没关。");
+  }
+  lines.push("抽屉处理器被调用：" + (hitDrawer ? "是" : "否")
+           + "　浮层处理器被调用：" + (hitLightbox ? "是" : "否"));
+  lines.push("看上面日志的**行序**：谁先出现 = 谁先跑。");
+  // 渲染 **…** 为 <b>（内容全部是本页字面量，无外部输入）
+  verdictEl.innerHTML = lines.join("\n").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   按钮
+   ══════════════════════════════════════════════════════════════════════════ */
+document.getElementById("btnA").onclick = function () {
+  armScenario("A 现状：D(document capture) + L0(document bubble)", "doc-bubble", false);
+};
+document.getElementById("btnB").onclick = function () {
+  armScenario("B F1：D(document capture) + L1(window capture)", "win-capture", false);
+};
+document.getElementById("btnC").onclick = function () {
+  armScenario("C F2：D(document capture, 有上层浮层→return) + L0(document bubble)", "doc-bubble", true);
+};
+document.getElementById("btnD").onclick = function () {
+  armScenario("D F1 反面：D(document capture) + L1(window **bubble**)", "win-bubble", false);
+};
+document.getElementById("btnE").onclick = function () {
+  armScenario("E F1 + 注册顺序对调（抽屉后注册）", "win-capture", false, true);
+};
+document.getElementById("btnReset").onclick = function () {
+  unregisterAll(); clearLog();
+  scenario = { name: "（未选）", lightboxOn: null, f2Guard: false };
+  drawerOpen = false; lightboxOpen = false; editing = false; render();
+};
+document.getElementById("btnEsc").onclick = function () {
+  var ev = new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27,
+                                          bubbles: true, cancelable: true, composed: true });
+  document.body.dispatchEvent(ev);
+  lastKeyEl.textContent = "合成 Esc 已发出（isTrusted=" + ev.isTrusted + "）";
+};
+
+/* 真实按键提示（真实按键由浏览器直接派发，本页不需要再挂东西 —— 判定器已随场景注册） */
+document.addEventListener("keydown", function (event) {
+  if (event.key === "Escape" && event.isTrusted) lastKeyEl.textContent = "真实按键 Esc（isTrusted=true）";
+}, true);
+
+render();
+</script>
+</body>
+</html>
