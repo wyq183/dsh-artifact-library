@@ -21,6 +21,7 @@ import { performance } from 'node:perf_hooks'
 import { artifactsHandler } from '../lib/http.js'
 import { listDirectory, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT, STAT_CONCURRENCY } from '../lib/index/list.js'
 import { createFileIndex } from '../lib/index/engine.js'
+import { stripComments } from './_strip-comments.mjs'
 
 let passed = 0
 let failed = 0
@@ -42,10 +43,7 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
  * 所以任何切片都必须**自己证明它切到了东西**：锚点找得到、顺序对、长度合理。
  * 这条守卫**比它保护的断言更重要** —— 文件末尾 [7] 里有对 guard 自身的测试。
  */
-/** 源码守卫用：剥掉注释（免得守卫被自己的说明文字绊倒 —— 这个坑我踩过两次） */
-function stripComments(s) {
-  return String(s).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
-}
+
 
 function sliceBetween(src, startMarker, endMarker, label) {
   const i = src.indexOf(startMarker)

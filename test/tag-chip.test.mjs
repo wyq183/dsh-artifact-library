@@ -29,6 +29,7 @@ import vm from 'node:vm'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { stripComments } from './_strip-comments.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLIENT_PATH = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, 'lib', 'client.js')
@@ -64,63 +65,7 @@ const TAG_STYLES_RAW = fs.readFileSync(TAG_STYLES_PATH, 'utf8')
  * 源码工具（**注释预处理**，带自己的反向对照）
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/**
- * 去掉 JS 注释（**逐字符 1:1 替换**，行号/偏移不变）；字符串内容保留。
- * 与 `test/ui-spec.test.mjs` 的 `stripComments` 同源口径（含 2026-10-08 那条
- * 「认识正则字面量」的修 —— 否则 `client.js` 里 `/[…"]/` 的引号会把词法带偏，
- * 后面所有注释都剥不掉，本文件的扫描会变成「扫着带注释的原文在判」）。
- */
-function stripComments(src) {
-  let out = ''
-  let i = 0
-  let quote = null
-  let prev = ''
-  const n = src.length
-  const regexAllowed = () => !/[A-Za-z0-9_$)\]}"]/.test(prev)
-  while (i < n) {
-    const c = src[i]
-    const c2 = src[i + 1]
-    if (quote) {
-      out += c
-      if (c === '\\') { out += c2 === undefined ? '' : c2; prev = 'x'; i += 2; continue }
-      if (c === quote) { quote = null; prev = 'x' }
-      i += 1
-      continue
-    }
-    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; i += 1; continue }
-    if (c === '/' && c2 === '/') { while (i < n && src[i] !== '\n') { out += ' '; i += 1 } continue }
-    if (c === '/' && c2 === '*') {
-      out += '  '; i += 2
-      while (i < n && !(src[i] === '*' && src[i + 1] === '/')) { out += src[i] === '\n' ? '\n' : ' '; i += 1 }
-      if (i < n) { out += '  '; i += 2 }
-      continue
-    }
-    if (c === '/' && regexAllowed()) {
-      let j = i + 1
-      let inClass = false
-      let closed = false
-      while (j < n) {
-        const d = src[j]
-        if (d === '\\') { j += 2; continue }
-        if (d === '\n') break
-        if (d === '[') inClass = true
-        else if (d === ']') inClass = false
-        else if (d === '/' && !inClass) { closed = true; break }
-        j += 1
-      }
-      if (closed) {
-        let k = j + 1
-        while (k < n && /[a-z]/i.test(src[k])) k += 1
-        out += src.slice(i, k); prev = 'x'; i = k
-        continue
-      }
-    }
-    out += c
-    if (!/\s/.test(c)) prev = c
-    i += 1
-  }
-  return out
-}
+
 
 const CLIENT_SRC = stripComments(CLIENT_RAW)
 

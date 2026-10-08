@@ -49,6 +49,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { stripComments } from './_strip-comments.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CLIENT_PATH = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, 'lib', 'client.js');
@@ -83,95 +84,7 @@ function assert(cond, message) {
 
 // ── 源码工具 ──────────────────────────────────────────────────────────────
 
-/**
- * 去掉 JS 注释（**逐字符 1:1 替换**，保证去掉后行号不变）。
- * 保留字符串内容 —— hex 颜色就住在字符串里，不能连它一起删。
- *
- * ⚠️ **2026-10-08 修（client-3d 发现，Lead 独立复核后落地）**：
- * 原版注释写着「JS 里 `//` 与 `/*` 永远是注释，所以不需要区分除号 / 正则字面量」——
- * **前半句对，推论错**。`//` 与 `/*` 确实是注释，但**引号**才是把词法带偏的那个：
- * `client.js` 里有一行
- *     if (/[\u0000-\u001f\u007f-\u009f"]/.test(p)) return "";
- * 正则**字符类里那个 `"`** 被原版当成「字符串开始」⇒ 词法从此错位 ⇒
- * **从那一行起 328 处 `/* … *​/` 注释根本没被剥掉**（实测：剥完还剩 328 个 `/*`）。
- * 剥注释于是**空转**，而它正是**本文件 120 条断言的输入预处理**。
- *
- * 症状为什么现在才冒出来：之前原文里没有 hex 落在「没被剥掉的注释」里。
- * 3d 内联的 JSDoc 里有一个反例 `#ff0000`，于是 hex 门禁抓到了**注释里的文档**
- * （而 `tag-styles.test.mjs` 的 `[I]` 节明说注释里的反例是**允许**的）。
- *
- * 修法：多一条「这个 `/` 能不能起正则字面量」的判定 —— 能，则把整段正则**吞掉**
- * （于是字符类里的引号不再被当成字符串开头）。
- * 判据取通行的启发式：`/` 是正则开头 **当且仅当**它前面最近的有效 token
- * 不是 标识符 / 数字 / `)` / `]` / `}`（那些位置后面跟的 `/` 是**除号**）。
- *
- * ⚠️⚠️ 这段是**启发式**，不是完整 JS 词法分析器。它有一个已知的失效方向：
- * 若某处 `/` 被**误判成正则开头**，会吞掉后面的代码 —— 但「吞掉」只会**多剥**
- * （把真代码当注释），而本文件的自检断言（见下面 `stripComments 自检` 一节）
- * 会盯着**长度不变**与**真代码行逐字不变**，所以误判会**红**、不会静默。
- */
-function stripComments(src) {
-  let out = '';
-  let i = 0;
-  let quote = null;
-  let prev = '';
-  const n = src.length;
-  // 前面最近的有效 token 决定 `/` 是除号还是正则开头
-  const regexAllowed = () => !/[A-Za-z0-9_$)\]}"]/.test(prev);
-  while (i < n) {
-    const c = src[i];
-    const c2 = src[i + 1];
-    if (quote) {
-      out += c;
-      if (c === '\\') { out += c2 === undefined ? '' : c2; prev = 'x'; i += 2; continue; }
-      if (c === quote) { quote = null; prev = 'x'; }
-      i += 1;
-      continue;
-    }
-    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; i += 1; continue; }
-    if (c === '/' && c2 === '/') {
-      while (i < n && src[i] !== '\n') { out += ' '; i += 1; }
-      continue;
-    }
-    if (c === '/' && c2 === '*') {
-      out += '  ';
-      i += 2;
-      while (i < n && !(src[i] === '*' && src[i + 1] === '/')) {
-        out += src[i] === '\n' ? '\n' : ' ';
-        i += 1;
-      }
-      if (i < n) { out += '  '; i += 2; }
-      continue;
-    }
-    // ★ 正则字面量：整段吞掉（字符类里的引号不再被当成字符串开头）
-    if (c === '/' && regexAllowed()) {
-      let j = i + 1;
-      let inClass = false;
-      let closed = false;
-      while (j < n) {
-        const d = src[j];
-        if (d === '\\') { j += 2; continue; }
-        if (d === '\n') break;
-        if (d === '[') inClass = true;
-        else if (d === ']') inClass = false;
-        else if (d === '/' && !inClass) { closed = true; break; }
-        j += 1;
-      }
-      if (closed) {
-        let k = j + 1;
-        while (k < n && /[a-z]/i.test(src[k])) k += 1;
-        out += src.slice(i, k);
-        prev = 'x';
-        i = k;
-        continue;
-      }
-    }
-    out += c;
-    if (!/\s/.test(c)) prev = c;
-    i += 1;
-  }
-  return out;
-}
+
 
 function lineOf(text, index) {
   let line = 1;

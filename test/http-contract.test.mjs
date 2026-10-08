@@ -23,11 +23,9 @@ import { Writable, Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { ArtifactStore } from '../lib/store.js'
 import { artifactsHandler } from '../lib/http.js'
+import { stripComments } from './_strip-comments.mjs'
 
-/** 源码守卫用：剥掉块注释与行注释（免得守卫被自己的说明文字绊倒） */
-function stripComments(s) {
-  return String(s).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
-}
+
 
 /** 源码守卫用的真实路径（不手搓 pathname，跨平台稳） */
 const LIB = fileURLToPath(new URL('../lib', import.meta.url))
