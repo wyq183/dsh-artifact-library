@@ -192,6 +192,88 @@ console.log('\n=== [3] ★★★ 启动失败不打崩宿主（回归守卫）==
     assert(typeof r.error === 'string' && r.error.length > 0, '没有错误说明')
   })
 
+  // ── ★★ 2026-10-08：`windowsHide` 让窗口**建了但不显示**（依琪报的「点了没反应」）────
+  //
+  // 症状：端点回 200、explorer 进程起来了、窗口也建了（标题/尺寸全对），
+  //       但 `IsWindowVisible() === false` ⇒ 用户永远看不见。
+  // 根因：`spawnSoft` 无条件传 `windowsHide: true`，让子进程以 `SW_HIDE` 启动，
+  //       explorer 建窗口时用了这个 show 状态。
+  // 实测对照（同一台机器、同一时刻，四个变体**唯一差异就是 `windowsHide`**）：
+  //       true ⇒ 不可见；false（detached 与否、走不走 cmd 都算）⇒ 可见。
+  //
+  // ⚠️ 这两条是**静态**守卫（不弹真窗口）。为什么不做成"真跑一次看可见性"：
+  //    那要 user32 的 P/Invoke、还会真弹窗打扰用户 ⇒ 不适合进常规测试。
+  //    真机那一步是**人工做过的**（记录在提交信息里），这里守的是**别改回去**。
+  check('★★ spawnSoft 默认**不隐藏窗口**（`windowsHide` 必须是可选项且默认 false）', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'lib', 'platform.js'), 'utf8')
+    const at = src.indexOf('export function spawnSoft(')
+    assert(at >= 0, '找不到 spawnSoft（改名了？请同步本断言）')
+    const next = src.indexOf('export function', at + 10)
+    const body = src.slice(at, next > 0 ? next : src.length)
+    assert(body.length > 500, 'spawnSoft 函数体只有 ' + body.length + ' 字符，切错了')
+    // ① 不许出现**写死为 true** 的 windowsHide
+    assert(!/windowsHide\s*:\s*true/.test(body),
+      '★★ spawnSoft 里又出现了 `windowsHide: true` —— 那会让 explorer 的窗口**建了但不显示**'
+      + '（依琪报的「点了没反应、只弹一句已打开」就是这个）。'
+      + '它必须是 `options.hideWindow === true` 这种**可选**形态。')
+    // ② 必须由选项驱动
+    assert(/windowsHide\s*:\s*options\.hideWindow/.test(body),
+      '★★ spawnSoft 的 windowsHide 没有由 `options.hideWindow` 驱动 —— '
+      + '将来有人加控制台工具调用时没法按需隐藏，只能又去改这个默认值（回到今天这个 bug）')
+  })
+
+  check('★★ 反向对照：拿「已知有病」的实现跑同一批判据 ⇒ 必须红（证明上面那条不是空转）', () => {
+    // ⚠️ 这里**不从当前源码里 replace 出坏版本** —— 我第一版那么写，
+    //    结果变异测试把源码改坏之后，`.replace()` 找不到锚点 ⇒ 报「造不出来」。
+    //    虽然它也红了（守卫确实响了），但**报错信息是误导的**：
+    //    读的人会以为"反向对照的构造有问题"，而不是"判据抓到了坏版本"。
+    //    ⇒ 改成直接写死一份**已知有病的实现**（= 今天修之前那份的真实形状），
+    //      它与被测源码**无关**，所以永远造得出来。
+    const BROKEN_BODY = [
+      'export function spawnSoft(cmd, args, options = {}) {',
+      '  return new Promise((resolve) => {',
+      '    let child',
+      '    try {',
+      '      child = spawn(cmd, args, {',
+      '        detached: true,',
+      "        stdio: 'ignore',",
+      '        windowsHide: true,',
+      '        windowsVerboseArguments: !!options.windowsVerbatimArguments,',
+      '      })',
+      '    } catch (error) { resolve({ ok: false }) }',
+      '  })',
+      '}',
+    ].join('\n')
+    // 判据（与上面那条**同一套**，一字不改地复用）
+    const violates = (body) => /windowsHide\s*:\s*true/.test(body) || !/windowsHide\s*:\s*options\.hideWindow/.test(body)
+    assert(violates(BROKEN_BODY) === true,
+      '★ 已知有病的实现**没被**判据抓出来 ⇒ 上面那条判据是空转的（安全感的假象）')
+    // 反向的另一半：正确的实现**不该**被判据抓
+    const GOOD_BODY = 'child = spawn(cmd, args, { windowsHide: options.hideWindow === true })'
+    assert(violates(GOOD_BODY) === false,
+      '★ 正确实现被判据抓了 ⇒ 判据过严，会把对的代码判红')
+  })
+
+  check('★ 只有 spawnSoft 被改（`engine.js` / `es.js` 里那些**控制台工具**的 windowsHide 是对的，别顺手改）', () => {
+    // ⚠️ 判据用**数个数**，不是"有没有"。
+    //    我第一版写的是 `assert(/windowsHide\s*:\s*true/.test(src))`，
+    //    结果变异测试里我**只改掉其中一处**（engine.js 有两处、形态还不一样：
+    //    一处是 `{ windowsHide: true }`、一处是 `windowsHide: true,`），
+    //    它照样通过 ⇒ 那个判据太松（"只删一处"抓不到）。
+    //    ⇒ 钉住**每处都在**：engine.js 2 处、es.js 2 处。
+    //    （数字来源：`Select-String windowsHide lib/index/engine.js,lib/index/es.js`。
+    //      这两个文件不是"经常改"的地方；真需要增删时同步这个数即可。）
+    const want = { 'lib/index/engine.js': 2, 'lib/index/es.js': 2 }
+    for (const [rel, n] of Object.entries(want)) {
+      const src = fs.readFileSync(path.join(ROOT, rel), 'utf8')
+      const got = (src.match(/windowsHide\s*:\s*true/g) || []).length
+      assert(got === n,
+        rel + ' 里的 `windowsHide: true` 从 ' + n + ' 处变成了 ' + got + ' 处 —— '
+        + '那些 spawn 的是**控制台工具**（Everything 的 es.exe），隐藏窗口是**对的**，'
+        + '不该跟着 spawnSoft 一起改。（真需要增删就同步这个数，别直接删断言。）')
+    }
+  })
+
   await checkAsync('★ runOnce 对不存在的程序同样安全', async () => {
     const r = await runOnce(MISSING, [], 2000)
     assert(r.ok === false, '竟然报成功了')
