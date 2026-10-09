@@ -263,13 +263,23 @@ git push origin v0.7.0
 ```sh
 # 1) 补齐 B2 的三张截图到 docs/screenshots/
 # 2) 提交 + 推送
-git add -A && git commit -m "docs: marketplace submission materials (README, screenshots spec, peer deps)" && git push origin master
+#    ⚠️ 显式列路径 —— **禁用 `git add -A`**（见 §一 B3 的警告：
+#       共享工作区里它会带走别人尚未提交的改动，导致「代码在、为什么在」查不到）
+git add README.md package.json docs/screenshots docs/SUBMIT-CHECKLIST.md
+git commit -m "docs: marketplace submission materials (README, screenshots, peer deps)"
+git push origin master
 # 3) 打 tag
 git tag -a v0.7.0 -m "v0.7.0 — 本地文件管理器" && git push origin v0.7.0
 # 4) 去 GitHub 设置里补 topic: dsh-plugin          ← 别忘，这是硬要求
 # 5) 更新 About 描述 + homepage
 # 6) 到 deepseek-harness-plugin.com/submit/ 提交：仓库地址 + 分类 UI Enhancements
 ```
+
+> **📌 2026-10-09 修正**：上面第 2 步原本写的是 `git add -A && git commit -m "…"` ——
+> **与本文档 §一 B3（第 72–80 行）明令禁止的做法直接冲突**。
+> 这正是 B3 那段警告说的问题：**「文档里的命令会被照着执行」**，
+> 而这份清单**自己差点教错人**（这次是第二次）。
+> ⇒ 已改成显式列路径。**改任何命令前，先搜一遍本文档里有没有相反的规矩。**
 
 ### 提交后复验
 

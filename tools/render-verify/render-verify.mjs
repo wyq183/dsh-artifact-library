@@ -3,9 +3,11 @@
  * ══════════════════════════════════════════════════════════════════════════
  *
  * 为什么需要它（2026-10-09 · 依琪「开发流程出了问题」之后建的）：
- *   我 29 个测试文件全绿，却连着上线三个 UI bug（**层级 / 位置 / 尺寸**）——
+ *   建它的时候（2026-10-09 上午）有 **29 个**测试文件、**全绿**，
+ *   却连着上线三个 UI bug（**层级 / 位置 / 尺寸**）——
  *   因为测试床是**假 React**，而假 DOM 里**根本没有布局引擎**
  *   （没有 `getBoundingClientRect`）。⇒ "测试全绿"是**结构性必然**，不是质量信号。
+ *   ⚠️ 现在已经是 30 个 —— **别引用这个数字**，`npm run doc:stale` 会核能自动核的部分。
  *
  *   逻辑测试看不见「控件被容器裁掉」，但**把真 CSS + 真结构渲染进真 Chrome、
  *   量一量盒子**就看得见。这就是本脚本干的事。
@@ -91,7 +93,7 @@ function extractCss(clientPath) {
     if (m) constDefs[name] = Number(m[1])
   }
 
-  // eslint-disable-next-line no-new-func
+   
   const arr = new Function('NS', ...Object.keys(constDefs),
     'return [' + body + '];')(NS, ...Object.values(constDefs))
   if (!Array.isArray(arr)) throw new Error('求值结果不是数组')
@@ -259,7 +261,13 @@ const current = runVariant('current', css, scenario)
 console.log('【当前实现】')
 console.log(current.split('\n').map((l) => '   ' + l).join('\n'))
 
-const verdictOf = (s) => (s.match(/VERDICT\|(\w+)/) || [, '?'])[1]
+// ⚠️ 原写法是 `(s.match(...) || [, '?'])[1]` —— 那个 `[, '?']` 是**稀疏数组**
+//    （索引 0 是个空洞），ESLint 的 `no-sparse-arrays` 会报。
+//    它**能跑**（取 [1] 拿到 '?'），但语义含糊 ⇒ 改成显式的。
+const verdictOf = (s) => {
+  const m = s.match(/VERDICT\|(\w+)/)
+  return m ? m[1] : '?'
+}
 const currentVerdict = verdictOf(current)
 
 let allControlsBehaved = true

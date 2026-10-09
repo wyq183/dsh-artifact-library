@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/kucherenko/jscpd/master/packages/jscpd/schema.json",
+  "minTokens": 60,
+  "minLines": 6,
+  "format": ["javascript"],
+  "path": ["lib", "test", "tools"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/_night-backup-*/**",
+    "**/vendor/**",
+    "**/*.min.js"
+  ],
+  "reporters": ["console", "json"],
+  "output": "scratch/jscpd-report",
+  "absolute": false,
+  "gitignore": true,
+  "exitCode": 0
+}

@@ -24,3 +24,6 @@ vendor/everything/Run History-*.csv
 # 自验产生的数据
 selftest-data/
 selftest-scope/
+
+# jscpd 报告产物（生成物，不进版本控制）
+scratch/jscpd-report/

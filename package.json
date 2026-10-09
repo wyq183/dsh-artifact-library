@@ -11,7 +11,13 @@
   "scripts": {
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "lint:prune": "eslint . --prune-suppressions",
     "test:unit": "node --test test/*.test.mjs",
+    "dup": "jscpd lib test tools --format javascript --min-tokens 60 --min-lines 6 --ignore \"**/node_modules/**,**/_night-backup-*/**,**/vendor/**\" --reporters console",
+    "render:verify": "node tools/render-verify/render-verify.mjs",
+    "doc:stale": "node tools/doc-stale.mjs",
+    "hooks:install": "node tools/install-hooks.mjs",
+    "check": "npm run lint && npm run test:unit && npm run dup && npm run doc:stale",
     "test": "npm run lint && npm run test:unit"
   },
   "keywords": [
@@ -73,6 +79,7 @@
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.12.0"
+    "eslint": "^10.12.0",
+    "jscpd": "^5.4.0"
   }
 }
