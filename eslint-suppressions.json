@@ -1,0 +1,176 @@
+{
+  "lib/autocollect.js": {
+    "complexity": {
+      "count": 1
+    },
+    "max-depth": {
+      "count": 3
+    },
+    "no-empty": {
+      "count": 1
+    }
+  },
+  "lib/cleanup.js": {
+    "no-empty": {
+      "count": 1
+    }
+  },
+  "lib/client.js": {
+    "complexity": {
+      "count": 10
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 9
+    },
+    "no-control-regex": {
+      "count": 2
+    },
+    "no-unused-vars": {
+      "count": 104
+    },
+    "no-useless-assignment": {
+      "count": 5
+    }
+  },
+  "lib/http.js": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 2
+    }
+  },
+  "lib/index.js": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "lib/index/backend-node.js": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "lib/index/efu.js": {
+    "complexity": {
+      "count": 1
+    },
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "lib/index/engine.js": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 2
+    },
+    "no-unused-vars": {
+      "count": 5
+    },
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "lib/index/ini.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "lib/index/query.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "lib/index/walk.js": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/index/workspaces.js": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/project-merge.js": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/refine-session.js": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "lib/settings.js": {
+    "complexity": {
+      "count": 2
+    },
+    "max-depth": {
+      "count": 1
+    }
+  },
+  "lib/store.js": {
+    "complexity": {
+      "count": 5
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 3
+    },
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "lib/tag-styles.js": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "lib/tools.js": {
+    "complexity": {
+      "count": 3
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 2
+    },
+    "no-control-regex": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 11
+    },
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "test/css-hotload.test.mjs": {
+    "no-useless-escape": {
+      "count": 1
+    }
+  },
+  "test/managed-tags.test.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "test/ui-spec.test.mjs": {
+    "no-irregular-whitespace": {
+      "count": 1
+    },
+    "no-misleading-character-class": {
+      "count": 1
+    }
+  }
+}

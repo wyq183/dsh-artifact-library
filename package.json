@@ -5,6 +5,15 @@
   "private": false,
   "type": "module",
   "main": "lib/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test:unit": "node --test test/*.test.mjs",
+    "test": "npm run lint && npm run test:unit"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -50,10 +59,10 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6"
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-home-paths": ">=0.2.0-rc.2",
+    "@deepseek-ai/dsh-host-webserver": ">=0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
@@ -61,5 +70,9 @@
     "@deepseek-ai/dsh-host-webserver": ">=0.2.0-rc.2",
     "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.12.0"
+  }
 }
