@@ -769,6 +769,95 @@ check('★ 反向对照：一个**不存在**的 class 会被上面那条判据�
   assert(!hasDef('__lbdoesnotexist'), '★ 判据对不存在的 class 也返回"有定义" ⇒ 它是恒真的（空转）');
 });
 
+// ══════════════════════════════════════════════════════════════════════════
+// 详情抽屉「预览区」的**尺寸不变量**（2026-10-09 · 依琪报「视频的按钮都被挡住了」）
+// ══════════════════════════════════════════════════════════════════════════
+// 这是一个**静态 CSS 不变量**，不是布局实测 —— 布局要真浏览器才验得了。
+// 它守的是「**别改回去**」，理由是那次实测出来的机制：
+//
+//   `__drawerb` 是**纵向 flex 容器**，`__preview` 是它的 flex 项 ⇒ 默认 `flex-shrink:1`。
+//   抽屉内容一超高，`__preview` 就被**压缩**，一路压到 `min-height:120px`，
+//   而它 `overflow:hidden` ⇒ **把视频底部裁掉**；而**视频的原生控件恰好就在底部**。
+//   📸 依琪的截图量出来：可见高 ≈ **118px**（= 那个 `min-height`），
+//      `0:00 / 0:04`、播放键、`1x`、音量、全屏**只露出上半截**。
+//
+// ⇒ 两条不变量，缺一不可：
+//   ① `__preview` **不许被压缩**（`flex:none` / `flex-shrink:0`）；
+//   ② 视频的 `max-height` **必须存在且严格小于** `__preview` 的 `max-height`
+//      —— 否则竖版视频（391px 宽 ⇒ ~695px 高）会被 `__preview` 的 320 卡住再裁一次。
+//      用「严格小于」而不是「≤」：视频控件**紧贴下边缘**，贴着上限就还是会切到它。
+
+/** 从源码里抠出一条 CSS 规则的内容（写成 `NS + "<sel>{…}"` 的形态）。 */
+function cssRuleBody(sel) {
+  const marker = 'NS + "' + sel + '{';
+  const at = src.indexOf(marker);
+  if (at < 0) return null;
+  const from = at + marker.length;
+  const end = src.indexOf('"', from);
+  if (end < 0) return null;
+  return src.slice(from, end);
+}
+/** 取规则里 `max-height:Npx` 的 N。 */
+function maxHeightPx(body) {
+  const m = body && body.match(/max-height:\s*(\d+(?:\.\d+)?)px/);
+  return m ? Number(m[1]) : null;
+}
+
+check('★★ 预览区尺寸不变量：`__preview` 不许被压缩，且视频高度严格小于容器上限', () => {
+  const preview = cssRuleBody('__preview');
+  const video = cssRuleBody('__preview video');
+  assert(preview, '找不到 `__preview` 的 CSS 规则（锚点失效，请同步 cssRuleBody）');
+  assert(video, '找不到 `__preview video` 的 CSS 规则（锚点失效）');
+
+  // ① 输入预处理自检：确认抠出来的是**那一条**规则，不是别的
+  assert(preview.includes('overflow:hidden'),
+    '抠出来的 `__preview` 规则里没有 `overflow:hidden` —— 切错了（它正是"会裁内容"的那条）');
+  assert(video.includes('max-width'),
+    '抠出来的 `__preview video` 规则里没有 `max-width` —— 切错了');
+
+  // ② 不变量一：不许被压缩
+  assert(/flex\s*:\s*none/.test(preview) || /flex-shrink\s*:\s*0/.test(preview),
+    '★★ `__preview` 又变成**可压缩**的了（既没有 `flex:none` 也没有 `flex-shrink:0`）。\n'
+    + '     它是 `__drawerb`（纵向 flex）的 flex 项，抽屉内容一超高它就被压到 `min-height`，\n'
+    + '     而它 `overflow:hidden` ⇒ **把视频底部裁掉，而视频控件就在底部**\n'
+    + '     （依琪 2026-10-09 实测报的「视频的按钮都被挡住了」就是这个）。');
+
+  // ③ 不变量二：视频高度必须严格小于容器上限
+  const pH = maxHeightPx(preview);
+  const vH = maxHeightPx(video);
+  assert(pH !== null, '`__preview` 上没有 `max-height` —— 那第 ③ 条不变量就无从谈起（判据失效）');
+  assert(vH !== null,
+    '★★ `__preview video` 上没有 `max-height`（`img` 那条有，视频没有 —— 就是原来那个不对称）。\n'
+    + '     竖版视频在抽屉宽度下会算出很高的高度，被 `__preview` 的 `max-height` 卡住后再裁一次，\n'
+    + '     **控件再次被挡**。');
+  assert(vH < pH,
+    '★★ 视频的 `max-height`（' + vH + 'px）必须**严格小于** `__preview` 的 `max-height`（' + pH + 'px）。\n'
+    + '     用严格小于而不是 ≤：视频控件**紧贴下边缘**，贴着上限就还是会切到它。');
+});
+
+check('★ 预览区尺寸不变量（反向对照）：两条判据都**能**抓住已知有病的版本', () => {
+  // ⚠️ 反向对照必须**独立造**（不能基于当前源码）—— 本仓库栽过两次：
+  //    基于被测对象造反向对照，被测对象一坏它就变成噪音、还报错话。
+  const violatesShrink = (body) => !(/flex\s*:\s*none/.test(body) || /flex-shrink\s*:\s*0/.test(body));
+  const violatesHeight = (pB, vB) => {
+    const p = maxHeightPx(pB), v = maxHeightPx(vB);
+    return v === null || p === null || !(v < p);
+  };
+
+  const badShrink = 'background:#000;overflow:hidden;min-height:120px;max-height:320px';   // 没有 flex:none
+  const goodShrink = badShrink + ';flex:none';
+  assert(violatesShrink(badShrink) === true, '★ 「可压缩」的版本没被抓住 ⇒ 不变量①是空转的');
+  assert(violatesShrink(goodShrink) === false, '★ 正确版本被判据抓了 ⇒ 判据过严');
+
+  const pB = 'overflow:hidden;max-height:320px;flex:none';
+  assert(violatesHeight(pB, 'max-width:100%;display:block') === true,
+    '★ 「视频没有 max-height」没被抓住 ⇒ 不变量②的第一半是空转的');
+  assert(violatesHeight(pB, 'max-width:100%;max-height:320px') === true,
+    '★ 「视频 max-height 等于容器上限」没被抓住 ⇒ 判据用了 ≤ 而不是严格小于（控件紧贴下边缘，会切到）');
+  assert(violatesHeight(pB, 'max-width:100%;max-height:300px') === false,
+    '★ 正确版本（300 < 320）被判据抓了 ⇒ 判据过严');
+});
+
 
 if (failureList.length) {
   console.log('\n── 失败清单 ──');
