@@ -860,6 +860,69 @@ check('C4c 文字「关闭」按钮**仍然保留**（× 不能取而代之）',
   assert(typeof txtBtn.props.onClick === 'function', '★ 文字「关闭」按钮没有 onClick —— 点了没反应');
 });
 
+/**
+ * C4d 的判据：**浮层头部区间**（`__lbhead` 到 `__lbbody` 之间）里出现的关闭入口。
+ * @returns {string[]} 命中的类名（空数组 = 头部干净）
+ */
+function headCloseEntries(source) {
+  const a = source.indexOf('NS + "__lbhead"');
+  const b = source.indexOf('NS + "__lbbody"');
+  if (a < 0 || b <= a) return ['<锚点失效：找不到 __lbhead 到 __lbbody 的区间>'];
+  const seg = source.slice(a, b);
+  return ['__lbx', 'NS + "__btn"'].filter((k) => seg.includes(k));
+}
+
+check('★★ C4d 关闭入口**不许放在浮层顶部**（顶部右侧是 DSH 窗口按钮的禁飞区）', () => {
+  // 【2026-10-09 加 · 依琪实测反馈：「右上角的 xx 被 dsh 的 xx 挡住了」】
+  //
+  // 机制：本浮层是 `position:fixed;inset:0` —— 铺满**整个视口**，
+  //   所以**它的右上角就是 DSH 窗口的右上角**，而窗口控制按钮
+  //   （最小化/最大化/关闭）在 web 内容**之上**（Electron 的 titleBar 层），
+  //   **z-index 再高也盖不过** ⇒ 顶部右侧对浮层是**禁飞区**。
+  //   （对照：详情抽屉的「关闭」没被挡 —— 因为抽屉在**面板内**，它的右上角不是窗口右上角。）
+  //
+  // ⇒ 这条守卫钉住「两个关闭入口都在底部」。**别挪回顶部。**
+  //    ⚠️ 也别改成"往下挪一点 / 往左挪一点" —— 那要靠猜窗口按钮的宽高
+  //    （随 DPI / 系统版本 / 最大化与否变），是**魔数**；底部没这个问题。
+  const inHead = headCloseEntries(CODE);
+  assert(inHead.length === 0,
+    '★★ 浮层**顶部**出现了关闭入口：' + inHead.join(', ')
+    + ' —— 铺满视口的浮层，顶部右侧是 DSH 窗口按钮的禁飞区，'
+    + '用户会看到它被挡住（依琪 2026-10-09 实测报过）。请放回底部 `__lbfoot`。');
+
+  // 反向的另一半：**底部必须真的有**这两个入口（否则"不在顶部"可以靠"哪都没有"骗过）
+  const footAt = CODE.indexOf('NS + "__lbfoot"');
+  assert(footAt >= 0, '找不到 `__lbfoot`');
+  const footSeg = CODE.slice(footAt, footAt + 1600);
+  assert(footSeg.includes('__lbx'), '★ 底部找不到 × 按钮 —— 那它既不在顶部也不在底部（丢了）');
+  assert(footSeg.includes('NS + "__btn"'), '★ 底部找不到文字「关闭」按钮');
+});
+
+check('★ C4d（反向对照）：判据本身能分辨「头部有 / 没有关闭入口」（用固定合成片段，与源码现状无关）', () => {
+  // ⚠️ 反向对照**必须独立造**，不能基于当前源码 ——
+  //    我第一版是拿当前源码的头部区间当"正确实现"去验"不该被抓"，
+  //    结果端到端变异（真把 × 挪回顶部）时，那段里**已经有** `__lbx` 了
+  //    ⇒ 这条跟着红，并报「正确实现被判据抓了 ⇒ 判据过严」——
+  //    **那句话是错的**（当时源码是变异体，不是正确实现）。
+  //    **报错信息误导比不报更坏** —— 这与 2026-10-08 那次（M2 的反向对照）**同一个毛病**。
+  //    ⇒ 改成喂**固定的合成片段**：与源码无关，所以永远造得出来、永远说对话。
+  const withXInHead = 'h("div", { className: NS + "__lbhead" }, h("button", { className: NS + "__lbx" }, "×")),'
+    + 'h("div", { className: NS + "__lbbody" })';
+  const cleanHead = 'h("div", { className: NS + "__lbhead" }, h("div", { className: NS + "__lbtitle" }, t)),'
+    + 'h("div", { className: NS + "__lbbody" })';
+  const xInFoot = 'h("div", { className: NS + "__lbhead" }, h("div", { className: NS + "__lbtitle" }, t)),'
+    + 'h("div", { className: NS + "__lbbody" }),'
+    + 'h("div", { className: NS + "__lbfoot" }, h("button", { className: NS + "__lbx" }, "×"))';
+
+  assert(headCloseEntries(withXInHead).length > 0,
+    '★ 头部带 × 的片段没被判据抓住 ⇒ 上面那条 C4d 是空转的（挪回顶部也不会红）');
+  assert(headCloseEntries(cleanHead).length === 0,
+    '★ 干净的头部片段被判据抓了 ⇒ 判据过严（会把正确实现判红）');
+  assert(headCloseEntries(xInFoot).length === 0,
+    '★ × 在**底部**（`__lbfoot`）也被算成违规 ⇒ 判据没分清"头部"和"底部"，'
+    + '而 C4d 的本意是「**顶部**不许有」，底部正是我们要它待的地方');
+});
+
 // ══════════════════════════════════════════════════════════════════════════
 // §6 变异测试：每条守卫都必须**能红**
 // ══════════════════════════════════════════════════════════════════════════
@@ -991,16 +1054,23 @@ function mutationXNoClick(source) {
   return source.slice(0, clickAt) + 'onClick: null' + source.slice(clickAt + handler.length);
 }
 function mutationTextBtnGone(source) {
-  // 锚点 `}, "关闭")),` 里的 **两个** `)` 分别是：关掉文字按钮自己、关掉外层 `__lbhead`。
-  // ⇒ 替换成 `null),`（而不是 `null`）：**保留**外层那个右括号与逗号，
-  //    否则会漏掉 `h("div", __lbhead, …)` 的收尾 ⇒ 变异体是**语法错误**，
-  //    变异测试就变成了在测「解析失败」而不是测守卫（我第一版就是这么踩的）。
-  const tail = '}, "关闭")),';
+  // ⚠️ **锚点只锚到按钮自己为止，括号数不进判据**（2026-10-09 修）。
+  //
+  // 旧锚点是 `}, "关闭")),` —— 它把「按钮后面跟**两个** `)`」写死了
+  // （关按钮自己 + 关外层 `__lbhead`）。而 2026-10-09 依琪报「× 被 DSH 窗口按钮挡住」
+  // 之后，两个关闭按钮**从头部挪到了底部** `__lbfoot`，收尾从 `))` 变成了 `)))`
+  // ⇒ 旧锚点当场找不到、守卫**响亮报错**（`M8 锚点 … 找不到`）。
+  //   ✅ **这个报错是对的**：锚点腐烂就该响，不能静默假绿 —— 见文件末尾"踩过的坑"。
+  // ⇒ 改成锚到 `}, "关闭")`（按钮自己的收尾），**外层括号原样保留**。
+  const tail = '}, "关闭")';
   const at = source.indexOf(tail);
   assert(at >= 0, 'M8 锚点 `' + tail + '` 找不到');
   const start = source.lastIndexOf('h("button", {', at);
   assert(start >= 0, 'M8：找不到文字按钮的 h("button" 起点');
-  return source.slice(0, start) + 'null),' + source.slice(at + tail.length);
+  // 整块（含按钮自己的收尾）换成 `null` —— 外层的 `)` 不动，语法保持正确。
+  // ⚠️ 换成 `null` 而不是 `null)`：多一个括号会让变异体变**语法错误**，
+  //    那样测的是"解析失败"而不是守卫（我第一版踩过）。
+  return source.slice(0, start) + 'null' + source.slice(at + tail.length);
 }
 function mutationLightboxOnCloseDead(source) {
   const from = 'onClose: function () { setLightbox(null); }';
@@ -1077,7 +1147,18 @@ for (const r of mutationResults) {
 // ══════════════════════════════════════════════════════════════════════════
 console.log('\n── 输入预处理自检 ──');
 check('★ 剥注释后的源码仍含本文件依赖的锚点（切片没切错）', () => {
-  const anchors = ['setLightbox', 'returnFocusTo', 'addEventListener("keydown", onKey, true)', 'NS + "__lbx"', '}, "关闭")),'];
+  // ⚠️ 这份清单**只放"结构性符号"**（组件名 / 关键 API / 类名），
+  //    **不要放带括号计数的字面量** —— 我第一版这里写的是 `}, "关闭")),`，
+  //    而那个按钮 2026-10-09 从 `__lbhead` 挪到 `__lbfoot` 后收尾多了一个 `)`，
+  //    锚点当场找不到 ⇒ **这条自检红了**（✅ 它响得对：锚点腐烂要响，不能静默假绿）。
+  //    ⇒ 教训：**自检清单里的东西越"结构"越耐用**；把括号数写进去等于给自己埋雷。
+  const anchors = [
+    'setLightbox',                                  // 浮层状态
+    'returnFocusTo',                                // 浮层的键盘 effect
+    'addEventListener("keydown", onKey, true)',     // capture 阶段注册（C1 的核心）
+    'NS + "__lbx"',                                 // × 按钮的类名
+    'NS + "__lbfoot"',                              // 底部（两个关闭入口现在在这儿）
+  ];
   const missing = anchors.filter((a) => !CODE.includes(a));
   assert(missing.length === 0,
     '剥注释后这些锚点不见了：' + missing.join(' | ')
@@ -1103,6 +1184,18 @@ process.exit(failed ? 1 : 0);
 //   C1a 浮层收到关闭 · C1b 抽屉没被一起关 · C1c 第二下才轮到抽屉 · C1d Esc 不外泄
 //   C2 只有浮层时一次 Esc 关掉 · C3a 左右键不外泄 · C3b 左右键真的切了条
 //   C4a × 有 aria-label · C4b 点 × 能关 · C4c 文字「关闭」按钮还在
+//   C4d 两个关闭入口**都不在浮层顶部**（顶部右侧是 DSH 窗口按钮的禁飞区）
+//
+// 【2026-10-09 依琪实测反馈：「右上角的 xx 被 dsh 的 xx 挡住了」】
+//   两个关闭入口从 `__lbhead` **挪到了 `__lbfoot`**（底部）。加 `C4d` 钉住这件事。
+//   ⇒ 同时**三处锚点腐烂**被这次挪动暴露，且**三处都响亮报错、没有静默假绿**：
+//     ① `M8` 的锚点 `}, "关闭")),` —— 收尾括号数写死了（挪到底部后多一个 `)`）。
+//        **修法：锚点只锚到按钮自己（`}, "关闭")`），括号数不进判据。**
+//     ② 输入预处理自检的 `anchors` 清单里也有同一个字面量。
+//        **修法：清单里只放"结构性符号"（组件名 / 关键 API / 类名），不放带括号计数的字面量。**
+//     ③ `M8` 的实现从 `+ 'null),'` 改成 `+ 'null'`（外层括号原样保留，不自己补）。
+//   ⭐ **这三处报错本身是设计生效的证据**：guard-author 当初刻意让「锚点找不到」直接抛，
+//      就是为了防"变异静默跳过 ⇒ 变异测试变成空转"。
 //
 // M1 抽屉的 `if (props.blockEscape) return;` → `void 0;`
 //      ⇒ 期望红 **C1b**（第一下 Esc 把抽屉也关了），实测连带 C1c。
@@ -1130,8 +1223,10 @@ process.exit(failed ? 1 : 0);
 //      ⇒ 期望红 **C4a**，实测**只红 C4a**（导航按钮的 aria-label 没被误伤）。
 // M7 × 按钮的 onClick（锚点 `NS + "__lbx"` 之后第一个）→ `onClick: null`
 //      ⇒ 期望红 **C4b**（点了没反应），实测**只红 C4b**（文字按钮不受影响）。
-// M8 文字「关闭」按钮整块（锚点 `}, "关闭")),`）→ `null),`
+// M8 文字「关闭」按钮整块（锚点 `}, "关闭")` —— **只锚到按钮自己，不含外层括号**）→ `null`
 //      ⇒ 期望红 **C4c**，实测**只红 C4c**（× 按钮不受影响）。
+//      ⚠️ 锚点 2026-10-09 改过一次：旧锚点把外层括号数（`))`）写死了，
+//         按钮挪到底部后变成 `)))` ⇒ 当场报「锚点找不到」。**这是对的。**
 // M9 浮层 `onClose: function () { setLightbox(null); }` → `void 0;`
 //      ⇒ 期望红 **C4b**（按钮在、有 onClick，但关闭没接上），实测**只红 C4b**。
 // M10 `var next = current.index + (key === "ArrowRight" ? 1 : -1);` → `var next = current.index;`
@@ -1141,6 +1236,14 @@ process.exit(failed ? 1 : 0);
 //   基准全绿；M1→C1b,C1c · M2→C1d · M3→C3a · M4→C3a,C3b · M5→C1a,C1c,C2,C1d
 //   M6→C4a · M7→C4b · M8→C4c · M9→C4b · M10→C3b
 //   （每条都红了它「期望的那条」；M1/M4/M5 连带红别的，是**预期的连带**，不是问题。）
+//   C4d 自带反向对照（同一个 check 内两头都验），**不另设变异** —— 它的判据是
+//   "头部区间里不许有 `__lbx` / `__btn`"，造坏版本就是在头部区间里塞一个。
+//   ✅ **端到端变异实测**（2026-10-09，真往 `lib/client.js` 的 `__lbhead` 里插一个 ×）：
+//      红 **C4d**（报错准确："浮层**顶部**出现了关闭入口：__lbx …"）
+//      + **C4a / C4b 连带红** —— 那是**预期连带**：变异体造出了**两个** ×
+//        （顶部插入的 + 底部原有的），而 C4a/C4b 找的是**第一个**（顶部那个，
+//        没有 aria-label、没有 onClick）⇒ 红得对。
+//      + **基准**条连带红 —— 也是预期（变异体确实破坏了契约）。
 //
 // ⚠️ 每条变异只验「**期望的那条**必须红」；上面注释里写「不该红」的，是**诊断线索**，
 //    不写成断言 —— 否则守卫会因为实现换写法（比如哪天不用 blockEscape 了）而误红。
