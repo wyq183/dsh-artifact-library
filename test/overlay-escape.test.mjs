@@ -477,6 +477,35 @@ check('★ 校准④：监听器没有一轮一轮堆积（假 React 的 cleanup
 //
 // ⚠️ 这也是本仓库既有的先例：`client-render.test.mjs` 的 `EXPECTED_HOOK_CALLS`
 //    就是同一种「总数校准」——**会漂移的结构，用一个会响的数钉住**。
+// ── ⭐ 禁飞区的**精确尺寸**（2026-10-09 从 DSH 自己的配置里挖出来的）────────
+//
+// 两路调研（DSH 生态 / 通用生态）共同提出一个"决定架构的问题"：
+//   **窗口控制按钮是原生 OS chrome，还是 DOM 自绘？**
+//   —— 这决定"遮挡"能不能被机器检测（DOM 命中测试 vs 像素通道）。
+//
+// **答案（有证据，不是推演）**：从 DSH 的 `app.asar` 里读到主窗口的配置：
+//
+//   ```js
+//   process.platform === "win32" && primary ? {
+//     titleBarStyle: "hidden",
+//     titleBarOverlay: { height: 40, color: chromeFallbackFill(), symbolColor: … }
+//   } : {}
+//   ```
+//
+// ⇒ `titleBarStyle: "hidden"` + `titleBarOverlay` = **窗口按钮是 OS 画的覆盖层**：
+//   · **不是 DOM 元素** ⇒ `elementFromPoint` 之类的 DOM 命中测试**抓不到**；
+//   · **不在 renderer 里** ⇒ **CDP 截图也拍不到它**
+//     （会得到一张"看起来完全正常"的图 —— 比没有证据更坏）。
+// ⇒ **所以正解不是"检测遮挡"，而是"根本不往禁飞区放东西"。**
+//   ⇒ 这就是 `C4d` 存在的理由，也是它比"往下挪一点"强的地方（后者是魔数）。
+//
+// 📐 **禁飞区 = 视口顶部右侧那条 `40px` 高的带**（这个 40 是 DSH 配置里的真值，
+//    不是估的；`titleBarOverlay.height`）。窗口按钮就画在里面。
+//    ⚠️ 它只覆盖**右侧**（按钮在那儿），但**别去算它多宽** ——
+//      宽度随 DPI / 系统语言 / 是否最大化变，那又变成魔数。
+//      **整条顶部都别放可点元素**，就永远不用管宽度。
+const NO_FLY_HEIGHT_PX = 40;
+
 const KNOWN_CAPTURE_HANDLERS = [
   { owner: 'PanelInner', why: '媒体预览浮层自己（最上层，**必须**跑）' },
   { owner: 'SettingsPanel', why: '设置页：面板**整块替换**（early return）⇒ 与浮层不可能同时挂载' },
@@ -861,66 +890,90 @@ check('C4c 文字「关闭」按钮**仍然保留**（× 不能取而代之）',
 });
 
 /**
- * C4d 的判据：**浮层头部区间**（`__lbhead` 到 `__lbbody` 之间）里出现的关闭入口。
- * @returns {string[]} 命中的类名（空数组 = 头部干净）
+ * C4d 的判据：**浮层头部区间**（`__lbhead` 到 `__lbbody` 之间）里的**可交互元素**。
+ *
+ * ⚠️ 判据从"查特定 class"（`__lbx` / `__btn`）**升级**成"查任何可交互元素"
+ *    （`h("button")` / `h("a")` / `h("input")` / `onClick`）——
+ *    因为**问题不在于"哪个 class"，而在于"顶部禁飞区里有东西能点"**：
+ *      · 只查 class ⇒ 有人换个 class 名就能绕过；
+ *      · 查"可交互" ⇒ 换什么名字都拦得住。
+ * @returns {string[]} 命中的东西（空数组 = 头部不可交互）
  */
-function headCloseEntries(source) {
+function headInteractiveEntries(source) {
   const a = source.indexOf('NS + "__lbhead"');
   const b = source.indexOf('NS + "__lbbody"');
   if (a < 0 || b <= a) return ['<锚点失效：找不到 __lbhead 到 __lbbody 的区间>'];
   const seg = source.slice(a, b);
-  return ['__lbx', 'NS + "__btn"'].filter((k) => seg.includes(k));
+  const hits = [];
+  if (/h\(\s*"button"/.test(seg)) hits.push('h("button")');
+  if (/h\(\s*"a"/.test(seg)) hits.push('h("a")');
+  if (/h\(\s*"input"/.test(seg)) hits.push('h("input")');
+  if (/\bonClick\s*:/.test(seg)) hits.push('onClick');
+  if (/__lbx/.test(seg)) hits.push('__lbx');
+  return hits;
 }
 
-check('★★ C4d 关闭入口**不许放在浮层顶部**（顶部右侧是 DSH 窗口按钮的禁飞区）', () => {
+check('★★ C4d 浮层顶部**不许有任何可交互元素**（顶部是 DSH 窗口按钮的禁飞区）', () => {
   // 【2026-10-09 加 · 依琪实测反馈：「右上角的 xx 被 dsh 的 xx 挡住了」】
   //
-  // 机制：本浮层是 `position:fixed;inset:0` —— 铺满**整个视口**，
-  //   所以**它的右上角就是 DSH 窗口的右上角**，而窗口控制按钮
-  //   （最小化/最大化/关闭）在 web 内容**之上**（Electron 的 titleBar 层），
-  //   **z-index 再高也盖不过** ⇒ 顶部右侧对浮层是**禁飞区**。
-  //   （对照：详情抽屉的「关闭」没被挡 —— 因为抽屉在**面板内**，它的右上角不是窗口右上角。）
+  // 机制（**有证据，不是推演**）：从 DSH 的 `app.asar` 里读到主窗口的配置：
+  //   `titleBarStyle: "hidden"` + `titleBarOverlay: { height: 40, … }`
+  //   ⇒ 窗口按钮是 **OS 画的覆盖层**：
+  //     · **不是 DOM** ⇒ `elementFromPoint` 之类的命中测试**抓不到**；
+  //     · **不在 renderer 里** ⇒ **CDP 截图也拍不到它**
+  //       （会得到一张"看起来完全正常"的图 —— 比没有证据更坏）。
+  //   ⇒ **正解不是"检测遮挡"，而是"根本不往禁飞区放东西"。**
+  //   📐 禁飞区 = 视口顶部那条 `NO_FLY_HEIGHT_PX` 高的带（见上面的常量注释）。
   //
-  // ⇒ 这条守卫钉住「两个关闭入口都在底部」。**别挪回顶部。**
+  // ⇒ 这条守卫钉住「顶部不可交互、关闭入口都在底部」。**别挪回顶部。**
   //    ⚠️ 也别改成"往下挪一点 / 往左挪一点" —— 那要靠猜窗口按钮的宽高
-  //    （随 DPI / 系统版本 / 最大化与否变），是**魔数**；底部没这个问题。
-  const inHead = headCloseEntries(CODE);
+  //    （随 DPI / 系统语言 / 是否最大化变），是**魔数**；底部没这个问题。
+  const inHead = headInteractiveEntries(CODE);
   assert(inHead.length === 0,
-    '★★ 浮层**顶部**出现了关闭入口：' + inHead.join(', ')
-    + ' —— 铺满视口的浮层，顶部右侧是 DSH 窗口按钮的禁飞区，'
-    + '用户会看到它被挡住（依琪 2026-10-09 实测报过）。请放回底部 `__lbfoot`。');
+    '★★ 浮层**顶部**出现了可交互元素：' + inHead.join(', ') + '\n'
+    + '     顶部 ' + NO_FLY_HEIGHT_PX + 'px 是 **DSH 窗口按钮的禁飞区**'
+    + '（`titleBarOverlay`，OS 画的覆盖层：DOM 层拦不住、截图也拍不到）。\n'
+    + '     用户会看到它被挡住（依琪 2026-10-09 实测报过）。请挪到底部 `__lbfoot`。');
 
-  // 反向的另一半：**底部必须真的有**这两个入口（否则"不在顶部"可以靠"哪都没有"骗过）
+  // 反向的另一半：**底部必须真的有**关闭入口（否则"不在顶部"可以靠"哪都没有"骗过）
   const footAt = CODE.indexOf('NS + "__lbfoot"');
   assert(footAt >= 0, '找不到 `__lbfoot`');
   const footSeg = CODE.slice(footAt, footAt + 1600);
-  assert(footSeg.includes('__lbx'), '★ 底部找不到 × 按钮 —— 那它既不在顶部也不在底部（丢了）');
-  assert(footSeg.includes('NS + "__btn"'), '★ 底部找不到文字「关闭」按钮');
+  assert(/h\(\s*"button"/.test(footSeg),
+    '★ 底部找不到任何 `h("button")` —— 关闭入口既不在顶部也不在底部（丢了），'
+    + '用户只能靠 Esc，而"给鼠标点"正是依琪要的');
+  assert(footSeg.includes('__lbx'), '★ 底部找不到 × 按钮');
 });
 
-check('★ C4d（反向对照）：判据本身能分辨「头部有 / 没有关闭入口」（用固定合成片段，与源码现状无关）', () => {
+check('★ C4d（反向对照）：判据能分辨「头部可交互 / 不可交互」（固定片段，与源码现状无关）', () => {
   // ⚠️ 反向对照**必须独立造**，不能基于当前源码 ——
-  //    我第一版是拿当前源码的头部区间当"正确实现"去验"不该被抓"，
-  //    结果端到端变异（真把 × 挪回顶部）时，那段里**已经有** `__lbx` 了
-  //    ⇒ 这条跟着红，并报「正确实现被判据抓了 ⇒ 判据过严」——
-  //    **那句话是错的**（当时源码是变异体，不是正确实现）。
-  //    **报错信息误导比不报更坏** —— 这与 2026-10-08 那次（M2 的反向对照）**同一个毛病**。
-  //    ⇒ 改成喂**固定的合成片段**：与源码无关，所以永远造得出来、永远说对话。
-  const withXInHead = 'h("div", { className: NS + "__lbhead" }, h("button", { className: NS + "__lbx" }, "×")),'
+  //    本仓库栽过**两次**（2026-10-08 的 `M2`、2026-10-09 的 `C4d` 第一版）：
+  //    拿当前源码的片段当"正确实现"，源码一被变异改坏，反向对照就变成噪音、还报错话。
+  //    ⇒ 喂**固定的合成片段**：与源码无关，永远造得出来、永远说对话。
+  const withBtnInHead = 'h("div", { className: NS + "__lbhead" },'
+    + ' h("button", { className: NS + "__lbx" }, "×")),'
     + 'h("div", { className: NS + "__lbbody" })';
-  const cleanHead = 'h("div", { className: NS + "__lbhead" }, h("div", { className: NS + "__lbtitle" }, t)),'
+  const withOnClickInHead = 'h("div", { className: NS + "__lbhead" },'
+    + ' h("div", { onClick: go }, "x")),'
     + 'h("div", { className: NS + "__lbbody" })';
-  const xInFoot = 'h("div", { className: NS + "__lbhead" }, h("div", { className: NS + "__lbtitle" }, t)),'
+  const cleanHead = 'h("div", { className: NS + "__lbhead" },'
+    + ' h("div", { className: NS + "__lbtitle" }, t)),'
+    + 'h("div", { className: NS + "__lbbody" })';
+  const btnInFoot = 'h("div", { className: NS + "__lbhead" },'
+    + ' h("div", { className: NS + "__lbtitle" }, t)),'
     + 'h("div", { className: NS + "__lbbody" }),'
     + 'h("div", { className: NS + "__lbfoot" }, h("button", { className: NS + "__lbx" }, "×"))';
 
-  assert(headCloseEntries(withXInHead).length > 0,
-    '★ 头部带 × 的片段没被判据抓住 ⇒ 上面那条 C4d 是空转的（挪回顶部也不会红）');
-  assert(headCloseEntries(cleanHead).length === 0,
-    '★ 干净的头部片段被判据抓了 ⇒ 判据过严（会把正确实现判红）');
-  assert(headCloseEntries(xInFoot).length === 0,
-    '★ × 在**底部**（`__lbfoot`）也被算成违规 ⇒ 判据没分清"头部"和"底部"，'
-    + '而 C4d 的本意是「**顶部**不许有」，底部正是我们要它待的地方');
+  assert(headInteractiveEntries(withBtnInHead).length > 0,
+    '★ 头部有 `h("button")` 却没被抓住 ⇒ C4d 是空转的（挪回顶部也不会红）');
+  assert(headInteractiveEntries(withOnClickInHead).length > 0,
+    '★ 头部只有 `onClick`（没换 class 名）却没被抓住 ⇒ 判据太窄，'
+    + '换个 class 就能绕过（这正是把判据从"查 class"升级成"查可交互"的理由）');
+  assert(headInteractiveEntries(cleanHead).length === 0,
+    '★ 干净的头部（只有标题）被判据抓了 ⇒ 判据过严，会把正确实现判红');
+  assert(headInteractiveEntries(btnInFoot).length === 0,
+    '★ × 在**底部**也被算成违规 ⇒ 判据没分清"头部"和"底部"，'
+    + '而 C4d 的本意是「**顶部**不许有」，底部正是要它待的地方');
 });
 
 // ══════════════════════════════════════════════════════════════════════════
