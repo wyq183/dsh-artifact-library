@@ -99,11 +99,30 @@
 
 ```sh
 npm test                                  # lint + 全部测试
-npm run check                             # 全门禁（推荐提交前跑）
+npm run check                             # 全门禁（= lint + 测试 + dup + doc:stale）
 npm run lint                              # 只 lint
+npm run test:unit                         # 只跑测试（**走 assert-ran，会核对"真跑了吗"**）
 npm run render:verify                     # 真 Chrome 量几何（UI 布局改动必跑）
+npm run doc:stale                         # 核文档里的过期数字
+npm run dup                               # 重复代码检测
+npm run hooks:install                     # 装 pre-commit 钩子（换机器要重跑）
 node test/<某个>.test.mjs                  # 单个测试
 node test/tags.test.mjs "<真库目录>"        # 带真数据的测试（默认不跑）
 ```
 
 ⚠️ **必须带 glob**：`node --test test/` 会 `MODULE_NOT_FOUND`，要写 `test/*.test.mjs`。
+
+⚠️⚠️ **而且 `node --test` 有一个静默假绿**（**实测确认**）：
+
+```
+$ node --test test/*.nonexistent.mjs
+ℹ tests 0 / pass 0 / fail 0
+$ echo $?
+0                       ← 🔴 glob 匹配 0 个文件时它"成功"退出
+```
+
+⇒ **`test:unit` 不直接调 `node --test`**，走 `tools/assert-ran.mjs` ——
+它跑完会核对「**磁盘上 30 个文件 / 实际跑到几条**」，不匹配就红。
+
+⚠️ **也别写裸的 `node --test`**（不带 glob）—— 它的默认模式会扫 `test/` 下**一切**，
+把 `test/helpers/` 和 `_xxx.mjs` 也当测试跑（实测：裸跑 34 条 vs 带 glob 30 条）。

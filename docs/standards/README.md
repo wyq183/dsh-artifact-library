@@ -10,7 +10,7 @@
 
 ```sh
 npm test          # lint + 全部测试（提交前必须过）
-npm run check     # 全门禁（= lint + 测试 + 重复代码）
+npm run check     # 全门禁（= lint + 测试 + dup + doc:stale）
 ```
 
 **三条不能破的**：
@@ -20,6 +20,23 @@ npm run check     # 全门禁（= lint + 测试 + 重复代码）
 2. **每条守卫都要拿"已知有病的版本"验过** —— 没验过的守卫是**安全感的假象**，
    比没有守卫更坏。
 3. **不许把没验的说成验了** —— DoD 里明写这一条。报告里没做的部分必须自己标出来。
+
+---
+
+## 机器门禁现在有哪些（**这是"规范"和"愿望"的区别**）
+
+| 命令 | 治什么 | 状态 |
+|:--|:--|:--|
+| `npm run lint` | 代码规范 + **架构约束**（禁 hex 颜色 / 单文件 800 行…） | ✅ 棘轮基线 199 条 |
+| `npm run test:unit` | 30 个测试文件，**且核对"真的跑了吗"** | ✅ 走 `tools/assert-ran.mjs` |
+| `npm run dup` | 重复代码（jscpd，基线 **99 处 / 5.21%**） | 🟡 **只报告不阻断**（渐进采用） |
+| `npm run doc:stale` | **文档里的过期数字**（§8.3 第 20 条那类） | ✅ 只覆盖"能数的那类" |
+| `npm run render:verify` | **UI 布局**（真 Chrome 量几何，**已反向对照验过**） | ⚠️ **不进 `check`**（要浏览器，慢） |
+| `tools/pre-commit.mjs` | 禁 `git add -A` 形态的提交 | ✅ 已装（⚠️ `--no-verify` 能绕过） |
+| `.github/workflows/ci.yml` | 全门禁 | 🔴 **写好了但从未运行过**（推送卡死，见文件头） |
+
+⚠️ **`npm run check` = `lint + test:unit + dup + doc:stale`** ——
+**CI 和本地跑的是同一条命令**（这是"本地绿 = CI 绿"的唯一机制）。
 
 ---
 
