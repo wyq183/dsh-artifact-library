@@ -1,0 +1,115 @@
+# CI · 产物库插件
+# ══════════════════════════════════════════════════════════════════════════
+# ⚠️⚠️ **这份 CI 从未运行过。**
+#
+#   写它的时间是 2026-10-09，当时：
+#     · 本地比 `origin/master` 多 **144 个 commit**（全部未推送）
+#     · git 代理 `http://127.0.0.1:7897` **无进程监听**
+#     · `git ls-remote` 报 `Failed to connect to github.com:443`
+#   ⇒ **它一次都没跑过，我不知道它是不是对的。**
+#
+#   ⚠️ 而且 **action 版本号我无法独立验证**（GitHub 不可达）——
+#      下面写的 `@v7.0.1` / `@v7.1.0` 来自调研子代理报的
+#      「2026-10-08 查 GitHub Releases API」，**我没有复核**。
+#      第一次真跑时，如果报 "unable to resolve action"，**先去看
+#      https://github.com/actions/checkout/releases 确认版本再改**。
+#
+#   ⇒ 这份文件的状态是：**写好了、没验过**。
+#      按本仓库的规矩（`docs/standards/08-dod.md` §九「不许虚报」），
+#      这个事实必须写在文件里，而不是只写在提交信息里。
+# ══════════════════════════════════════════════════════════════════════════
+#
+# 【设计要点】
+#
+# ① **CI 只调 `npm run check`** —— 不许在这里拼命令。
+#    这是"本地绿 = CI 绿"的**唯一机制**：门禁的定义只有一处（package.json）。
+#
+# ② **`gate` 这个名字不许改。** 分支保护（ruleset）里 required status check
+#    记的就是这个 job 名。改了名 ⇒ 保护失效（或锁死）。
+#
+# ③ **`npm ci` 而不是 `npm install`** —— `ci` 要求锁文件与 package.json 一致，
+#    不一致直接失败。这是有意的：锁漂移是 CI 最常见的第一次红。
+#
+# ④ **矩阵只跑 22 和 24，不跑 20。** Node 20 已 EOL。
+#    ⚠️ `engines` 里写的是 `>=20` —— 与这里不一致是**有意的**：
+#       `engines` 是"用户机器上最低能跑什么"，矩阵是"我们保证测过什么"。
+#
+# ⑤ **Windows 那一格 `continue-on-error: true`。**
+#    本插件 Windows 优先（Everything / 原生选择器），但**门禁必须是确定的** ——
+#    一个平台特有的偶发失败不该把门禁变红，让人开始无视它。
+#    ⇒ 先观察，稳了再摘掉 `continue-on-error`。
+#
+# ⑥ ⚠️ **`node --test` 的 glob 陷阱**：匹配到 0 个文件时它 **exit 0**。
+#    所以 `test:unit` **不直接调 `node --test`**，而是走 `tools/assert-ran.mjs`
+#    （它会数"实际跑了几条"并跟磁盘上的文件数对账）。见那个文件的注释。
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  # 允许手动触发（调试 CI 用）
+  workflow_dispatch:
+
+# 同一分支的新推送取消旧的运行
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 门禁：分支保护 required status check 指向的就是这个 job ──────────────
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # ⚠️ 必须是 ci —— 它会校验锁文件与 package.json 一致
+      - name: Install (npm ci)
+        run: npm ci
+
+      # ⭐ 唯一入口。**不许在这里拼 lint/test 命令** —— 定义在 package.json 里。
+      - name: Gate (lint + tests + dup + doc-stale)
+        run: npm run check
+
+      # UI 布局改动的证据（真 Chrome 量几何）
+      # ⚠️ ubuntu runner 上有没有 Chrome？**我没验过。**
+      #    如果这一步红了且原因是"找不到浏览器"，那是**环境问题不是代码问题** ——
+      #    在 runner 上装一个（`browser-actions/setup-chrome`）或者把它挪到单独 job。
+      - name: Render geometry (UI layout evidence)
+        run: npm run render:verify
+
+  # ── 兼容矩阵：观察用，**不阻断** ─────────────────────────────────────────
+  compat:
+    name: compat (node ${{ matrix.node }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: 22
+          - os: windows-latest
+            node: 24
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run check
