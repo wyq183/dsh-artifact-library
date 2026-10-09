@@ -12,7 +12,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "lint:prune": "eslint . --prune-suppressions",
-    "test:unit": "node --test test/*.test.mjs",
+    "test:unit": "node tools/assert-ran.mjs",
     "dup": "jscpd lib test tools --format javascript --min-tokens 60 --min-lines 6 --ignore \"**/node_modules/**,**/_night-backup-*/**,**/vendor/**\" --reporters console",
     "render:verify": "node tools/render-verify/render-verify.mjs",
     "doc:stale": "node tools/doc-stale.mjs",
