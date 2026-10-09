@@ -15,9 +15,10 @@
  *   也就是说：**如果有人重命名了测试文件、或者 glob 写错了，
  *   `npm test` 会绿 —— 而一个测试都没跑。**
  *
- * ⭐ 这正是本仓库整套规范要治的那一类失效（见 `docs/standards/08-dod.md` §五）：
+ * ⭐ 这正是本仓库铁律要治的那一类失效（见 `RULES.md` §1.6）：
  *   **不是"错了会红"，而是"错了照样绿"。**
  *   而且它**比空转守卫更坏** —— 空转守卫至少还有守卫文件在，这个连文件都没跑。
+ *   （同类：`RULES.md` §7.2 的三个 bite 方向、§6.6 的 glob 陷阱。）
  *
  * 【为什么它是"唯一入口"而不是"额外一步"】
  *   如果写成 `node --test … && node tools/assert-ran.mjs`，测试会**跑两遍**（各 ~5 秒），
@@ -133,7 +134,7 @@ if (ranTests !== null && ranTests > 0 && ranTests < onDisk.length) {
 if (problems.length) {
   console.log('\n🔴 assert-ran：**测试没有真的跑起来**\n')
   for (const p of problems) console.log('   ' + p + '\n')
-  console.log('   依据：docs/standards/08-dod.md §五「三个看起来做完但其实没有的形态」')
+  console.log('   依据：RULES.md §1.6「空转的守卫比没有守卫更坏」· §6.6 glob 陷阱')
   console.log('        · **假绿** —— 测试绿，但它根本没跑到你改的东西\n')
   process.exit(1)
 }
@@ -142,7 +143,7 @@ if (!QUIET && ranTests !== null) {
   console.log('\n✅ 测试真的跑了：磁盘上 ' + onDisk.length + ' 个文件 / 实际跑到 '
     + ranTests + ' 条（pass ' + ranPass + ' / fail ' + ranFail + '）')
   console.log('   ⚠️ 本工具只证明「**runner 真的加载并执行了测试**」。')
-  console.log('      它**不证明**测试覆盖了你改的东西 —— 那要看 docs/standards/02-evidence.md。')
+  console.log('      它**不证明**测试覆盖了你改的东西 —— 那要看 RULES.md §6.2 / §7.4。')
 }
 
 process.exit(testCode)

@@ -135,7 +135,7 @@ if (problems.length) {
   console.log('   ────────────────────────────────────────────────')
   console.log('   确实要提交就加 `--no-verify`（**并知道你在绕过什么**）。')
   console.log('   ⚠️ 本地钩子不是安全边界 —— 真正的强制点是 CI + 分支保护（尚未建）。')
-  console.log('   依据：docs/standards/07-commit.md §三 · ARCHITECTURE.md §8.3 第 19 条\n')
+  console.log('   依据：RULES.md §1.3「不许用 git add -A」\n')
   process.exit(1)
 }
 process.exit(0)
