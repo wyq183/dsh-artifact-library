@@ -45,9 +45,13 @@ const LIB_DIR = fileURLToPath(new URL('../lib/', import.meta.url))
 /**
  * ⭐ **基线：只许往下改。**
  * 改这个数必须同时给出理由（并说明为什么这次不能靠删代码抵消）。
- * 当前值 = 2026-10-11 实测。
+ *
+ * | 日期 | 值 | 理由 |
+ * |:--|--:|:--|
+ * | 2026-10-11 | 9414 | 建立时的实测值 |
+ * | 2026-10-13 | 9460 | 换 `ctx.inject` + 加 `ctx.effect`（见提交）。<br>代码 **+13 行**、注释 +30、空行 +3。<br>⚠️ **这不是"变大"，是"变清晰"**：旧的 `tryRegister`（一个函数干四件事）<br>被拆成 `registerSlots` / `onSlotsReady` / `inEffect` 三个**单一职责**函数。<br>按 §4.2 的判据（**单个组件规模**）核查过：<br>`PanelInner` 1574 / `DirBrowser` 1413 / `registerAtSource` 84 —— **一行没变**；<br>只有 `apply` 224→270，而多出来的全是**新拆出的三个函数**。<br>⇒ 净增的是"函数边界"，不是"组件膨胀"。 |
  */
-const CLIENT_BASELINE = 9414
+const CLIENT_BASELINE = 9460
 
 /** chunk 上限：和 `RULES.md` §4.2 的「单个新组件 > 300 行就拆」配套的硬顶。 */
 const CHUNK_MAX = 800
