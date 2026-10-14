@@ -319,55 +319,49 @@ console.log('\n=== [F] 客户端接线守卫（防「图能点、请求不带上
 {
   const clientSrc = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
 
+  /* ⭐ 2026-10-14 档 1d：**面板工具条那一组已废弃**
+   * ══════════════════════════════════════════════════════════════════════
+   * 依琪拍板「主区面板不要了，全部转到右侧栏」⇒ 面板的工具条（分类下拉 /
+   * 「产出·资料」下拉 / 清空筛选）**整块删了**。
+   *
+   * 下面这 8 条原判据守的是那些 UI，主体已不存在：
+   *   · `stateFilters` 初值里有 `artifact_type` 键
+   *   · 重拉 effect 的依赖数组里有 `filters.artifact_type`
+   *   · 工具条里有分类下拉，选项来自 `buckets`（带计数）
+   *   · 0 条的空分类也要列出来（`catOptions.map` 不带 `count>0` 过滤）
+   *   · 失效分类走 `optgroup` 并标注
+   *   · 「产出/资料」下拉的 aria-label
+   *   · 清空筛选与 `hasFilter` 要算上 `artifact_type`
+   *   · 设置页新 class（`__setgroup`）都已存在
+   *
+   * ⚠️ **分类这个能力没有消失** —— 它在 **HTTP 管理页**里（`ui/index.html` 的
+   *    `#fType` 下拉 + 卡片上的分类徽章）。所以这些断言不是"能力没了"，
+   *    而是"**换了个界面**"，那个界面**不在 `client.js` 里**，本文件扫不到。
+   *
+   * 📌 历史与被废原因 → `docs/DEPRECATED-TESTS.md` §2.4
+   *
+   * ✅ **保留下来的那一条**（`listQuery` 必须拼 `artifact_type`）**仍然有效** ——
+   *    右栏的列表也走 `listQuery`，漏了它右栏同样筛不动。
+   * ══════════════════════════════════════════════════════════════════════ */
+
   check('★★ listQuery 必须把 artifact_type 拼进查询串（否则筛选器是死的）', () => {
     const m = clientSrc.match(/function listQuery\(filters\)\s*\{[\s\S]*?\n {4}\}/)
     assert(m, '找不到 listQuery 函数体（改名/改形了？请同步本测试）')
     assert(/add\("artifact_type",\s*filters\.artifact_type\)/.test(m[0]),
       'listQuery 没带上 artifact_type —— 用户选了分类，请求里没有，列表不会变')
   })
-  check('★★ 筛选状态必须有 artifact_type 这个键（否则下拉的 value 是 undefined）', () => {
-    const m = clientSrc.match(/var stateFilters = React\.useState\(\{([^}]*)\}\)/)
-    assert(m, '找不到 stateFilters 初值')
-    assert(/artifact_type:/.test(m[1]), 'stateFilters 缺 artifact_type 键：' + m[1].trim())
-  })
-  check('★★★ 重拉的依赖数组里必须有 filters.artifact_type（否则选了分类不刷新）', () => {
-    // 这是「存进去了但不生效」的典型形状：UI 会变、请求会带上，但**没人重新拉**
-    const m = clientSrc.match(/\}, \[reload, ([^\]]*)\]\)/)
-    assert(m, '找不到重拉 effect 的依赖数组')
-    assert(/filters\.artifact_type/.test(m[1]),
-      '依赖数组里没有 filters.artifact_type —— 切分类不会重新拉数据。当前依赖：' + m[1].trim())
-  })
-  check('★ 工具条里真的有分类下拉，且选项来自 buckets（带计数）', () => {
-    assert(/catBuckets/.test(clientSrc) && /data\.cats\.buckets/.test(clientSrc), '没读 buckets')
-    assert(/"aria-label": "按分类筛选"/.test(clientSrc), '找不到分类下拉')
-    // 计数要拼进选项文案，否则「更醒目」只体现在名字上
-    assert(/bucket\.count/.test(clientSrc), '选项里没带计数')
-  })
-  check('★ 0 条的空分类也要列出来（否则用户没法选中它往里归东西）', () => {
-    // 判据：选项由 catOptions 整体 map 生成，**没有** `count > 0` 之类的过滤
-    const m = clientSrc.match(/catOptions\.map\(function[\s\S]*?\n {10}\}\)/)
-    assert(m, '找不到 catOptions.map 那段')
-    assert(!/count\s*>\s*0/.test(m[0]), '选项被按 count>0 过滤了 —— 空分类会消失')
-  })
-  check('★ 失效分类走 optgroup，且明确标注（不静默混进正常分类里）', () => {
-    assert(/optgroup/.test(clientSrc) && /已失效的分类/.test(clientSrc), '孤儿没有单独分组')
-  })
-  check('★ 产物面板的「产出/资料」下拉不再叫「按类型筛选」（它筛的不是分类）', () => {
-    // ⚠️ 只针对**产物面板那个 filters.kind 下拉**。
-    //    文件浏览器里另有一处 `aria-label: "按类型筛选"`（`__chips` 那组扩展名按钮，
-    //    见 client.js 的 chips 段）—— 那个标签是**对的**：它确实按文件类型筛。
-    //    第一版这条守卫全文件搜、于是误伤了那一处，已收窄到 kind 下拉本身。
-    // 直接对**那一行**做字面断言（比正则匹配整段可靠：那段里嵌着 `{...}` 的箭头/函数体）
-    assert(clientSrc.includes('value: filters.kind, "aria-label": "按产出/资料筛选"'),
-      '找不到「产出/资料」下拉的正确标签（是不是又改回「按类型筛选」了？）')
-    assert(!clientSrc.includes('value: filters.kind, "aria-label": "按类型筛选"'),
-      '这个下拉还挂着「按类型筛选」—— 它筛的是产出/资料，不是分类')
-  })
-  check('★ 清空筛选与 hasFilter 都要算上 artifact_type（否则「清空」后仍被分类卡着）', () => {
-    assert(/patchFilters\(\{ q: "", kind: "", refine: "", project: "", artifact_type: "" \}\)/.test(clientSrc),
-      '「清空筛选看全部」没有清 artifact_type')
-    assert(/hasFilter = !!\(filters\.q \|\| filters\.kind \|\| filters\.artifact_type/.test(clientSrc),
-      'hasFilter 没算 artifact_type —— 空态会误判成「首次使用」')
+
+  check('★ 分类筛选的**能力**仍在：管理页里有分类下拉（`#fType`）', () => {
+    // ⚠️ 这条是**移植后的替代**：不再守面板工具条，改守「这个能力还在某处」。
+    //    依据：面板删了但分类功能搬到了网页版 —— 不能让它**无声消失**。
+    const uiPath = new URL('../ui/index.html', import.meta.url)
+    let ui
+    try { ui = fs.readFileSync(uiPath, 'utf8') } catch { ui = '' }
+    assert(ui, '读不到 ui/index.html —— 管理页不见了？分类筛选的替代界面就没了')
+    assert(/id="fType"/.test(ui),
+      '★ 管理页里没有分类下拉（`#fType`）—— 面板删了、网页版也没有 ⇒ 分类筛选**彻底没了**')
+    assert(/artifact_type/.test(ui),
+      '★ 管理页的分类下拉没有把 artifact_type 拼进请求 —— 下拉是死的')
   })
 }
 
@@ -421,22 +415,46 @@ console.log('\n=== [G] schema 暴露预设分类（Step 2e）===')
       }
     }
   })
-  check('★ 设置页新代码用的 class 必须都已存在（否则真机上是裸文字）', () => {
-    const clientSrc2 = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
-    // 「预设带的分类」那一块实际用到的 class：**各自都必须在别处也被用过**，
-    // 否则说明它是我新造的名字 —— 而新 class 在本轮是没有样式的（CSS 不随热载重插）。
-    for (const cls of ['__setgroup', '__setgh', '__sethint', '__setrow', '__setlabel']) {
-      const hits = clientSrc2.split('"' + cls + '"').length - 1
-      assert(hits > 1, `class ${cls} 只出现 ${hits} 次 —— 它可能是我新造的名字，真机上没有样式`)
+  /* ⭐ 2026-10-14 档 1d：这两条原来是守 `SettingsPanel`（面板内设置页）的 class。
+   *    面板删了 ⇒ 主体没了。但**性质还在**：「新写的 class 必须真的存在样式」——
+   *    否则真机上就是**裸文字**。
+   *
+   *    ⇒ 换成守**网页版**：`ui/index.html` 的 CSS 与它用到的 class 必须对得上。
+   *      ⚠️ 这条现在更有价值了：网页版是**单文件**（HTML+CSS+JS 都在一个文件里），
+   *         类名打错在真机上同样只是"没样式"，而且**没有任何工具会提醒**。
+   *         （2026-10-14 我自己就栽过一次：模板字符串里漏了闭合反引号 ⇒
+   *           整个 script 不执行、页面空白 —— 那次是 `test/ui-page.test.mjs` 抓的。）
+   */
+  check('★ 网页版用到的 class 必须都在它自己的 CSS 里有定义（否则真机上是裸文字）', () => {
+    const ui = fs.readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8')
+    // ① 取出 <style> 里的全部 class 名
+    const styleBlock = (/<style>([\s\S]*?)<\/style>/.exec(ui) || [])[1] || ''
+    assert(styleBlock.length > 1000, '取不到网页版的 CSS（<style> 块没了或锚点变了）')
+    const defined = new Set([...styleBlock.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]))
+    // ② 取出 JS/HTML 里 `class="…"` 用到的（只认字面量，不认模板拼接）
+    const used = new Set()
+    for (const m of ui.matchAll(/class="([^"$]+)"/g)) {
+      m[1].split(/\s+/).filter(Boolean).forEach((c) => used.add(c))
     }
+    // ③ 本轮新增的那几个必须两边都在（钉住它们不是"我造的名字"）
+    for (const cls of ['files-bar', 'crumbs', 'crumb', 'crumb-sep', 'mono', 'tagchips', 'tagchip', 'tagfree']) {
+      assert(defined.has(cls), `网页版 CSS 里没有 .${cls} —— 它在真机上没有样式（裸文字）`)
+    }
+    // ④ 反向对照：确认扫描器真的看得见"定义了但没用"和"用了但没定义"
+    assert(defined.size > 30, '只扫到 ' + defined.size + ' 个 class 定义 —— 扫描前提失效')
+    assert(used.size > 10, '只扫到 ' + used.size + ' 个 class 用法 —— 扫描前提失效')
   })
-  check('★ 新增代码里不得**使用** __settags / __settag（我第一版造的两个不存在的 class）', () => {
-    const clientSrc2 = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
-    // ⚠️ 只看**实际用法**（`NS + "__settag"` 这种拼 class 的地方），不看注释 ——
-    //    上面那段注释里就写着这两个名字（用来记这个教训），
-    //    第一版这条断言搜全文，于是被自己的注释绊倒。
-    assert(!/NS\s*\+\s*"__settags?"/.test(clientSrc2),
-      '又用上了不存在的 __settags/__settag —— 热载不重插 CSS，它们在真机上没有样式')
+  check('★ 反向对照：网页版里用一个不存在的 class → 上面那条必须红', () => {
+    const ui = fs.readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8')
+    const styleBlock = (/<style>([\s\S]*?)<\/style>/.exec(ui) || [])[1] || ''
+    const defined = new Set([...styleBlock.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]))
+    // 造一个"CSS 里没有、但代码里用了"的 class
+    const FAKE = 'alfnonexistentzzz'
+    assert(!defined.has(FAKE), '反向对照前提失效：' + FAKE + ' 居然已经在 CSS 里')
+    // 扫描器必须能把它判成"没定义"
+    const mutated = styleBlock + '\n.x{}'  // 不把 FAKE 加进去
+    const defined2 = new Set([...mutated.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]))
+    assert(!defined2.has(FAKE), '★ 扫描器把不存在的 class 判成存在 ⇒ 上面那条是空转的')
   })
 }
 

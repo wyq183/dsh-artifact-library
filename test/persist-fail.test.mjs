@@ -407,10 +407,35 @@ console.log('\n=== [G] 消费方哨兵：读了撤销结果就必须转达 warni
         `★ ${f} 在白名单里（理由：${why}），但源码里找不到"整份转发"的写法 —— 它可能在挑字段，那就会漏 warning`)
     }
   })
-  check('★ G4 面板那侧确实有**统一渲染函数**（不是每次调用各写一遍）', () => {
+  /* ⭐ 2026-10-14 档 1d 移植：G4 原来是「面板那侧有统一渲染函数 `undoNotify`」。
+   *    依琪拍板删了主面板 ⇒ `undoNotify` 随 `PanelInner` 一起没了。
+   *
+   *    但**性质还在**：「撤销提示只有**一处**渲染逻辑」—— 防止将来加撤销入口时各抄一遍。
+   *
+   *    ⚠️ 现状：**右栏没有撤销入口**（撤销在 HTTP 管理页里）。
+   *       ⇒ 断言改成「**若** `client.js` 里出现撤销提示，就必须走统一函数」——
+   *         即：**要么一处都没有，要么只有一处**。禁止的是"散着抄好几处"。
+   *         这样将来谁加撤销入口，都得先想清楚是不是该建一个统一函数。
+   */
+  check('★ G4 客户端撤销提示**要么没有、要么只有一处**统一渲染函数（不许散着抄）', () => {
     const src = fs.readFileSync(path.join(REPO, 'lib/client.js'), 'utf8')
-    assert(/function undoNotify\(/.test(src), '★ `client.js` 里没有 undoNotify —— 将来再加撤销入口必然又要抄一遍')
-    assert(/undoNotify\(/.test(src.replace(/function undoNotify\(/, '')), '★ undoNotify 定义了却没人调')
+    // 判据：数「调用 undoNotify(…)」的处数（排除定义行）
+    const callSites = src.split('\n').filter((l) => /undoNotify\s*\(/.test(l) && !/function\s+undoNotify/.test(l))
+    const hasDef = /function undoNotify\(/.test(src)
+    if (callSites.length === 0) {
+      // 没有调用点 ⇒ 也不该有定义（留个没人用的定义就是死代码）
+      assert(!hasDef,
+        '★ `client.js` 里定义了 `undoNotify` 但**没有任何调用点** —— 死代码，删掉或接上')
+      // 并确认：撤销提示真的不在客户端（在管理页里）—— 这是**有意的现状**，不是遗漏
+      const ui = fs.readFileSync(path.join(REPO, 'ui/index.html'), 'utf8')
+      assert(/undoToast|撤销|undo/.test(ui),
+        '★ 客户端没有撤销入口、管理页里也没有 ⇒ **撤销功能整个不见了**（那是真丢了，不是移植）')
+      return
+    }
+    // 有调用点 ⇒ 必须有定义（且只有一处定义）
+    assert(hasDef, '★ 有 ' + callSites.length + ' 处调用 `undoNotify` 却没有定义 —— 会 ReferenceError')
+    const defs = (src.match(/function undoNotify\(/g) || []).length
+    assert(defs === 1, '★ `undoNotify` 定义了 ' + defs + ' 次 —— 应当只有一处')
   })
 }
 

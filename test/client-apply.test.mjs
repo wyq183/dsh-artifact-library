@@ -14,7 +14,25 @@ import { fileURLToPath } from 'node:url';
 
 const target = process.argv[2] || fileURLToPath(new URL('../lib/client.js', import.meta.url));
 
-const src = fs.readFileSync(target, 'utf8');
+const srcRaw = fs.readFileSync(target, 'utf8');
+
+/**
+ * ⭐ 2026-10-14 加：注入测试钩子，把**右栏的两个组件**暴露出来。
+ *
+ * 为什么需要：原 [3] 段渲染的是**主面板**（走 `slots.register`，能从
+ * `components['main']` 拿到）。面板删了 ⇒ 右栏组件走**另一条注册路**
+ * （`sidebarRightTabs`，不经 `slots`）⇒ 只能靠钩子取。
+ *
+ * ⚠️ 与 `tag-chip.test.mjs` / `client-pure.test.mjs` 同一个手法：
+ *    锚点 `exports.apply = apply;`，注入 `exports.__test = {…}`。
+ */
+const HOOK = 'exports.__test = { RightPaneBody: RightPaneBody, RightPanePreview: RightPanePreview };\n    exports.apply = apply;';
+const ANCHOR = 'exports.apply = apply;';
+if (srcRaw.indexOf(ANCHOR) < 0) {
+  console.error('🔴 找不到锚点 `' + ANCHOR + '` —— client.js 入口形态变了，请同步本文件的 HOOK/ANCHOR');
+  process.exit(2);
+}
+const src = srcRaw.replace(ANCHOR, HOOK);
 
 let passed = 0;
 let failed = 0;
@@ -133,33 +151,34 @@ function collectRegistrations() {
   return calls;
 }
 const calls = collectRegistrations();
-check('注册了必需席位（前三个固定，允许白名单内追加）', () => {
-  // 2026-09-30 放宽：官方 UX 规范要求「瞬时结果用应用级 Toast，且必须挂在比上报界面
-  // 活得久的地方」，所以追加了 shell.overlay。改为「必需的三个必须存在且顺序固定，
-  // 追加的必须在白名单内」—— 仍然能挡住乱注册，但不再禁止合规的追加。
-  const REQUIRED = ['main', 'sidebar.panellist', 'sidebar.footer.action'];
-  const ALLOWED_EXTRA = new Set(['shell.overlay']);
-  assert(calls.inject.length >= REQUIRED.length, 'inject 调用次数 = ' + calls.inject.length);
-  const head = calls.inject.slice(0, REQUIRED.length);
-  assert(head.join(',') === REQUIRED.join(','), '前三个席位顺序/名字：' + head.join(','));
-  calls.inject.slice(REQUIRED.length).forEach((name) => {
-    assert(ALLOWED_EXTRA.has(name), '未预期的额外席位：' + name);
-  });
+
+/* ── [2] 席位注册（2026-10-14 档 1d 移植）───────────────────────────────────
+ * 依琪拍板「主区面板不要了，全部转到右侧栏」「左边的都不要了」⇒
+ * `main` / `sidebar.panellist` / `sidebar.footer.action` **三个席位全删了**。
+ *
+ * ⇒ 原判据（「前三个席位固定」+ `main.key === panellist.id` + panellist 的 label）
+ *   **物理上不成立了**。换成守**现在真实存在的席位**：
+ *     · `slots` 那条路只剩 `shell.overlay`（应用级 Toast）
+ *     · 右栏 tab 走 **`ctx.inject(["sidebarRightTabs","slots"], …)`**（另一个 API）
+ *
+ * ⚠️ 原判据的历史 → `docs/DEPRECATED-TESTS.md` §2.3
+ * ────────────────────────────────────────────────────────────────────────── */
+check('★ 席位注册只剩 `shell.overlay`（Toast）—— 旧三席位已按拍板删除', () => {
+  // ⚠️ 这条是**反向断言**：它守「删干净了」，不是「注册了」。
+  //    若哪天有人把 `main` 加回来，这里会红 —— 那时应当**同步**改这条与
+  //    `docs/DEPRECATED-TESTS.md`，而不是把断言删掉了事。
+  const NAMES = calls.inject;
+  assert(NAMES.indexOf('main') < 0,
+    '★ `main` 席位又注册回来了 —— 依琪 2026-10-14 拍板「主区面板不要了」，'
+    + '如果这是有意恢复，请同步改本条与 docs/DEPRECATED-TESTS.md');
+  assert(NAMES.indexOf('sidebar.panellist') < 0, '★ `sidebar.panellist` 又注册回来了（左侧栏图标已按拍板删除）');
+  assert(NAMES.indexOf('sidebar.footer.action') < 0, '★ `sidebar.footer.action` 又注册回来了（左下入口已按拍板删除）');
+  assert(NAMES.indexOf('shell.overlay') >= 0,
+    '★ `shell.overlay`（应用级 Toast）没注册 —— 瞬时结果就没有"比上报界面活得久"的地方了');
 });
-check('main.key === sidebar.panellist.id（不一致会让布局抛错）', () => {
-  const main = calls.register.find((r) => r.options.name === 'main');
-  const list = calls.register.find((r) => r.options.name === 'sidebar.panellist');
-  assert(main, '没有注册 main');
-  assert(list, '没有注册 sidebar.panellist');
-  assert(main.options.key === list.options.id, 'main.key=' + main.options.key + ' vs panellist.id=' + list.options.id);
-  assert(main.options.key === 'artifact-library', 'key 意外：' + main.options.key);
-});
-check('panellist 有 label 且是函数', () => {
-  const list = calls.register.find((r) => r.options.name === 'sidebar.panellist');
-  assert(typeof list.options.label === 'function', 'label 不是函数');
-  assert(typeof list.options.label() === 'string' && list.options.label().length > 0, 'label 为空');
-});
+
 check('每个 register 都带组件函数', () => {
+  assert(calls.register.length > 0, '一个席位都没注册');
   calls.register.forEach((r) => assert(typeof r.component === 'function', r.options.name + ' 组件不是函数'));
 });
 
@@ -186,21 +205,16 @@ const sampleRecord = {
   created_at: 1790000000,
   session_id: 'session-abcdef123456',
 };
-const sampleData = {
-  items: [sampleRecord, Object.assign({}, sampleRecord, { id: 'art_test_2', title: '资料条目', kind: 'reference', artifact_type: 'document', exists: false, mime_type: 'text/plain' })],
-  stats: { total: 12, pendingRefine: 3, archived: 1, trashed: 2, missingFiles: 1 },
-  cats: { projects: ['测试项目'], types: ['image'], tags: ['测试'] },
-  loading: false,
-  error: '',
-};
-/**
- * 用**同一个 factory 实例**建组件并渲染。
- * 组件内部 `require('react')` 绑定的是该 factory 的 require，所以要控制
- * useState 的返回值，必须走这条路径（换个 factory 就换了一份 mock React）。
+
+/* ⭐ 2026-10-14 移植：原来这里渲染**主面板的 5 个视图**（card/list/project/files/dir）
+ *    与详情抽屉。面板删了 ⇒ 换成渲染**右栏的两个组件**。
+ *
+ * ⚠️ 右栏组件的真实主体是 `RightPaneBody` / `RightPanePreview`，它们**不在 slots 上**
+ *    （走 `sidebarRightTabs` 那条路注册，不是 `slots.register`）。
+ *    所以这里**直接调组件函数**，与 `tag-chip.test.mjs` 的 [G] 组同一手法。
  */
-function build(view, detail) {
-  const filters = { q: '', kind: '', refine: '', project: '', sort: 'created_desc', view, trash: false };
-  const react = makeReact([sampleData, filters, detail, '']);
+function buildComponents() {
+  const react = makeReact();
   const mod = definition.factory((name) => (name === 'react' ? react : {}));
   const components = {};
   const slots = {
@@ -208,29 +222,40 @@ function build(view, detail) {
     register: (options, component) => { components[options.name] = component; return () => {}; },
   };
   mod.apply({ get: () => slots });
-  return components;
+  return { components, mod };
 }
 
-for (const view of ['card', 'list', 'project', 'files', 'dir']) {
-  check('渲染主面板 view=' + view, () => {
-    const components = build(view, null);
-    assert(typeof components['main'] === 'function', 'main 组件缺失');
-    components['main']({});
-  });
-}
-
-check('渲染详情抽屉（detail 非空 → 递归进 DetailDrawer）', () => {
-  const components = build('card', sampleRecord);
-  components['main']({});
+check('渲染右栏正文 `RightPaneBody` 不抛（空 props 也不许抛）', () => {
+  const { mod } = buildComponents();
+  const T = mod.__test || {};
+  assert(typeof T.RightPaneBody === 'function',
+    '★ 拿不到 `RightPaneBody` —— 测试钩子没注入？（见本文件 HOOK）或它被改名了');
+  T.RightPaneBody({});
 });
 
-check('渲染侧栏图标组件不抛', () => {
-  const components = build('card', null);
-  components['sidebar.panellist']();
-});
-check('渲染脚部入口不抛', () => {
-  const components = build('card', null);
-  components['sidebar.footer.action']();
+check('渲染右栏预览 `RightPanePreview` 不抛（每种 kind 各来一遍）', () => {
+  const { mod } = buildComponents();
+  const T = mod.__test || {};
+  assert(typeof T.RightPanePreview === 'function', '★ 拿不到 `RightPanePreview`');
+  const kinds = [
+    { ext: '.md', mime: 'text/markdown' },
+    { ext: '.png', mime: 'image/png' },
+    { ext: '.mp4', mime: 'video/mp4' },
+    { ext: '.mp3', mime: 'audio/mpeg' },
+    { ext: '.py', mime: 'text/x-python' },
+    { ext: '.exe', mime: 'application/octet-stream' },
+  ];
+  for (const k of kinds) {
+    const rec = Object.assign({}, sampleRecord, {
+      extension: k.ext, mime_type: k.mime, tags: ['测试'],
+    });
+    try {
+      T.RightPanePreview({ record: rec, managed: { ok: true, tags: [], limit: null }, onBack() {} });
+    } catch (error) {
+      // ⚠️ `cause` 必须带上：否则排查时看不到**原始**异常（只看到我们包装的那句）
+      throw new Error('kind=' + k.ext + ' 渲染抛了：' + (error && error.message ? error.message : error), { cause: error });
+    }
+  }
 });
 
 check('React 缺 hooks 时降级而非抛出', () => {

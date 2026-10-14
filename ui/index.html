@@ -106,6 +106,31 @@
   .cleanup-item{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:13px}
   .cleanup-item .grow{flex:1}
   .hint{color:var(--dim);font-size:12px}
+/* ── 文件 / 改动视图（2026-10-14 新增 · 档 1d）──────────────────────────
+   从主面板的 DirBrowser / FilesView / ChangesView 搬来。
+   颜色只用既有 token（--fg/--dim/--line/--panel…），不新造变量。 */
+.files-bar{display:flex;gap:8px;align-items:center;margin:10px 0 4px}
+.crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0;font-size:13px}
+.crumb{color:var(--acc);cursor:pointer}
+.crumb:hover{text-decoration:underline}
+.crumb-sep{color:var(--dim)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:var(--panel2);padding:1px 5px;border-radius:4px}
+/* ── 标签芯片（2026-10-14 从主面板 DetailDrawer 搬来）────────────────────
+   受管标签带颜色/字重；自由词素文本。**受管 ≠ 有样式**（受管没配样式的也是芯片）。
+   颜色按规则层的 8 个槽名映射到既有 token —— 不写 hex（写死就不跟随主题）。 */
+.tagchips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;line-height:16px;margin:6px 0}
+.tagchip{border:1px solid var(--line);border-radius:999px;padding:1px 9px;background:var(--panel2);color:var(--fg)}
+.tagchip.bold{font-weight:600}
+.tagfree{color:var(--dim);padding:1px 4px}
+.tagchip.c-neutral{border-color:var(--line);color:var(--dim)}
+.tagchip.c-blue{border-color:#3b82f6;color:#60a5fa}
+.tagchip.c-sky{border-color:#0ea5e9;color:#38bdf8}
+.tagchip.c-green{border-color:#22c55e;color:#4ade80}
+.tagchip.c-amber{border-color:#f59e0b;color:#fbbf24}
+.tagchip.c-orange{border-color:#f97316;color:#fb923c}
+.tagchip.c-red{border-color:#ef4444;color:#f87171}
+.tagchip.c-violet{border-color:#8b5cf6;color:#a78bfa}
 </style>
 </head>
 <body>
@@ -155,6 +180,8 @@
     <button data-v="list" onclick="setView('list')">列表</button>
     <button data-v="card" class="active" onclick="setView('card')">卡片</button>
     <button data-v="project" onclick="setView('project')">项目</button>
+    <button data-v="files" onclick="setView('files')">文件</button>
+    <button data-v="changes" onclick="setView('changes')">改动</button>
   </div>
 </div>
 
@@ -303,7 +330,12 @@
 
 <script>
 const API = '/ext/artifacts'
-let state = { view: 'card', trash: false, items: [], categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60 }
+let state = { view: 'card', trash: false, items: [], categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
+  // ⭐ 2026-10-14 新增（档 1d）：文件浏览 / 文件搜索 / 会话改动
+  //    这三块原来是**主面板**的能力，面板删了 ⇒ 搬到网页版（依琪：「允许你做成网页版本展示全部内容」）
+  files: { dir: '', entries: [], total: 0, truncated: false, error: '', loading: false },
+  fileQuery: '', fileResults: null, fileSearching: false,
+  changes: { status: 'idle', items: [], derived: false, sessionId: '', error: '' } }
 
 const $ = (id) => document.getElementById(id)
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
@@ -382,8 +414,49 @@ function typeIcon(t) { return { image: '🖼️', audio: '🎵', video: '🎬', 
 
 function previewHtml(r) {
   if (!r.exists) return '<span class="ico" title="文件缺失">🚫</span>'
-  if (r.mime_type.startsWith('image/')) return `<img src="${API}/${r.id}/file" alt="">`
+  if (r.mime_type.startsWith('image/')) return `<img src="${API}/${r.id}/file" alt="" loading="lazy">`
   return `<span class="ico">${typeIcon(r.artifact_type)}</span>`
+}
+
+/* ── 标签芯片（2026-10-14 从主面板的 DetailDrawer 搬来）────────────────────
+ * 受管标签表（`GET /managed-tags`）里有样式的标签 ⇒ 带颜色/字重的芯片；
+ * 其余是素文本。**受管 ≠ 有样式**（受管但没配样式的照样是芯片，只是素净）。
+ *
+ * ⚠️ 三态**不许拍平**：
+ *   · `managedTags === null`（还没拉到 / 拉失败）⇒ **不猜**，一律素文本，且**不报错**
+ *     （网页版是独立页面，标签没样式不影响用；把"读不到"渲染成红字是过度反应）
+ *   · `[]`（拉到了但表是空的）⇒ 也素文本，语义上不同但**渲染上一样**（都是没样式）
+ *   ⇒ 这里**只影响观感**，所以两态可以同形；但**代码上必须分开取**，
+ *     否则哪天要在界面上区分时会发现信息已经丢了。
+ */
+let managedTags = null
+async function loadManagedTags() {
+  try {
+    const r = await api(API + '/managed-tags')
+    managedTags = (r && r.ok === true && Array.isArray(r.tags)) ? r.tags : null
+  } catch { managedTags = null }
+  // ⚠️ 必须**重渲染一次**：首次 `reload()` 与它是并行的，那时 `managedTags` 还是 `null`
+  //    ⇒ 全部标签都渲染成素文本，而且**之后没有任何东西会触发重渲染**。
+  //    （2026-10-14 真机踩到：TAGCHIPS=0 / TAGFREE=273 —— 数据是对的，只是没重画。）
+  render()
+}
+
+/** 归一化标签名（与规则层同口径：小写 + 去掉装饰性分隔符）。 */
+function normTag(t) {
+  return String(t || '').toLowerCase().replace(/[\s\u00b7\u30fb\u2027\u2219\u22c5\u2010\u2011\u2012\u2013\u2014\u2015\-_]+/gu, '')
+}
+
+function tagChipsHtml(tags) {
+  if (!tags || !tags.length) return ''
+  const table = Array.isArray(managedTags) ? managedTags : []
+  const byKey = new Map(table.map((m) => [normTag(m.tag), m]))
+  return '<div class="tagchips">' + tags.map((t) => {
+    const m = byKey.get(normTag(t))
+    if (!m) return `<span class="tagfree">${esc(t)}</span>`
+    // 颜色/字重**只来自规则层**（不在这里自己判一遍）
+    const cls = 'tagchip' + (m.color ? ' c-' + esc(m.color) : '') + (m.weight === 'bold' ? ' bold' : '')
+    return `<span class="${cls}" title="${esc(m.tag)}">${esc(t)}</span>`
+  }).join('') + '</div>'
 }
 
 function cardHtml(r) {
@@ -402,6 +475,7 @@ function cardHtml(r) {
         <span>${fmtSize(r.size_bytes)}</span>
       </div>
       ${starsHtml(r)}
+      ${tagChipsHtml(r.tags)}
       ${r.notes ? `<div class="notes-line" title="${esc(r.notes)}">📝 ${esc(r.notes)}</div>` : ''}
       ${r.references && r.references.length ? `<div class="notes-line" title="${esc(refNames(r.references).join(', '))}">📚 资料: ${esc(refNames(r.references).join(', '))}</div>` : ''}
       <div class="card-actions">
@@ -438,6 +512,12 @@ function listHtml(r) {
 
 function render() {
   const c = $('content')
+
+  // ⭐ 2026-10-14：文件 / 改动两个视图**不吃 state.items**（数据源不同）
+  //    ⇒ 必须在「空库」那条兜底**之前**分流，否则空库时它们永远显示"库是空的"。
+  if (state.view === 'files') { renderFiles(); return }
+  if (state.view === 'changes') { renderChanges(); return }
+
   if (!state.items.length) {
     const hasFilter = $('q').value || $('fKind').value || $('fRefine').value || $('fProject').value || $('fType').value || $('fTag').value
     c.innerHTML = `<div class="empty">${state.trash ? '🗑️ 回收站是空的' : hasFilter ? '🔍 没有符合筛选条件的结果，试试清空筛选' : '✨ 库还是空的<br><br>点右上角「登记产物」手动登记，或让 Agent 调用 register_artifact；<br>也可以「📥 导入文件夹」把一批资料批量收进来'}</div>`
@@ -459,6 +539,242 @@ function render() {
   }
 }
 function loadMore() { state.page++; render() }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 文件视图（2026-10-14 新增 · 档 1d）
+ * ══════════════════════════════════════════════════════════════════════════
+ * 从**主面板的 `DirBrowser` + `FilesView`** 搬过来。面板删了 ⇒ 能力搬网页版。
+ *
+ * 两个模式（同一个视图里）：
+ *   · **浏览** —— `GET /files/list?dir=`，逐层进目录（面包屑 + 上级）
+ *   · **搜索** —— `GET /files?q=&limit=`，Everything 语法（`ext:md` / `dm:today` …）
+ *
+ * ⚠️ **路径必须过宿主闸门**：`/files/list` 会 `assertInScope`，
+ *    范围外的目录回 403 —— 这里**如实显示宿主的理由**，不自己编一句。
+ * ⚠️ 面包屑按**分隔符**切（Windows 上 `\` 与 `/` 混用）—— 与 `store.js`
+ *    的 `inScopeDir` 同一个教训：不归一化就会把同一目录判成不同目录。
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** 把路径切成面包屑（兼容 `\` 与 `/`，并保留盘符）。 */
+function crumbsOf(p) {
+  const s = String(p || '')
+  if (!s) return []
+  const parts = s.split(/[\\/]+/).filter(Boolean)
+  const out = []
+  let acc = ''
+  parts.forEach((seg, i) => {
+    // 第一段若是盘符（`C:`），接上分隔符；其余每段都加分隔符
+    acc = i === 0 ? seg : acc + '\\' + seg
+    out.push({ name: seg, path: acc })
+  })
+  return out
+}
+
+/** 父目录（已经是根时返回空串）。 */
+function parentOf(p) {
+  const s = String(p || '').replace(/[\\/]+$/, '')
+  const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'))
+  if (i < 0) return ''
+  const head = s.slice(0, i)
+  return /^[A-Za-z]:$/.test(head) ? head + '\\' : head
+}
+
+async function loadDir(dir) {
+  state.files.loading = true
+  state.files.error = ''
+  render()
+  try {
+    const r = await api(API + '/files/list?dir=' + encodeURIComponent(dir))
+    state.files.dir = dir
+    state.files.entries = r.entries || []
+    state.files.total = r.total || 0
+    state.files.truncated = !!r.truncated
+  } catch (e) {
+    // ⚠️ 宿主的理由原样带出来（403 out-of-scope 的文案在 e.message 里）
+    state.files.error = e && e.message ? e.message : String(e)
+    state.files.entries = []
+  } finally {
+    state.files.loading = false
+    render()
+  }
+}
+
+async function searchFiles() {
+  const q = state.fileQuery.trim()
+  if (!q) { state.fileResults = null; render(); return }
+  state.fileSearching = true
+  render()
+  try {
+    const r = await api(API + '/files?q=' + encodeURIComponent(q) + '&limit=200')
+    state.fileResults = (r && r.hits) || (Array.isArray(r) ? r : [])
+    state.fileResultsError = (r && r.ok === false) ? (r.error || '搜索失败') : ''
+  } catch (e) {
+    state.fileResults = []
+    state.fileResultsError = e && e.message ? e.message : String(e)
+  } finally {
+    state.fileSearching = false
+    render()
+  }
+}
+
+function renderFiles() {
+  const c = $('content')
+  const f = state.files
+  const searching = state.fileQuery.trim() !== '' || state.fileResults !== null
+
+  const bar = `<div class="files-bar">
+    <input class="grow" id="fq" placeholder="搜索文件（Everything 语法：ext:md / dm:today / size:>10mb）"
+      value="${esc(state.fileQuery)}"
+      onkeydown="if(event.key==='Enter'){state.fileQuery=this.value;searchFiles()}">
+    <button onclick="state.fileQuery=$('fq').value;searchFiles()">搜索</button>
+    ${searching ? `<button class="ghost" onclick="state.fileQuery='';state.fileResults=null;render()">返回浏览</button>` : ''}
+  </div>`
+
+  if (searching) {
+    if (state.fileSearching) { c.innerHTML = bar + `<div class="empty">搜索中…</div>`; return }
+    const hits = state.fileResults || []
+    if (!hits.length) {
+      c.innerHTML = bar + `<div class="empty">${state.fileResultsError ? '搜索失败：' + esc(state.fileResultsError) : '没有找到匹配的文件。<br><br>试试 <code>ext:md</code> 或 <code>dm:today</code>；<br>⚠️ 搜索依赖 Everything 索引，索引没起来时会搜不到。'}</div>`
+      return
+    }
+    c.innerHTML = bar + `<div class="hint" style="margin:10px 0">找到 ${hits.length} 个文件</div>` +
+      `<table><thead><tr><th>文件</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead><tbody>` +
+      hits.map((h) => {
+        const p = h.path || h.fullPath || ''
+        return `<tr><td class="mono" title="${esc(p)}">${esc(p)}</td>` +
+          `<td>${h.size != null ? fmtSize(h.size) : '—'}</td>` +
+          `<td>${h.mtimeMs || h.modified ? fmtDate(Math.floor((h.mtimeMs || h.modified * 1000) / 1000)) : '—'}</td>` +
+          `<td><button class="ghost" onclick="revealPath('${esc(p).replace(/'/g, "\\'")}')">📂 定位</button></td></tr>`
+      }).join('') + `</tbody></table>`
+    return
+  }
+
+  // ── 浏览模式 ──────────────────────────────────────────────────────────
+  if (f.error) {
+    c.innerHTML = bar + `<div class="empty">⚠️ 打不开这个目录：${esc(f.error)}<br><br>` +
+      `<span class="hint">宿主只放行<b>索引范围内</b>的路径。范围外的目录会被 403 挡下（这是设计，不是 bug）。</span></div>`
+    return
+  }
+  if (!f.dir) {
+    c.innerHTML = bar + `<div class="empty">输入一个<b>绝对路径</b>开始浏览，或用上面的搜索框。<br><br>` +
+      `<button onclick="loadDir('${esc((state.workspaceHint || '').replace(/'/g, "\\'"))}')">用当前工作区</button></div>`
+    return
+  }
+
+  const crumbs = crumbsOf(f.dir)
+  const crumbHtml = `<div class="crumbs">` +
+    `<button class="ghost" onclick="loadDir('${esc(parentOf(f.dir)).replace(/'/g, "\\'")}')" ${parentOf(f.dir) === f.dir ? 'disabled' : ''}>↑ 上级</button>` +
+    crumbs.map((cr) => `<span class="crumb" onclick="loadDir('${esc(cr.path).replace(/'/g, "\\'")}')">${esc(cr.name)}</span>`).join('<span class="crumb-sep">›</span>') +
+    `</div>`
+
+  if (f.loading) { c.innerHTML = bar + crumbHtml + `<div class="empty">读取中…</div>`; return }
+
+  if (!f.entries.length) {
+    c.innerHTML = bar + crumbHtml + `<div class="empty">这个文件夹是空的。</div>`
+    return
+  }
+
+  // ⚠️ 「真的空」与「被截断」是两件事（§六 的同一条教训）
+  const note = f.truncated
+    ? `<div class="hint" style="margin:10px 0">⚠️ 只列了前 ${f.entries.length} 项（共 ${f.total} 项）—— 宿主设了单次上限。</div>`
+    : `<div class="hint" style="margin:10px 0">共 ${f.entries.length} 项</div>`
+
+  c.innerHTML = bar + crumbHtml + note +
+    `<table><thead><tr><th></th><th>名称</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead><tbody>` +
+    f.entries.map((e) => {
+      const p = e.path || ''
+      const isDir = !!e.isDirectory
+      return `<tr><td>${isDir ? '📁' : '📄'}</td>` +
+        `<td>${isDir
+          ? `<a href="#" onclick="event.preventDefault();loadDir('${esc(p).replace(/'/g, "\\'")}')">${esc(e.name)}</a>`
+          : `<span class="mono" title="${esc(p)}">${esc(e.name)}</span>`}</td>` +
+        `<td>${e.size != null ? fmtSize(e.size) : '—'}</td>` +
+        `<td>${e.mtimeMs ? fmtDate(Math.floor(e.mtimeMs / 1000)) : '—'}</td>` +
+        `<td><button class="ghost" onclick="revealPath('${esc(p).replace(/'/g, "\\'")}')">📂 定位</button></td></tr>`
+    }).join('') + `</tbody></table>`
+}
+
+/** 在资源管理器中定位（宿主端点，走 POST + CSRF 头）。 */
+async function revealPath(p) {
+  try {
+    await api(API + '/files/reveal', { method: 'POST', body: JSON.stringify({ path: p }) })
+    toast('已在资源管理器中定位')
+  } catch (e) { toast('定位失败：' + (e && e.message ? e.message : e)) }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 改动视图（2026-10-14 新增 · 档 1d）
+ * ══════════════════════════════════════════════════════════════════════════
+ * 从**主面板的 `ChangesView`** 搬过来。
+ *
+ * ⚠️ **宿主没有「用户正在看哪个会话」这个概念** ⇒ 只能走 `?recent=1`
+ *    （宿主自取「最近一次 workspace/changes 公告」），响应带 `derived: true`。
+ *    界面上**必须标出来**这是「最近改动 · 会话 <id>」，**不许说成「当前会话」**。
+ * ⚠️ 从没观察到公告 → 404 `nothing-observed` ⇒ **如实说「还没观察到」**，
+ *    **绝不回落到「最近修改的文件」凑数**（那是另一种更隐蔽的骗人）。
+ * ══════════════════════════════════════════════════════════════════════════ */
+async function loadChanges() {
+  state.changes.status = 'loading'
+  render()
+  try {
+    const r = await api(API + '/session-changes?recent=1')
+    state.changes.status = 'ready'
+    state.changes.items = (r && r.files) || []
+    state.changes.derived = !!(r && r.derived)
+    state.changes.sessionId = (r && r.sessionId) || ''
+    state.changes.error = ''
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e)
+    // 404 nothing-observed 是**正常状态**，不是错误 —— 分开说
+    if (/nothing-observed|还没观察到/.test(msg)) {
+      state.changes.status = 'none'
+      state.changes.error = ''
+    } else {
+      state.changes.status = 'error'
+      state.changes.error = msg
+    }
+    state.changes.items = []
+  }
+  render()
+}
+
+function renderChanges() {
+  const c = $('content')
+  const ch = state.changes
+  if (ch.status === 'idle') { loadChanges(); c.innerHTML = `<div class="empty">读取中…</div>`; return }
+  if (ch.status === 'loading') { c.innerHTML = `<div class="empty">读取中…</div>`; return }
+  if (ch.status === 'error') {
+    c.innerHTML = `<div class="empty">⚠️ 读不到改动：${esc(ch.error)}<br><br>` +
+      `<button onclick="loadChanges()">重试</button></div>`
+    return
+  }
+  if (ch.status === 'none') {
+    c.innerHTML = `<div class="empty">插件启动以来<b>还没观察到任何改动公告</b>。<br><br>` +
+      `<span class="hint">这不是错误：改动来自宿主的 <code>workspace/changes</code> 事件，<br>` +
+      `会话里改过文件之后才会有。</span><br><br><button onclick="loadChanges()">重新读取</button></div>`
+    return
+  }
+  if (!ch.items.length) {
+    c.innerHTML = `<div class="empty">这一轮没有文件改动。</div><div style="text-align:center"><button onclick="loadChanges()">重新读取</button></div>`
+    return
+  }
+  // ⚠️ 必须标 derived：这是「最近一次公告」，不是「当前会话」
+  const head = ch.derived
+    ? `<div class="hint" style="margin:10px 0">⚠️ 这是<b>最近一次改动公告</b>（不是"当前会话"——宿主没有这个概念）` +
+      `${ch.sessionId ? ' · 会话 <code>' + esc(String(ch.sessionId).slice(0, 12)) + '…</code>' : ''}。</div>`
+    : `<div class="hint" style="margin:10px 0">共 ${ch.items.length} 个改动文件</div>`
+  c.innerHTML = head + `<table><thead><tr><th>文件</th><th>增/删</th><th>轮次</th><th>操作</th></tr></thead><tbody>` +
+    ch.items.map((f) => {
+      const p = f.path || f.file || ''
+      const add = f.added != null ? f.added : (f.additions != null ? f.additions : '')
+      const del = f.removed != null ? f.removed : (f.deletions != null ? f.deletions : '')
+      return `<tr><td class="mono" title="${esc(p)}">${esc(p)}</td>` +
+        `<td>${add !== '' ? '+' + add : ''} ${del !== '' ? '−' + del : ''}</td>` +
+        `<td>${f.turn != null ? f.turn : '—'}</td>` +
+        `<td><button class="ghost" onclick="revealPath('${esc(p).replace(/'/g, "\\'")}')">📂 定位</button></td></tr>`
+    }).join('') + `</tbody></table>` +
+    `<div style="text-align:center;margin:14px 0"><button onclick="loadChanges()">重新读取</button></div>`
+}
 
 let zoom = { s: 1, x: 0, y: 0 }
 function applyZoom() { const img = $('lbImg'); if (img) img.style.transform = `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.s})`; const pct = $('zoomPct'); if (pct) pct.textContent = Math.round(zoom.s * 100) + '%' }
@@ -804,7 +1120,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '2') { setView('card'); return }
   if (e.key === '3') { setView('project'); return }
 })
-;(async () => { try { await Promise.all([loadMeta(), refreshRefIndex(), reload()]) } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
+;(async () => { try { await Promise.all([loadMeta(), refreshRefIndex(), reload(), loadManagedTags()]) } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
 </script>
 </body>
 </html>

@@ -176,7 +176,7 @@ function evalRegion(region) {
   )
 }
 
-const HOOK = 'exports.__test = { tagChips: tagChips, tagStyleRule: tagStyleRule, TAG_STYLE_TABLE: TAG_STYLE_TABLE, normalizeTag: normalizeTag, TAG_DECOR: TAG_DECOR, NS: NS, ICON_TABLE: ICON_TABLE, DetailDrawer: DetailDrawer };\n    exports.apply = apply;'
+const HOOK = 'exports.__test = { tagChips: tagChips, tagStyleRule: tagStyleRule, TAG_STYLE_TABLE: TAG_STYLE_TABLE, normalizeTag: normalizeTag, TAG_DECOR: TAG_DECOR, NS: NS, ICON_TABLE: ICON_TABLE, RightPanePreview: RightPanePreview };\n    exports.apply = apply;'
 const ANCHOR = 'exports.apply = apply;'
 
 /**
@@ -668,15 +668,62 @@ check('E3 芯片的样式里**没有 hex**（颜色只走 token）', () => {
   assert(hex.length === 0, '标签芯片的 CSS 里出现了 hex：' + hex.join(','))
 })
 
-check('F1 ★ 详情抽屉真的调了 `tagChips`，且**显式传了 surface: "chip"**', () => {
-  const hits = [...CLIENT_SRC.matchAll(/tagChips\(h,\s*record\.tags,\s*\{([^}]*)\}/g)]
-  assert(hits.length >= 1, '详情抽屉里没有调用 tagChips —— 组件写了但没接上（定稿 §四·3 那个缺口）')
+/**
+ * 按**花括号配平**切出「`marker` 所在的那个 `React.useEffect`」的函数体。
+ *
+ * ⚠️ 为什么要这么切（而不是固定长度窗口）：见 F5b —— 宽窗口会把**后面那个**
+ *    effect 里的合法代码也框进来，于是判据要么假绿、要么假红。
+ *
+ * @param {string} src
+ * @param {string} marker 该 effect 体内**唯一**的一句（用来定位）
+ * @returns {string} 函数体（含首尾花括号），定位失败返回 `''`
+ */
+function effectBodyBy(src, marker) {
+  const at = src.indexOf(marker)
+  if (at < 0) return ''
+  const start = src.lastIndexOf('React.useEffect(function () {', at)
+  if (start < 0) return ''
+  const open = src.indexOf('{', start)
+  let depth = 0
+  for (let i = open; i < src.length; i += 1) {
+    if (src[i] === '{') depth += 1
+    else if (src[i] === '}') {
+      depth -= 1
+      if (depth === 0) return src.slice(open, i + 1)
+    }
+  }
+  return ''
+}
+
+/* ── [F] 接线：受管表 → tagChips ──────────────────────────────────────────
+ * ⭐ **2026-10-14 移植**：原来这组守的是主面板里的 `DetailDrawer` / `reloadManaged`
+ *    / `reload`。面板删了 ⇒ 主体换成**右栏预览 + 它自己的受管表加载 effect**。
+ *    守的**性质没变**：「调用点必须显式传 surface」「拉失败不许拍平成空表」
+ *    「列表重拉不许把 managed 弄丢」—— 只是换了个地方守。
+ * ────────────────────────────────────────────────────────────────────────── */
+
+check('F1 ★ 右栏预览真的调了 `tagChips`，且**显式传了 surface: "chip" + 受管表**', () => {
+  const hits = [...CLIENT_SRC.matchAll(/tagChips\(h,\s*\w+\.tags,\s*\{([^}]*)\}/g)]
+  assert(hits.length >= 1, '没有任何地方调用 tagChips —— 组件写了但没接上（定稿 §四·3 那个缺口）')
   assert(/surface:\s*"chip"/.test(hits[0][1]), '调用点没显式传 surface: "chip"：' + hits[0][1])
+  assert(/managed:\s*managedTags/.test(hits[0][1]),
+    '调用点没把受管表传进去 —— 那样所有标签都会退化成素文本：' + hits[0][1])
+})
+
+check('★ F1b 反向对照：把 `surface: "chip"` 改掉 → F1 的判据必须红', () => {
+  const GOOD = 'surface: "chip"'
+  assert(CLIENT_SRC.indexOf(GOOD) >= 0, 'F1b 前提失效：源码里找不到 ' + GOOD)
+  const bad = CLIENT_SRC.replace(GOOD, 'surface: "group"')
+  assert(bad !== CLIENT_SRC, '反向对照造不出来（替换没生效）')
+  const hits = [...bad.matchAll(/tagChips\(h,\s*\w+\.tags,\s*\{([^}]*)\}/g)]
+  assert(hits.length >= 1, '★ 变异后连调用点都找不到了 ⇒ F1 的扫描器本身有问题')
+  assert(!/surface:\s*"chip"/.test(hits[0][1]),
+    '★ surface 被改掉了 F1 却还判绿 ⇒ F1 是假绿')
 })
 
 check('F2 ★ 旧的纯文本标签渲染**已经不在了**（防「两套并存」）', () => {
   assert(CLIENT_SRC.indexOf('(record.tags || []).join(" · ")') < 0,
-    '抽屉里还留着 `(record.tags || []).join(" · ")` 这条旧路径 —— 芯片组件等于没接上')
+    '还留着 `(record.tags || []).join(" · ")` 这条旧路径 —— 芯片组件等于没接上')
 })
 
 check('F3 ★ 受管表真的从 `GET /ext/artifacts/managed-tags` 拉', () => {
@@ -684,97 +731,108 @@ check('F3 ★ 受管表真的从 `GET /ext/artifacts/managed-tags` 拉', () => {
 })
 
 check('F4 ★ 拉失败**不写成空数组**（否则「读不到」被拍平成「空」）', () => {
-  const at = CLIENT_SRC.indexOf('var reloadManaged = React.useCallback')
-  assert(at > 0, '找不到 reloadManaged —— 受管表的加载通道被改名/删掉了')
-  const body = CLIENT_SRC.slice(at, at + 2000)
+  const body = effectBodyBy(CLIENT_SRC, 'apiGet("/managed-tags")')
+  assert(body, '切不出受管表的加载 effect —— F4 的判据前提失效（加载通道被改名/删掉了？）')
   assert(/ok:\s*false/.test(body), '失败路径里没有 ok:false —— 失败被静默吞掉了')
-  assert(!/managed:\s*\[\]/.test(body), '★ 失败/形状不对时写成了 `managed: []` —— 那就和「确实没有受管标签」长得一样了')
+  assert(!/\[\]/.test(body.replace(/managed-tags/g, '')),
+    '★ 失败/形状不对时写成了 `[]` —— 那就和「确实没有受管标签」长得一样了')
 })
 
-check('F5 ★ 列表重拉（含失败分支）不许把 `managed` 弄丢', () => {
-  // ⚠️ 这条第一版写错了，是**外部 bite-test 抓出来的**：
-  //    原来对 `CLIENT_SRC.slice(at, at + 2200)` 判 `managed: previous.managed` ——
-  //    而 2200 字符的窗口**越过了 `reload` 的结尾，把后面 `reloadMeta` 里那行也框进来了**，
-  //    于是把 `reload` 里那行删掉它**照样绿**（M6 假绿）。
-  //    ⇒ 改成**按花括号配平精确切出 `reload` 的函数体**，只在它里面判。
-  const body = callbackBodyOf(CLIENT_SRC, 'reload')
-  assert(body, '切不出 `var reload = React.useCallback(function () {…})` 的函数体 —— F5 的判据前提失效')
-  assert(body.indexOf('managed: previous.managed') >= 0,
-    'reload 里没带 `managed: previous.managed` —— 列表一刷新样式就没了')
-  assert(/patchData\(\{[\s\S]{0,400}items:\s*\[\]/.test(body),
-    'reload 的失败分支还是直接 `setData({...})` —— 那会**静默丢掉** managed（应走 patchData）')
+check('F5 ★ 列表重拉**不许碰** `managed`（它是独立状态，不随筛选重建）', () => {
+  // ⚠️ 这条与旧版的**性质相同、形状不同**：
+  //    旧面板把 `managed` 塞在同一个 `data` 对象里，靠 `reload` 带
+  //    `managed: previous.managed` 保住它；右栏是**独立 state**，天生不会被列表重拉碰。
+  //    ⇒ 判据改成「列表 effect 里不许出现 setManaged」——
+  //      这才是这个架构下「弄丢 managed」唯一可能的路径。
+  const listBody = effectBodyBy(CLIENT_SRC, 'var query = listQuery(')
+  assert(listBody, '切不出列表加载 effect —— F5 的判据前提失效')
+  assert(listBody.indexOf('setManaged') < 0,
+    '★ 列表 effect 里出现了 setManaged —— 每次筛选都会把受管表重置（样式会闪没）')
 })
 
-check('★ F5b 反向对照：窗口法（旧的宽切片）会漏掉这个坏版本 —— 证明 F5 的收窄不是装饰', () => {
-  // 拿一份「reload 里删掉 managed、但 reloadMeta 里还留着」的坏版本，
-  // 断言：**窄切法**能抓到，而**旧的宽切法**抓不到。两半都要成立，才说明这次收窄有实际后果。
-  const at = CLIENT_SRC.indexOf('var reload = React.useCallback')
-  assert(at > 0, '找不到 reload')
-  const wide = CLIENT_SRC.slice(at, at + 2200)
-  const narrow = callbackBodyOf(CLIENT_SRC, 'reload')
-  assert(narrow && narrow.length < wide.length, '窄切片没比宽切片短 —— 切法可能没生效')
-  // 在**窄切片**里造坏版本（等价于删掉 reload 里那行）
-  const badNarrow = narrow.replace('managed: previous.managed,', '')
-  assert(badNarrow !== narrow, '反向对照造不出来')
-  assert(badNarrow.indexOf('managed: previous.managed') < 0, '★ 窄切法里删掉后仍能找到 —— 判据没落在 reload 上')
-  // 而宽切片里**仍有**那行（因为 reloadMeta 被框进来了）⇒ 旧的宽切法对它是瞎的
-  assert(wide.indexOf('managed: previous.managed') >= 0,
-    '★ 宽切片里已经找不到那行了 ⇒ 这条反向对照想证明的前提不成立（请同步更新）')
+check('★ F5b 反向对照：宽窗口会**假红** ⇒ 证明 F5 的花括号配平不是装饰', () => {
+  // 同一份**好源码**：
+  //   · 花括号配平切出的「列表 effect」里**没有** setManaged ⇒ 绿（正确）
+  //   · 而一个够宽的固定窗口会**越过 effect 的边界**，把前面那个受管表 effect
+  //     里的合法 `setManaged` 框进来 ⇒ 假红
+  // 两半都成立，才说明「配平切法」在这里有实际后果。
+  //
+  // ⚠️ 相对位置（2026-10-14 实测）：受管 effect 在列表 effect **之前** 413 字符，
+  //    三个 `setManaged` 分别在列表 effect 起点前 626 / 344 / 281 字符。
+  //    ⇒ 往前取 900 字符就会框进后两个。**这个前提写进断言**（位置一变就当场红，
+  //      不会退化成空转 —— 我第一版就是取「往后 1800」，方向反了，被这条当场抓住）。
+  const at = CLIENT_SRC.indexOf('var query = listQuery(')
+  assert(at > 0, '找不到列表 effect 锚点 `var query = listQuery(`')
+  const narrow = effectBodyBy(CLIENT_SRC, 'var query = listQuery(')
+  assert(narrow, '切不出列表 effect')
+  const wide = CLIENT_SRC.slice(at - 900, at + 1200)
+  assert(wide.length > narrow.length, '宽切片没比配平切片长 —— 对照不成立')
+  assert(narrow.indexOf('setManaged') < 0, '前提失效：配平切片里本来就有 setManaged')
+  assert(wide.indexOf('setManaged') >= 0,
+    '★ 宽切片里也没有 setManaged ⇒ 这条对照想证明的前提不成立（两个 effect 的相对位置变了，请重新量）')
+  // 反向：往列表 effect 里塞一句 setManaged ⇒ F5 的判据必须能看见
+  const badNarrow = narrow.replace('setSnap({ status: "loading"', 'setManaged(null); setSnap({ status: "loading"')
+  assert(badNarrow !== narrow, '反向对照造不出来（替换没生效）')
+  assert(badNarrow.indexOf('setManaged') >= 0, '★ 塞进去后仍找不到 ⇒ F5 的判据没落在列表 effect 上')
 })
 
 /* ══════════════════════════════════════════════════════════════════════════
- * [G] 端到端：真的渲染 `DetailDrawer`（不只是单测组件）
+ * [G] 端到端：真的渲染 `RightPanePreview`（不只是单测组件）
+ * ══════════════════════════════════════════════════════════════════════════
+ * ⭐ **2026-10-14 移植**：原来这段渲染的是 `DetailDrawer`（主面板的详情抽屉）。
+ *    依琪拍板「主区面板不要了，全部转到右侧栏」⇒ 面板连同 `DetailDrawer` 一起删了。
+ *
+ *    ⚠️ 但**标签芯片这个功能是活的** —— 所以按「废弃 + 移植」把它接到了
+ *       **右栏预览**（`RightPanePreview`）上：`RightPaneBody` 拉 `/managed-tags`，
+ *       一路传到 `tagChips`。这段守卫因此**换了个主体继续存在**，不是被删掉。
+ *
+ *    原来的主体 `DetailDrawer` 已不存在 ⇒ 若哪天有人想把这段改回去，请先看
+ *    `docs/DEPRECATED-TESTS.md`。
  * ══════════════════════════════════════════════════════════════════════════ */
-console.log('\n── [G] 端到端：DetailDrawer 真的把 props.managed 送到了芯片 ──')
+console.log('\n── [G] 端到端：RightPanePreview 真的把 props.managed 送到了芯片 ──')
 
 /**
- * 用真 `DetailDrawer` 渲染一条记录。
+ * 用真 `RightPanePreview` 渲染一条记录。
  * ⚠️ 这里要的是**接线**（props.managed → managedTags → tagChips），
  *    不是组件内部逻辑（那个 [D] 已经单独测过）。所以断言只看「芯片出没出来」。
+ *
+ * ⚠️ 直接**调用**函数组件（不是 `h(Component, props)`）——
+ *    `fakeH` 只记 `{type, props, children}`、**不执行**组件，
+ *    所以必须像旧版那样把组件当普通函数调，才能 `walk` 到它返回的树。
  */
-function renderDrawer(record, managed) {
-  const react = {
-    createElement: fakeH,
-    useState: (init) => [typeof init === 'function' ? init() : init, () => {}],
-    useEffect() {},
-    useRef: (init) => ({ current: init }),
-  }
-  const el = T.DetailDrawer({
-    record,
-    managed,
-    onClose() {}, onSave() {}, onOpenFolder() {}, onCopyPath() {}, onTrash() {}, onRestore() {}, onToast() {},
-  }, react)
+function renderPreview(record, managed) {
+  const el = T.RightPanePreview({ record, managed, onBack() {} })
   return el
 }
 
-// DetailDrawer 里 `var React = require("react")` —— 我们的假 module loader 只在 factory 时生效，
-// 所以这里直接换掉全局 require 的结果：用一个最小的 require 替身。
+// `RightPanePreview` 里 `var React = require("react")` —— 假 module loader 在 factory 时
+// 已经把 `react` 换成了最小替身（见 `loadClient`），所以这里不用再传第二个参数。
 const RECORD = {
   id: 'art_x', title: '测试产物', path: 'C:\\proj\\a.md', exists: true,
   mime_type: 'text/markdown', artifact_type: 'document', source: 'manual',
   tags: ['视频项目', '弹幕梗', '调研'], stars: 0, created_at: 1790000000000, size_bytes: 100,
 }
 
-check('G1 端到端：`props.managed.ok === true` → 抽屉里真的渲染出芯片', () => {
-  const el = renderDrawer(RECORD, { ok: true, tags: MANAGED, limit: null })
+check('G1 端到端：`props.managed.ok === true` → 右栏预览里真的渲染出芯片', () => {
+  const el = renderPreview(RECORD, { ok: true, tags: MANAGED, limit: null })
   const nodes = walk(el)
   const chips = nodes.filter((n) => cls(n) === T.NS + '__tagchip')
   const free = nodes.filter((n) => cls(n) === T.NS + '__tagfree')
-  assert(chips.length === 2, '抽屉里受管芯片数应为 2（视频项目 / 调研），实际 ' + chips.length)
-  assert(free.length === 1, '抽屉里自由词应为 1（弹幕梗），实际 ' + free.length)
+  assert(chips.length === 2, '预览里受管芯片数应为 2（视频项目 / 调研），实际 ' + chips.length)
+  assert(free.length === 1, '预览里自由词应为 1（弹幕梗），实际 ' + free.length)
   assert(nodes.some((n) => cls(n) === T.NS + '__tagchipi'), '芯片里没有图标')
 })
 
 check('G2 端到端：`props.managed = {ok:false}` → 素文本 + 警告（不是「空」）', () => {
-  const el = renderDrawer(RECORD, { ok: false, error: 'HTTP 500' })
+  const el = renderPreview(RECORD, { ok: false, error: 'HTTP 500' })
   const nodes = walk(el)
   assert(nodes.filter((n) => cls(n) === T.NS + '__tagchip').length === 0, '读失败却渲染出了芯片')
   assert(nodes.filter((n) => cls(n) === T.NS + '__tagwarn').length === 1,
-    '★ 抽屉里「受管表读不到」一声不吭 —— 用户会以为自己的样式配置丢了')
+    '★ 预览里「受管表读不到」一声不吭 —— 用户会以为自己的样式配置丢了')
 })
 
 check('G3 端到端：`props.managed = {ok:true, tags:[]}` → 素文本、**无警告**（确实没有受管标签）', () => {
-  const el = renderDrawer(RECORD, { ok: true, tags: [], limit: null })
+  const el = renderPreview(RECORD, { ok: true, tags: [], limit: null })
   const nodes = walk(el)
   assert(nodes.filter((n) => cls(n) === T.NS + '__tagchip').length === 0, '空表却渲染出了芯片')
   assert(nodes.filter((n) => cls(n) === T.NS + '__tagwarn').length === 0,
@@ -782,7 +840,7 @@ check('G3 端到端：`props.managed = {ok:true, tags:[]}` → 素文本、**无
 })
 
 check('G4 端到端：没传 `props.managed`（还没拉到）→ 不崩、降级 + 警告', () => {
-  const el = renderDrawer(RECORD, undefined)
+  const el = renderPreview(RECORD, undefined)
   const nodes = walk(el)
   assert(nodes.filter((n) => cls(n) === T.NS + '__tagfree').length === 3, '没降级成素文本')
   assert(nodes.filter((n) => cls(n) === T.NS + '__tagwarn').length === 1, '还没拉到却一声不吭')
@@ -802,15 +860,14 @@ check('★ G5 反向对照：把 `managedTags` 改成「失败也当空表」→
   // ⚠️ 坏版本也要先注入 HOOK，否则拿不到 __test（第一版就漏了这一步）
   const badMod = loadClient(mutated.replace(ANCHOR, HOOK))
   assert(badMod && badMod.__test, '坏版本加载失败 —— 反向对照不成立（HOOK 注入了吗？）')
-  const el = badMod.__test.DetailDrawer({
-    record: RECORD, managed: { ok: false, error: 'HTTP 500' },
-    onClose() {}, onSave() {}, onOpenFolder() {}, onCopyPath() {}, onTrash() {}, onRestore() {}, onToast() {},
+  const el = badMod.__test.RightPanePreview({
+    record: RECORD, managed: { ok: false, error: 'HTTP 500' }, onBack() {},
   })
   const warns = walk(el).filter((n) => cls(n) === badMod.__test.NS + '__tagwarn')
   assert(warns.length === 0,
     '★ 坏版本（失败当空表）居然**还是报了警告** ⇒ G2 那条咬不住「读不到 ≠ 空」')
   // 再确认真源码在同样输入下**确实**报警告（否则上面那条是空转）
-  const goodWarns = walk(renderDrawer(RECORD, { ok: false, error: 'HTTP 500' }))
+  const goodWarns = walk(renderPreview(RECORD, { ok: false, error: 'HTTP 500' }))
     .filter((n) => cls(n) === T.NS + '__tagwarn')
   assert(goodWarns.length === 1, '前提失效：真源码在失败时没报警告')
 })

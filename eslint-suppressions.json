@@ -17,22 +17,22 @@
   },
   "lib/client.js": {
     "complexity": {
-      "count": 10
+      "count": 3
     },
     "max-lines": {
       "count": 1
     },
     "max-lines-per-function": {
-      "count": 9
+      "count": 3
     },
     "no-control-regex": {
       "count": 2
     },
     "no-unused-vars": {
-      "count": 104
+      "count": 94
     },
     "no-useless-assignment": {
-      "count": 5
+      "count": 3
     }
   },
   "lib/http.js": {

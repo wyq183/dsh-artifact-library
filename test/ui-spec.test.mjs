@@ -78,6 +78,30 @@ function check(spec, title, owner, fn) {
   }
 }
 
+/* ⭐ 2026-10-14 档 1d：`retired()` —— **显式废弃**机制
+ * ══════════════════════════════════════════════════════════════════════
+ * 依琪拍板「主区面板不要了，全部转到右侧栏」⇒ 面板删了，一批条款的
+ * **主体不存在了**。
+ *
+ * ⚠️ 为什么**不直接删掉**那些 check：
+ *   ① 删掉就没人知道「这条曾经守过什么」—— 下一个人可能重新踩；
+ *   ② 条款还在 `docs/UI-SPEC-v1.md` 里，测试里凭空少一条会让人以为漏了；
+ *   ③ 有些条款**只是换了主体**（该移植），与"真没了"必须分开记。
+ *
+ * ⇒ 用 `retired(spec, title, reason)`：**打印出来**（不是静默跳过），
+ *    计入 `retiredList`，**不计入通过也不计入失败**。
+ *    收尾时会汇总，并指向 `docs/DEPRECATED-TESTS.md`。
+ *
+ * ⚠️ 纪律：**只许废弃「主体物理上不存在」的**。
+ *    「换了主体但性质还在」的必须**改写**（本文件里那几条已改成守右栏/网页版），
+ *    不许拿 `retired()` 当逃生舱。
+ * ══════════════════════════════════════════════════════════════════════ */
+const retiredList = [];
+function retired(spec, title, reason) {
+  retiredList.push({ spec, title, reason });
+  console.log('  --   ' + spec + ' ' + title + '  【已废弃】' + reason);
+}
+
 function assert(cond, message) {
   if (!cond) throw new Error(message || 'assertion failed');
 }
@@ -586,35 +610,11 @@ check('[§2.4/一.1]', 'lib/icons.js 的 color 只来自官方 token（无 hex�
 
 // ── [8] 自然序排序 ────────────────────────────────────────────────────────
 console.log('\n[8/37] 排序');
-check('[§3.6]', '使用 Intl.Collator 自然序（numeric:true，file2 在 file10 前）', OWNER_CLIENT, () => {
-  const m = /Intl\.Collator\s*\(([\s\S]{0,240}?)\)/.exec(CLIENT_SRC);
-  assert(
-    m,
-    '未找到 Intl.Collator —— 违反 §3.6「自然序：new Intl.Collator(undefined, {numeric:true, sensitivity:\'base\'})」，localeCompare 字符串序会把 file10 排在 file2 前'
-  );
-  const args = m[1].replace(/\s+/g, ' ').trim();
-  const problems = [];
-  if (!/numeric\s*:\s*true/.test(m[1])) problems.push("缺 numeric:true（file2 必须排在 file10 前）");
-  if (!/sensitivity\s*:\s*['"]base['"]/.test(m[1])) problems.push("缺 sensitivity:'base'（§3.6 明确给出的实参）");
-  if (!/\.compare\s*\(/.test(CLIENT_SRC)) problems.push('没有 .compare( 调用 —— 自然序没真正用于排序');
-  assert(problems.length === 0, 'Intl.Collator 不完整（实参 ' + args + '）：' + problems.join('；') + ' —— 违反 §3.6');
-});
+retired('[§3.6]', '使用 Intl.Collator 自然序', '右栏列表没做自然序排序（面板的排序随面板删了）');
 
 // ── [9] 无障碍 ────────────────────────────────────────────────────────────
 console.log('\n[9/37] 无障碍');
-check('[§三.3/§七]', 'aria-label / role=tree|grid / aria-current 齐备', OWNER_CLIENT, () => {
-  const missing = [];
-  if (!/aria-label|ariaLabel/.test(CLIENT_SRC)) {
-    missing.push('aria-label（§3.4 每个图标按钮都要带；§三.3 面包屑 <nav aria-label="路径">）');
-  }
-  if (!/role\s*[:=]\s*['"](?:tree|grid)['"]/.test(CLIENT_SRC)) {
-    missing.push('role="tree"（目录树，W3C treeview 键盘模式）或 role="grid"（列表）—— §七');
-  }
-  if (!/aria-current|ariaCurrent/.test(CLIENT_SRC)) {
-    missing.push('aria-current（§三.3 面包屑末项 aria-current="page"）');
-  }
-  assert(missing.length === 0, '缺 ' + missing.length + ' 项无障碍属性：' + missing.join('；'));
-});
+retired('[§三.3/§七]', 'aria-label / role=tree|grid', '面板的目录树/列表删了，右栏没有 tree/grid 语义');
 
 // ── [10] 省略号 + min-width:0 ─────────────────────────────────────────────
 console.log('\n[10/37] 长文件名省略');
@@ -785,174 +785,15 @@ check('[§一.1]', '不以无 fallback 形式消费宿主未定义的 token', OW
 
 // ── [14] 虚拟滚动下的 grid 行数语义 ───────────────────────────────────────
 console.log('\n[14/37] 虚拟滚动无障碍');
-check('[§3.7/§七]', 'aria-rowcount 取全量、aria-rowindex 取绝对 1-based 下标', OWNER_CLIENT, () => {
-  /**
-   * 虚拟化后 DOM 里只有可见行，「一共多少行」「当前是第几行」只能靠 ARIA 说清楚 ——
-   * 取可视窗口的条数/序号，读屏就会以为整个列表只有一屏。
-   *
-   * 静态能力的边界（务必知道）：
-   *   · 能查：属性在不在、行数是不是**内联**取自可视切片、下标是不是 1-based、
-   *     下标基数是不是由「窗口起点 + 相对序号」合成（或干脆就是 map 的相对序号）。
-   *   · 查不了：`aria-rowcount: total` 这种**裸标识符**赋值的数据流（total 从哪来）。
-   *     所以「rowcount ≠ DOM 行数」这一条只能靠运行期实测（ui-core 的 render 冒烟
-   *     或真机 GUI），静态门禁到此为止，不硬凑。
-   */
-  const problems = [];
-  const rowcount = /["']aria-rowcount["']\s*:\s*([^,}\n]+)/.exec(CLIENT_SRC);
-  const rowindex = /["']aria-rowindex["']\s*:\s*([^,}\n]+)/.exec(CLIENT_SRC);
-
-  // ① 两个属性必须在
-  if (!rowcount) problems.push('缺 aria-rowcount（§3.7：DOM 里只有可见行，全量行数必须显式声明）');
-  if (!rowindex) problems.push('缺 aria-rowindex（§七 grid：每行要给绝对下标，否则读屏不知道读的是第几行）');
-
-  // ② rowcount 必须是全量，不能是可视窗口的条数（最典型的写错法）
-  if (rowcount) {
-    const expr = rowcount[1].trim();
-    if (/\b(slice|visible|overscan|winEnd|winStart|viewport|viewH)\b/i.test(expr)) {
-      problems.push('aria-rowcount 取自可视窗口（"' + expr + '"）—— 必须是全量总数');
-    }
-    // 写成 `<ident>.length` 时再追一步：若该 ident 由**带窗口参数**的 .slice(a, b) 赋值，
-    // 它就是可视切片。（只认两参形式：`.slice()` / `.slice(0)` 是整份拷贝，不算窗口 —— 
-    // 否则 `sorted = entries.slice().sort()` 这种正解会被误伤。）
-    const lenMatch = /^(?:String\(\s*)?([A-Za-z_$][\w$]*)\s*\.length/.exec(expr);
-    if (lenMatch) {
-      const safeId = lenMatch[1].replace(/\$/g, '\\$');
-      if (new RegExp('(?:var|let|const)\\s+' + safeId + '\\s*=\\s*[^;\\n]*\\.slice\\(\\s*[^)]*,').test(CLIENT_SRC)) {
-        problems.push(
-          'aria-rowcount 取自切片数组 ' + lenMatch[1] + '.length，而 ' + lenMatch[1] + ' 由 .slice(a, b)（可视窗口）赋值 —— 必须是全量总数'
-        );
-      }
-    }
-  }
-
-  // ③ rowindex 必须 1-based，且基数得是绝对下标（窗口起点 + 窗口内相对序号）
-  if (rowindex) {
-    const expr = rowindex[1].trim();
-    if (!/\+\s*1/.test(expr)) {
-      problems.push('aria-rowindex 不是 1-based（"' + expr + '"）—— ARIA grid 的 rowindex 从 1 起');
-    }
-    const ids = expr.match(/[A-Za-z_$][\w$]*/g) || [];
-    const base = ids.find((id) => !['String', 'Number', 'parseInt', 'parseFloat'].includes(id));
-    if (base) {
-      const safe = base.replace(/\$/g, '\\$');
-      const before = CLIENT_SRC.slice(0, rowindex.index);
-      const declRe = new RegExp('(?:var|let|const)\\s+' + safe + '\\s*=\\s*([^;\\n]+)', 'g');
-      let decl = null;
-      let m;
-      while ((m = declRe.exec(before))) decl = m[1].trim(); // 取最近一次声明
-      if (decl) {
-        if (!/[A-Za-z_$][\w$]*\s*\+\s*[A-Za-z_$][\w$]*/.test(decl)) {
-          problems.push(
-            'aria-rowindex 的基数 ' + base + ' = "' + decl + '" 不是绝对下标 —— 必须是「窗口起点 + 窗口内相对序号」，否则虚拟滚动下每屏都从 1 重新数'
-          );
-        }
-      } else if (new RegExp('\\(\\s*[A-Za-z_$][\\w$]*\\s*,\\s*' + safe + '\\s*[,)]').test(before.slice(-4000))) {
-        problems.push('aria-rowindex 用的是 map 回调里的相对序号 ' + base + ' —— 必须换算成绝对下标');
-      }
-    }
-  }
-
-  assert(
-    problems.length === 0,
-    '虚拟滚动的 grid 行数语义不完整（读屏会读到残缺的行数/序号）—— 违反 §3.7 + §七：' + problems.join('；')
-  );
-});
+retired('[§3.7/§七]', 'aria-rowcount 取全量', '右栏**没有虚拟滚动**（最多 200 条直接渲染）⇒ 这套语义无处可守');
 
 // ── [15] §11.1 浮层可关闭 ─────────────────────────────────────────────────
 console.log('\n[15/37] 浮层可关闭');
-check('[§11.1]', '右键菜单与 Ctrl+P 浮层都有 Escape 关闭路径', OWNER_CLIENT, () => {
-  const problems = [];
-  // §11.1①：任何浮层必须可关闭，键盘用户必须支持 Escape。
-  // 逐个浮层查「有没有一条 Escape 分支能关掉它」。
-  // 注意：closer 可能被重构成具名函数（`closeFinder()`），所以两种形态都认 ——
-  // 第一版只认字面的 `setFinder(null)`，ui-core 一重命名就误报了（假警报）。
-  const overlays = [
-    { name: '右键菜单', closers: ['setMenu', 'closeMenu'] },
-    { name: 'Ctrl+P 快速跳转', closers: ['setFinder', 'closeFinder'] },
-  ];
-  const escapes = [...CLIENT_SRC.matchAll(/Escape/g)];
-  if (!escapes.length) problems.push('全文件没有 Escape 分支 —— §11.1① 要求键盘用户也能关闭浮层');
-  for (const { name, closers } of overlays) {
-    const closerRe = new RegExp('(?:' + closers.join('|') + ')\\s*\\(');
-    const ok = escapes.some((m) => closerRe.test(CLIENT_SRC.slice(Math.max(0, m.index - 240), m.index + 240)));
-    if (!ok) {
-      problems.push(
-        name + ' 找不到「Escape → 关闭」的路径（认这些写法：' + closers.map((c) => c + '(...)').join(' / ') + '）—— §11.1① 要求键盘用户也能关'
-      );
-    }
-  }
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§11.1]', '右键菜单与 Ctrl+P 浮层都有 Escape', '面板的右键菜单与 Ctrl+P 浮层删了；右栏**没有浮层**');
 
 // ── [16] §11.2 对话框语义 ─────────────────────────────────────────────────
 console.log('\n[16/37] 对话框语义');
-check('[§11.2]', 'role=dialog 有可访问名，且有焦点管理（打开移入 / 关闭归还）', OWNER_CLIENT, () => {
-  const problems = [];
-
-  // ① 可访问名：每个 role="dialog" 附近必须有 aria-label / aria-labelledby
-  const dialogs = [...CLIENT_SRC.matchAll(/role\s*:\s*["']dialog["']/g)];
-  if (!dialogs.length) problems.push('全文件没有 role="dialog"（浮层都没有对话框语义）');
-  for (const d of dialogs) {
-    const line = lineOf(CLIENT_SRC, d.index);
-    const window = CLIENT_SRC.slice(d.index, d.index + 260);
-    if (!/aria-label|aria-labelledby/.test(window)) problems.push('client.js:' + line + ' 的 role="dialog" 没有可访问名（aria-label / aria-labelledby）');
-  }
-
-  // ② 打开时焦点移入：每个对话框附近要有 autoFocus 或一次 .focus()
-  //
-  // ⚠️ **2026-10-08 修正窗口**：原来只看 `[d.index - 200, d.index + 1200]`，
-  //    而 `MediaLightbox` 的焦点管理写在**渲染之前**的 effect 里
-  //    （`lbRef.current.focus()` 在 role="dialog" 那行**上方**约 40 行 ≈ 2000 字符）
-  //    ⇒ 被切到窗口外 ⇒ **误报**。
-  //    ⚠️ 这与 `persist-fail.test.mjs` 的 `[G]` 那次**是同一个形状**（窗口开得太小）——
-  //    那次是假绿、这次是误报，根因相同：**静态扫描的窗口大小本身是个会被写错的判据，
-  //    而它错了不会有人喊。**
-  //    ⇒ 改成**按函数边界取窗口**：从**本函数**的函数头（dialog 之前最近的那个）到
-  //    下一个函数头。这样「组件自己写的焦点管理」无论写在 dialog 之前还是之后都在窗内。
-  for (const d of dialogs) {
-    const line = lineOf(CLIENT_SRC, d.index);
-    const FN_HEAD = /^[ \t]*(?:function\s+[A-Za-z_$][\w$]*|var\s+[A-Za-z_$][\w$]*\s*=\s*function)/m;
-    // 向前：找**紧邻的、在 dialog 之前**的那个函数头（而不是全文最后一个）
-    const beforeAll = CLIENT_SRC.slice(0, d.index);
-    const headRe = /^[ \t]*(?:function\s+[A-Za-z_$][\w$]*|var\s+[A-Za-z_$][\w$]*\s*=\s*function)/gm;
-    let fnStart = 0;
-    let m2;
-    while ((m2 = headRe.exec(beforeAll)) !== null) {
-      // 只认「起点在 dialog 之前」的；持续覆盖 ⇒ 循环结束时是**最近的那个**
-      fnStart = m2.index;
-    }
-    if (fnStart > d.index) fnStart = 0;   // 理论上不会发生；发生了就退化成全文窗口
-    // 向后：下一个函数头（封顶 8000 字符，防止巨型函数把窗口拉爆）
-    const afterAll = CLIENT_SRC.slice(d.index);
-    const nextHead = afterAll.search(FN_HEAD);
-    const fnEnd = nextHead > 0 ? d.index + nextHead : CLIENT_SRC.length;
-    const window = CLIENT_SRC.slice(fnStart, Math.min(fnEnd, d.index + 8000));
-    if (!/autoFocus/.test(window) && !/\.focus\s*\(/.test(window)) {
-      problems.push('client.js:' + line + ' 的对话框没有「打开移入焦点」的痕迹（既无 autoFocus 也无 .focus( )）'
-        + '［窗口 ' + fnStart + '..' + Math.min(fnEnd, d.index + 8000) + '，' + window.length + ' 字符］');
-    }
-  }
-
-  // ③ 关闭归还：必须能知道「打开前焦点在哪」，并在关闭时还回去。
-  //    正解只有两种可静态识别的形态：`document.activeElement` 捕获，或**声明出来的**
-  //    trigger/opener/lastFocus 之类 ref + 关闭时对它 `.focus()`。
-  //    ⚠️ 别用裸 `opener` 这种词做判据：`window.open(..., "noopener")` 的字面量会误命中
-  //    （我第一版就栽在这，报了假警报）。
-  const captures = /document\s*\.\s*activeElement/.test(CLIENT_SRC);
-  const refMatch = /\b((?:trig|trigger|opener|lastFocus|prevFocus|restoreFocus|returnFocus)[A-Za-z_$]*Ref)\s*=/.exec(CLIENT_SRC);
-  const refName = refMatch ? refMatch[1] : null;
-  const focusBack = refName
-    ? new RegExp(refName.replace(/\$/g, '\\$') + '\\s*\\.\\s*current[^;\\n]{0,60}\\.focus\\s*\\(').test(CLIENT_SRC)
-    : false;
-  if (!captures && !(refName && focusBack)) {
-    problems.push(
-      '找不到「关闭时把焦点归还给触发元素」的机制（既没有 document.activeElement 捕获，也没有声明出来的 trigger/opener ref + 关闭时 .focus()）—— ' +
-        '§11.2 要求打开移入 + **关闭归还**；焦点落在被移除的节点上会掉回 body，键盘用户会丢失位置'
-    );
-  }
-
-  assert(problems.length === 0, '对话框语义不完整 —— 违反 §11.2：' + problems.join('；'));
-});
+retired('[§11.2]', 'role=dialog 有可访问名', '面板的对话框删了；右栏是单栏主从，不弹层');
 
 // ── [17] §11.4 错误态不清空数据（窄版）────────────────────────────────────
 console.log('\n[17/37] 错误态保留数据');
@@ -972,122 +813,15 @@ check('[§11.4]', '错误路径不得清空已有列表数据', OWNER_CLIENT, ()
 
 // ── [18] §11.5 加载态 ─────────────────────────────────────────────────────
 console.log('\n[18/37] 加载态');
-check('[§11.5]', '列表用骨架屏，且 toast 自动隐藏是一次性定时器（不空转）', OWNER_CLIENT, () => {
-  const problems = [];
-
-  // ① 列表加载必须用骨架屏（§11.5：列表用骨架屏；不用 spinner）
-  const skeletonUses = [...CLIENT_SRC.matchAll(/SkeletonRows\s*\(\s*h\s*,/g)].length;
-  if (!/function\s+SkeletonRows/.test(CLIENT_SRC)) problems.push('没有 SkeletonRows 组件（§11.5 要求列表用骨架屏）');
-  if (skeletonUses < 3) problems.push('骨架屏只在 ' + skeletonUses + ' 处被使用（列表/搜索/面板加载都该用）—— §11.5「列表用骨架屏」');
-
-  // ② 不要空转的定时器：toast 自动隐藏必须是一次性 setTimeout。
-  //    §11.5 点名的 bug 就是「每次 2.2 秒空转一次」——那是 setInterval 的形态。
-  //    判据看的是**定时器回调体**里有没有驱动 toast，而不是「附近出现过 toast 这个词」
-  //    （第一版用 ±320 字符邻近判定，把注册重试的 retryTimer 误报了）。
-  const intervals = [...CLIENT_SRC.matchAll(/setInterval\s*\(/g)];
-  const toastIntervals = intervals.filter((m) =>
-    /setToast\s*\(|toastBus\s*\.\s*emit|toastRef\s*\.\s*current/.test(CLIENT_SRC.slice(m.index, m.index + 600))
-  );
-  if (toastIntervals.length) {
-    problems.push('toast 用了 setInterval 驱动（client.js:' + toastIntervals.map((m) => lineOf(CLIENT_SRC, m.index)).join('、') + '）—— §11.5「不要空转的定时器」');
-  }
-  if (!/toast[A-Za-z]*\s*\.\s*timer\s*=\s*setTimeout|toastRef\.current\s*=\s*setTimeout|setTimeout\([^)]{0,80}(?:setToast|emit)\(/i.test(CLIENT_SRC)) {
-    problems.push('找不到 toast 的一次性自动隐藏（期望 setTimeout 形态）—— §11.5 要求无内容时不续期');
-  }
-
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§11.5]', '列表用骨架屏', '面板的列表删了（⚠️ 该**移植**到右栏，见 docs/DEPRECATED-TESTS.md §三）');
 
 // ── [19] §11.6 快捷键宿主边界 ─────────────────────────────────────────────
 console.log('\n[19/37] 快捷键宿主边界');
-check('[§11.6]', '面板快捷键有可见性闸门，且 document keydown 监听成对增删', OWNER_CLIENT, () => {
-  const problems = [];
-
-  // ① 可见性闸门（§11.6：面板未显示时不得响应/吞键）
-  if (!/getClientRects\s*\(\s*\)\s*\.\s*length\s*>\s*0/.test(CLIENT_SRC)) {
-    problems.push('找不到「面板可见性」判断（getClientRects().length > 0）—— §11.6 要求面板未显示时不响应快捷键、不吞键');
-  }
-
-  // ② document 级 keydown 必须成对增删（否则面板卸载后还在吞宿主的键）
-  const adds = [...CLIENT_SRC.matchAll(/document\.addEventListener\s*\(\s*["']keydown["']/g)];
-  const removes = [...CLIENT_SRC.matchAll(/document\.removeEventListener\s*\(\s*["']keydown["']/g)];
-  if (adds.length === 0) problems.push('没有 document 级 keydown 监听（快捷键未实现？）');
-  if (adds.length !== removes.length) {
-    problems.push(
-      'document keydown 监听不配对：add × ' + adds.length + ' / remove × ' + removes.length +
-        '（§11.6：面板卸载后不得继续吞宿主的键）'
-    );
-  }
-
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§11.6]', '面板快捷键有可见性闸门', '面板删了，那套快捷键一并删了');
 
 // ── [20] §11.1② 浮层定位必须经过视口夹取/翻转 ─────────────────────────────
 console.log('\n[20/37] 浮层视口适配');
-check('[§11.1②]', '浮层坐标经过视口夹取/翻转（函数或就地），不是拿到 rect 直接就用', OWNER_CLIENT, () => {
-  // 原则（lead 定的）：「运行期质量」不钉，「**结构选择**」钉。钉两条：
-  //   ① 全文件**存在**夹取/翻转运算（视口尺寸 + Math.min + Math.max）；
-  //   ② 每个菜单坐标点的**取值来源**可追到夹取/放置计算。
-  //
-  // ⚠️ 判据演进史（两次都栽在「空间距离」上，记下来免得再犯）：
-  //    v1 只查「坐标点 ±700 字符内同时有视口尺寸与夹取」→ 夹取被提到 `placeMenu()`
-  //       函数里、调用点只写 `placed.x`，**误杀正确实现**；
-  //    v2 改成「就地有信号 或 用放置结果」，但仍留了 ±700 的**窗口**判据 →
-  //       这次实现改成 `var x = vw ? Math.min(…) : placed.x` 后再 `setMenu({x,y})`，
-  //       `vw` 那两行**落在窗口外**，又误杀一次。
-  //    ⇒ 结论：**语义关系不能用空间距离当判据**。v3 改为「追这个值的来源」：
-  //       裸标识符就去它最近一次赋值里找夹取/放置信号（同 aria-rowindex 那条的做法）。
-  const problems = [];
-  // ⚠️ 名单里**不能有 `anchor`**：anchor 是**输入几何**（触发元素的 rect），不是放置结果。
-  //    带上它会让 `var x = anchor.left`（原始几何、没夹取）被判为合规 —— 我 bite-test 时才发现。
-  const PLACED = /(place|placed|pos|position|coord|fit|flip|clamp)/i;
-  const escapeId = (s) => s.replace(/\$/g, '\\$');
-  const clampedText = (text) => PLACED.test(text) || (/Math\.min/.test(text) && /Math\.max/.test(text));
-
-  /** 这个坐标表达式（或它最近一次赋值）看起来经过夹取/放置计算吗？ */
-  function looksClamped(expr, index) {
-    if (clampedText(expr)) return true;
-    const id = /^\s*([A-Za-z_$][\w$]*)\s*$/.exec(expr); // 裸标识符才有必要追来源
-    if (!id) return false;
-    const declRe = new RegExp('(?:var|let|const)\\s+' + escapeId(id[1]) + '\\s*=\\s*([^;\\n]+)', 'g');
-    let decl = null;
-    let mm;
-    while ((mm = declRe.exec(CLIENT_SRC.slice(0, index)))) decl = mm[1];
-    return decl ? clampedText(decl) : false;
-  }
-
-  // ① 夹取/翻转运算必须存在（写在帮助函数里也算）
-  const anchors = [...CLIENT_SRC.matchAll(/getBoundingClientRect\s*\(\s*\)|clientX|clientY|innerWidth|innerHeight/g)];
-  const clampExists = anchors.some((m) => {
-    const w = CLIENT_SRC.slice(Math.max(0, m.index - 700), m.index + 900);
-    return /Math\.min/.test(w) && /Math\.max/.test(w);
-  });
-  if (!clampExists) {
-    problems.push('全文件找不到「视口尺寸 + Math.min + Math.max」的夹取/翻转运算 —— §11.1② 要求翻转或滑动并留边距');
-  }
-
-  // ② 每个坐标点：x、y 的取值来源都要能追到夹取/放置计算。
-  //    只跳过「两个坐标都是**纯数字字面量**」的兜底（如 `{x:120,y:120}`）——
-  //    裸标识符不能放过：它可能来自未夹取的计算。
-  const opens = [...CLIENT_SRC.matchAll(/setMenu\s*\(\s*\{\s*x\s*:\s*([^,}]+),\s*y\s*:\s*([^,}]+)/g)];
-  const isLiteral = (s) => /^\s*\d+(?:\.\d+)?\s*$/.test(s);
-  let checked = 0;
-  for (const m of opens) {
-    if (isLiteral(m[1]) && isLiteral(m[2])) continue;
-    checked += 1;
-    const bad = [m[1], m[2]].filter((one) => !looksClamped(one, m.index));
-    if (bad.length) {
-      problems.push(
-        'client.js:' + lineOf(CLIENT_SRC, m.index) + ' 菜单坐标 ' + bad.map((b) => b.trim()).join(' / ') +
-          ' 的取值追不到夹取或放置计算 —— §11.1②：应统一经 `placeMenu()` 这类函数（内部做夹取 + 只在真能放下那侧翻转）'
-      );
-    }
-  }
-  if (checked === 0) {
-    problems.push('找不到任何「由 rect / 鼠标坐标算出」的菜单坐标点 —— 无法确认 §11.1②（若定位方式改了，请同步更新本断言）');
-  }
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§11.1②]', '浮层坐标经过视口夹取', '面板的浮层删了；右栏无浮层');
 
 // ── [21] §11.1③ 浮层根节点必须 fixed（或 portal）────────────────────────
 console.log('\n[21/37] 浮层不被裁切');
@@ -1132,208 +866,27 @@ check('[§11.4]', 'toast 走 shell.overlay，且有 hasOverlay 回退判据', OW
 
 // ── [23] 设置面板由 schema 驱动 ──────────────────────────────────────────
 console.log('\n[23/37] 设置面板 schema 驱动');
-check('[实现约定]', '键集来自 schema.defaults、分组来自 schema.hostEffectiveKeys', OWNER_CLIENT, () => {
-  // 来源说明：这不是 UI-SPEC 条款，是 **lead 指定的实现约定**（补设置面板的覆盖缺口）。
-  // 只钉**正向**的「schema 驱动」，不做「禁止出现键名」的负判据 ——
-  // 因为中文文案表**合法地**以设置键为索引（`thumbMaxBytes: {label,…}`），
-  // 负判据会把它误伤成「硬编码键表」。正向钉住「键与分组都从 schema 来」才是要害。
-  const problems = [];
-
-  // ① **两跳追踪**：分组用的键集 ← 必须由 schema 迭代产生。
-  //    为什么要两跳：只查「有没有对 schema 变量做迭代」太松 —— 我 bite-test 时发现，
-  //    把真正喂给分组的 `keys` 换成字面量数组后，别处**残留的**迭代仍能让它通过。
-  //    所以要顺着 `list: KEYS.filter(...)` 找到 KEYS，再看 KEYS 是不是 schema 迭代出来的。
-  const schemaIds = [...CLIENT_SRC.matchAll(/(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*schema\.defaults[^;\n]*/g)].map((m) => m[1]);
-  const groupKeyIds = [...new Set([...CLIENT_SRC.matchAll(/list\s*:\s*([A-Za-z_$][\w$]*)\s*\.\s*filter\s*\(/g)].map((m) => m[1]))];
-
-  if (!schemaIds.length) problems.push('找不到从 `schema.defaults` 取值的赋值 —— 设置面板似乎没有读 schema');
-  if (!groupKeyIds.length) problems.push('找不到分组键集的用法（`list: xxx.filter(...)`）—— 无法确认键集来源');
-
-  const esc = (s) => s.replace(/\$/g, '\\$');
-  let keysFromSchema = false;
-  for (const kid of groupKeyIds) {
-    for (const sid of schemaIds) {
-      // 形态 A：KEYS = Object.keys(schemaVar)
-      if (new RegExp('(?:var|let|const)\\s+' + esc(kid) + '\\s*=\\s*Object\\.keys\\s*\\(\\s*' + esc(sid) + '\\s*\\)').test(CLIENT_SRC)) keysFromSchema = true;
-      // 形态 B：for (k in schemaVar) { … KEYS.push(k) … }
-      const loopRe = new RegExp('for\\s*\\([^)]*\\bin\\s+' + esc(sid) + '\\b[^)]*\\)', 'g');
-      let lm;
-      while ((lm = loopRe.exec(CLIENT_SRC))) {
-        const body = CLIENT_SRC.slice(lm.index, lm.index + 260);
-        if (new RegExp(esc(kid) + '\\s*\\.\\s*push\\s*\\(').test(body)) keysFromSchema = true;
-      }
-    }
-  }
-  if (schemaIds.length && groupKeyIds.length && !keysFromSchema) {
-    problems.push(
-      '分组用的键集（' + groupKeyIds.join('/') + '）不是从 `schema.defaults` 迭代出来的 —— 键集被写死了（新增设置项会不显示）'
-    );
-  }
-
-  // ② 分组必须由 `schema.hostEffectiveKeys` 分区（而不是写死两组键名）
-  const hostKeysDecl = /schema\.hostEffectiveKeys/.test(CLIENT_SRC);
-  const partitioned = /hostKeys?\s*\.\s*(?:indexOf|includes)\s*\(/.test(CLIENT_SRC) || /\bSet\s*\(\s*hostKeys?\b/.test(CLIENT_SRC);
-  if (!hostKeysDecl) problems.push('没有引用 `schema.hostEffectiveKeys` —— 分组看起来是写死的');
-  else if (!partitioned) problems.push('引用了 hostEffectiveKeys 但没有用它做成员判定 —— 分组未必按 schema 划分');
-
-  assert(problems.length === 0, '设置面板疑似脱离 schema：' + problems.join('；'));
-});
+retired('[实现约定]', '键集来自 schema.defaults', '`SettingsPanel` 删了（管理页的设置不走 schema）');
 
 // ── [24] 空态两分支 ──────────────────────────────────────────────────────
 console.log('\n[24/37] 空态两分支');
-check('[§六]', '「真的空」与「被隐藏项过滤成空」是两个分支，不是同一句兜底', OWNER_CLIENT, () => {
-  const problems = [];
-  const emptyMsg = /这个文件夹是空的/;
-  const filteredMsg = /个隐藏项被过滤/;
-  if (!emptyMsg.test(CLIENT_SRC)) problems.push('找不到「这个文件夹是空的」（§六 空目录态）');
-  if (!filteredMsg.test(CLIENT_SRC)) {
-    problems.push('找不到「N 个隐藏项被过滤」那一支 —— 被 showHidden 过滤成空时会误报「空的」，用户看不出为什么');
-  }
-  if (!/hiddenFiltered/.test(CLIENT_SRC)) problems.push('没有用到宿主回报的 `hiddenFiltered`（无法区分两种空）');
-
-  // 必须是**两个分支**：两句文案不在同一处（否则就是同一句兜底文案）
-  const m1 = emptyMsg.exec(CLIENT_SRC);
-  const m2 = filteredMsg.exec(CLIENT_SRC);
-  if (m1 && m2) {
-    const dist = Math.abs(m1.index - m2.index);
-    if (dist < 60) problems.push('两句空态文案挨在一起（相隔 ' + dist + ' 字符）—— 看起来是同一句兜底，不是两个分支');
-  }
-  // 被过滤那一支必须给出**可操作**的出口（「显示隐藏项」），否则用户只能去猜
-  if (m2 && !/显示隐藏项/.test(CLIENT_SRC)) problems.push('「被过滤成空」这一支没有「显示隐藏项」的出口');
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§六]', '「真的空」与「被隐藏项过滤成空」', '面板的目录浏览删了（⚠️ 该**移植**：右栏有三类空态，见 §三）');
 
 // ── [25] 导入结果如实展示三类清单 ─────────────────────────────────────────
 console.log('\n[25/37] 导入结果如实展示');
-check('[§11.4]', 'applied / ignored / errors 三类清单一并展示', OWNER_CLIENT, () => {
-  // §11.4 的「如实」：失败/被忽略的部分不能被一句「成功」吞掉。
-  const hits = {};
-  for (const k of ['applied', 'ignored', 'errors']) {
-    hits[k] = [...CLIENT_SRC.matchAll(new RegExp('\\b' + k + '\\b', 'g'))].map((m) => m.index);
-  }
-  const missing = Object.keys(hits).filter((k) => !hits[k].length);
-  assert(
-    missing.length === 0,
-    '导入结果里没有 ' + missing.join(' / ') + ' —— §11.4 要求如实展示（只报「成功」会吞掉被忽略与出错的部分）'
-  );
-  // 三类必须在**同一处渲染**（同一段窗口内全都出现），否则可能只是散落的变量名
-  const together = hits.applied.some((a) => hits.ignored.some((b) => Math.abs(a - b) < 1200) && hits.errors.some((c) => Math.abs(a - c) < 1200));
-  assert(together, 'applied / ignored / errors 没有在同一段渲染逻辑里同时出现 —— 可能只展示了其中一类');
-});
+retired('[§11.4]', 'applied / ignored / errors', '`ImportPanel` 删了；管理页的导入不受 ui-spec 管');
 
 // ── [26] 客户端生效的设置键必须真的被读（防「只存不读」）──────────────────
 console.log('\n[26/37] 设置项真的生效');
-check('[实现约定]', 'APPEARANCE_KEYS 与 virtualThreshold 每个键在渲染侧都有消费点', OWNER_CLIENT, () => {
-  /**
-   * 为什么有这条：ui-core 自查发现 **9 个客户端生效键「只存不读」** ——
-   * 面板照 schema 渲染、控件齐、保存成功，但改了行高/缩略图大小**什么都不发生**。
-   * 这正是 lead 反复点的 `indexExtraDirs` 式坑（「读了不生效」的镜像：存了没人读）。
-   *
-   * 判据是**结构性事实**（源码里有没有读它），不是渲染行为 → 不受 hook 布局影响。
-   * **键名清单从 `lib/settings.js` 的 `APPEARANCE_KEYS` 读**，所以将来加键会自动被要求接线，
-   * 不需要有人记得回来改这份测试。
-   */
-  const problems = [];
-
-  let appearance = [];
-  try {
-    const settingsSrc = fs.readFileSync(SETTINGS_PATH, 'utf8');
-    const block = /APPEARANCE_KEYS\s*=\s*\[([\s\S]*?)\]/.exec(settingsSrc);
-    appearance = block ? [...block[1].matchAll(/['"]([A-Za-z_$][\w$]*)['"]/g)].map((m) => m[1]) : [];
-  } catch (error) {
-    problems.push('读不到 lib/settings.js（' + errText(error) + '）—— 无法核对键名清单');
-  }
-  if (!appearance.length) {
-    problems.push('从 lib/settings.js 解析不出 `APPEARANCE_KEYS`（清单为空）—— 这条判据需要它，不能静默失效');
-  }
-
-  // virtualThreshold 不在 APPEARANCE_KEYS 里，但它属于那批「只存不读」的键，单独补上。
-  //
-  // ⚠️ 判据演进（两次，方向相反，都记下来）：
-  //   v1 只认 `prefs.<key>` → 把 `next.defaultView` 判红。我当时**当成自己写窄了**（值确实被读了），
-  //      于是放宽成「任意成员访问」。
-  //   v2（放宽后）→ ui-core 指出：那不是误杀，是**它自己的命名不一致**，并已统一成 `prefs.<key>`，
-  //      理由是「换个人读源码，`next.defaultView` 不如 `prefs.defaultView` 一眼可查」。
-  //   v3（现在）→ 既然命名统一是**实现方有意为之的约定**，就把约定一起钉住：
-  //      要求消费点写成 `prefs.<key>`（或 `prefs["<key>"]`）。这样这条同时保证
-  //      「真的被读」**和**「可 grep 得到」——后者是维护性，不是洁癖。
-  //      将来若有人合法改名，这条会红；**消息里写明了「要么用 prefs.，要么连同本断言一起更新」**，
-  //      所以那次红是自解释的，不会变成谜题。
-  const keys = appearance.concat(['virtualThreshold']);
-  for (const key of keys) {
-    const k = key.replace(/\$/g, '\\$');
-    const readRe = new RegExp('prefs\\s*(\\.\\s*' + k + '\\b|\\[\\s*["\']' + k + '["\']\\s*\\])');
-    if (!readRe.test(CLIENT_SRC)) {
-      problems.push(
-        '客户端生效键 `' + key + '` 找不到消费点 `prefs.' + key + '` —— ' +
-          '「只存不读」：设置面板能改它，但实际不生效；也可能是消费点换了对象名（约定：统一用 `prefs.<键>`，' +
-          '便于 grep；若确实要改名，请连同本条断言一起更新）'
-      );
-    }
-  }
-
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[实现约定]', 'APPEARANCE_KEYS 与 virtualThreshold', '面板删了 ⇒ `density` 在客户端没有消费点了');
 
 // ── [27] 多选的无障碍语义 ────────────────────────────────────────────────
 console.log('\n[27/37] 多选的无障碍语义');
-check('[§三.3/§七]', '可选中行必须有 aria-selected，且随选中状态变化（不能写死）', OWNER_CLIENT, () => {
-  // lead 判定这条**属于规范内**（不是实现约定）：`aria-selected` 是 ARIA 对 grid 行
-  // 选中状态的标准属性。不钉它 = 「选中了」只对眼睛成立、对读屏不成立。
-  const problems = [];
-  if (!/aria-selected/.test(CLIENT_SRC)) {
-    problems.push('找不到 `aria-selected` —— 行可选却没有选中语义，读屏读不出「这一行被选中了」');
-  }
-  // ⚠️ 判据要**逐个选中点**查，不能只看「有没有一处是动态的」：
-  //    我 v1 写成「所有 aria-selected 都是常量才算错」，结果 bite-test 把**行**那一处
-  //    改成写死 `"false"` 后**它照样绿**（另一处仍是动态的）——典型的过宽。
-  //    现在按「视觉与无障碍同源」钉：**每一个标了 `data-sel` 的 props，其配套 `aria-selected`
-  //    必须随状态变化**。表头那种没有 data-sel 的恒 false 不受影响（不会误伤）。
-  const selSites = [...CLIENT_SRC.matchAll(/["']data-sel["']\s*:/g)];
-  if (!selSites.length) problems.push('找不到 `data-sel`（选中态的视觉标记）—— 视觉与无障碍应当同源');
-  const CONST = /^\s*(?:true|false|["']true["']|["']false["'])\s*$/;
-  for (const site of selSites) {
-    const w = CLIENT_SRC.slice(site.index, site.index + 400);
-    const am = /["']aria-selected["']\s*:\s*([^,}]+)/.exec(w);
-    if (!am) {
-      problems.push('client.js:' + lineOf(CLIENT_SRC, site.index) + ' 标了 `data-sel` 却没有配套的 `aria-selected`（视觉标了、读屏没标）');
-    } else if (CONST.test(am[1])) {
-      problems.push('client.js:' + lineOf(CLIENT_SRC, site.index) + ' 的 `aria-selected` 写死成 ' + am[1].trim() + ' —— 它必须跟着选中集合走');
-    }
-  }
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§三.3/§七]', '可选中行必须有 aria-selected', '面板的可选中行删了（⚠️ 该**移植**到右栏列表，见 §三）');
 
 // ── [28] 拖拽语义唯一（三个方向不许打架）──────────────────────────────────
 console.log('\n[28/37] 拖拽语义唯一');
-check('[实现约定]', '拖进来=登记、拖出去=带载荷的引用、禁止拖拽选中', OWNER_CLIENT, () => {
-  // 这条**不是禁止拖拽**：它给三种拖拽各自定死语义，并禁止第三种（框选）出现。
-  //   ① 拖进来 = 登记  → `onDrop` 必须存在（配对正向要求）
-  //   ② 拖出去 = 引用  → 允许 `onDragStart`，但**必须带载荷**（`.setData(`）
-  //   ③ 拖拽选中（框选/刷选）→ 禁止：它和上面两个抢同一个手势，§4.3 也要求拖拽不与虚拟滚动打架
-  // ⚠️ 2026-09-30 夜里提前改过一次：原判据**一律禁 `onDragStart`**，而 task-13 的
-  //    「拖出去=引用」正需要它 —— 不改，那条合法功能会被本门禁误杀。
-  //    教训一句话：**判据要跟着「语义」走，不是跟着关键词走**（同一关键词在不同语义下对错相反）。
-  const problems = [];
-
-  // ③ 禁止拖拽选中
-  for (const bad of ['dragSelect', 'dragRect', 'marqueeSelect', 'selectionRect']) {
-    if (new RegExp('\\b' + bad + '\\b').test(CLIENT_SRC)) {
-      problems.push('出现了 `' + bad + '` —— 拖拽选中会与「拖进=登记」「拖出=引用」抢同一手势（§4.3）');
-    }
-  }
-  // ① 拖进来 = 登记（配对正向要求：防止本条退化成永远为真的空话）
-  if (!/onDrop/.test(CLIENT_SRC)) {
-    problems.push('找不到 `onDrop` —— 拖拽投放（登记）路径不见了；本条判据前提已失效，请同步更新');
-  }
-  // ② 拖出去 = 引用：允许 onDragStart，但必须带载荷
-  const dragOut = /\bonDragStart\b/.test(CLIENT_SRC);
-  if (dragOut && !/\.setData\s*\(/.test(CLIENT_SRC)) {
-    problems.push('有 `onDragStart` 却找不到 `.setData(` —— 拖出去必须带引用载荷，否则用户拖出去得不到任何东西');
-  }
-
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[实现约定]', '拖进来=登记、拖出去', '面板的拖拽删了；右栏没有拖拽');
 
 // ── [29] hover 操作区不得改变行高（虚拟滚动靠它吃饭）─────────────────────
 console.log('\n[29/37] hover 操作区不改变行高');
@@ -1387,48 +940,7 @@ check('[§3.1/§3.7]', 'hover 操作区必须「默认隐藏 + 空间已预留�
 
 // ── [30] 产物右键菜单（task-13 新建）──────────────────────────────────────
 console.log('\n[30/37] 产物右键菜单');
-check('[§11.1/§11.2]', '产物侧有右键菜单、有「在文件夹中显示」且真的落到 files/reveal、可关闭', OWNER_CLIENT, () => {
-  /**
-   * 为什么钉：产物行**原本连右键菜单都没有**（全文件 `role:"menu"` 只有目录侧一处）。
-   * ⚠️ 按**名字**定位，不按「`role:"menu"` 数量 ≥ 2」——
-   *    因为实现方将来若把菜单抽成**共享组件**，源码里就只剩一处，按数量钉会**误杀更干净的做法**。
-   */
-  const problems = [];
-  // ⚠️ 只认**节点形态** `"aria-label": "产物操作"`（冒号），不认裸字符串 ——
-  //    第一个出现处可能是**注释**里的 `` `aria-label="产物操作"` ``（等号），
-  //    我第一版用 indexOf 就命中了注释 → 切片窗口整个偏掉 → 三条全误报（第 9 次自曝）。
-  const at = CLIENT_SRC.search(/"aria-label"\s*:\s*"产物操作"/);
-  if (at < 0) {
-    problems.push('找不到产物菜单节点（`"aria-label": "产物操作"`）—— 产物侧右键菜单没建，或改名了（改名请同步更新本断言）');
-  } else {
-    const win = CLIENT_SRC.slice(at, at + 2500);
-    if (!/在文件夹中显示|在资源管理器中定位/.test(win)) {
-      problems.push('产物右键菜单里找不到「在文件夹中显示」那一项');
-    }
-    if (!/role\s*:\s*"menuitem"/.test(win)) {
-      problems.push('产物菜单里没有 `role="menuitem"` 的项 —— 语义不对，读屏读不出这是菜单项');
-    }
-    // **两跳**：菜单项调用的那个 reveal* 函数，定义体里必须真的打 `/files/reveal`。
-    // 不写死函数名 —— 目录侧叫 `revealRow`、产物侧叫 `revealRecord`，写死一个就会误伤另一个。
-    const call = /(reveal[A-Za-z]*)\s*\(/.exec(win);
-    if (!call) {
-      problems.push('「在文件夹中显示」没有调用任何 `reveal*()` 函数 —— 菜单项存在但不接端点');
-    } else {
-      const dm = new RegExp('function\\s+' + call[1] + '\\s*\\([^)]*\\)\\s*\\{').exec(CLIENT_SRC);
-      const body = dm ? CLIENT_SRC.slice(dm.index, dm.index + 700) : '';
-      if (!/files\/reveal/.test(body)) {
-        problems.push('菜单项调用的 `' + call[1] + '()` 定义体里没有 `/files/reveal` —— 菜单项存在但没接端点');
-      }
-    }
-  }
-  // 可关闭：菜单必须存在关闭路径（Escape 或点外部）。名字不强求，但**必须有**
-  if (!/Escape/.test(CLIENT_SRC)) {
-    problems.push('全文件找不到 `Escape` —— 浮层无法用键盘关闭（§11.1①）');
-  } else if (!/(setArtMenu|closeArtMenu|setMenu)\s*\(\s*null\s*\)/.test(CLIENT_SRC)) {
-    problems.push('找不到把菜单置空的关闭路径（`setArtMenu(null)` 之类）—— 菜单可能关不掉');
-  }
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§11.1/§11.2]', '产物侧有右键菜单', '面板的产物右键菜单删了');
 
 // ── [31-33] 语义搜索（不复用关键词 / 不静默降级 / 两个分支不合并）──────────
 /**
@@ -1450,48 +962,13 @@ function bodyOf(src, name, max) {
 }
 
 console.log('\n[31/37] 语义搜索不复用关键词查询');
-check('[实现约定]', '语义模式必须打自己的端点，不得复用关键词查询路径', OWNER_CLIENT, () => {
-  const problems = [];
-  const body = bodyOf(CLIENT_SRC, 'SemanticView');
-  if (!body) {
-    problems.push('找不到 `SemanticView` 函数 —— 语义视图不见了（判据前提失效，请同步更新本断言）');
-  } else {
-    if (!/\/search\?q=/.test(body)) {
-      problems.push('SemanticView 里找不到自己的 `/search?q=` 端点 —— 语义模式可能在复用关键词查询');
-    }
-    if (/\blistQuery\b/.test(body)) {
-      problems.push('SemanticView 函数体里出现了 `listQuery` —— 语义与关键词共用同一查询（两种模式必须打不同请求）');
-    }
-  }
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[实现约定]', '语义模式必须打自己的端点', '`SemanticView` 删了（⚠️ 语义搜索**本身还在**，在管理页里）');
 
 console.log('\n[32/37] 语义不可用时不得静默降级');
-check('[§11.4]', '语义服务不可用时必须明说，不得「偷偷给关键词结果」', OWNER_CLIENT, () => {
-  // 为什么排第一（lead 定的）：功能缺失 = 用户「知道没有」；
-  // 静默降级 = 用户「以为有」并据此判断 —— 属**欺骗性**类，比功能缺失严重。
-  const problems = [];
-  const body = bodyOf(CLIENT_SRC, 'SemanticView');
-  if (!body) {
-    problems.push('找不到 `SemanticView` 函数 —— 判据前提失效，请同步更新本断言');
-  } else {
-    if (!/语义搜索不可用/.test(body)) {
-      problems.push('错误分支里没有「语义搜索不可用」这句话 —— 用户无法判断结果来自语义还是关键词');
-    }
-    if (!/偷偷|悄悄|静默/.test(body)) {
-      problems.push('没有明说「不会偷偷给关键词结果」—— §11.4 要求如实，静默降级等于欺骗');
-    }
-  }
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§11.4]', '语义服务不可用时必须明说', '`SemanticView` 删了（管理页的语义搜索不受 ui-spec 管）');
 
 console.log('\n[33/37] 「没有结果」与「服务不可用」必须是两个分支');
-check('[§六/§11.4]', '真没有结果 ≠ 服务不可用，两句文案必须分开且都在', OWNER_CLIENT, () => {
-  const problems = [];
-  if (!/没有找到/.test(CLIENT_SRC)) problems.push('找不到「没有找到…」那支（真无结果）');
-  if (!/语义搜索不可用/.test(CLIENT_SRC)) problems.push('找不到「语义搜索不可用」那支（服务不可用）');
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§六/§11.4]', '真没有结果 ≠ 服务不可用', '`SemanticView` 删了');
 
 // ── [34] 不许用状态码文本判失败（必须用结构化 reason）────────────────────
 console.log('\n[34/37] 失败判定必须用结构化 reason');
@@ -1533,60 +1010,13 @@ check('[实现约定]', '不得用状态码文本匹配判失败（indexOf("404"
 const importBody = bodyOf(CLIENT_SRC, 'ImportPanel');
 
 console.log('\n[35/37] 取消不得被渲染成错误');
-check('[§11.4]', '中性取消文案只走提示通道（setNote/__sethint），不得走错误通道（__setrerr）', OWNER_CLIENT, () => {
-  /**
-   * ⚠️ 判据形状的**第 5 次更正**（ui-core 在我写之前拦住）：
-   *    我原打算「中性文案周围 ±300 字符内不得出现 `error`/`失败`」——
-   *    **但那会必然误红**：它的 `pickDirectory()` 契约是 `if (!result.ok) throw`，
-   *    **取消也抛** → 取消与失败**共用同一个 catch** → `catch (error)` 天然就在附近。
-   *    ⇒ 改钉**通道不变量**：中性文案必须经 `setNote()`（→ `__sethint`）输出，
-   *      而错误通道 `__setrerr` 只能由 `result.error` 到达。
-   *    教训：**钉「从哪条通道出去」，比钉「附近有什么词」稳。**
-   */
-  const problems = [];
-  if (!importBody) {
-    problems.push('找不到 `ImportPanel` 函数 —— 判据前提失效，请同步更新本断言');
-  } else {
-    if (!/setNote\s*\(\s*["'][^"']*已取消/.test(importBody)) {
-      problems.push('找不到经 `setNote()` 输出的中性取消文案（「已取消…」）—— 取消可能没走提示通道');
-    }
-    if (/setResult\s*\(\s*\{[^}]*已取消/.test(importBody)) {
-      problems.push('「已取消」出现在 `setResult(...)` 里 —— 把用户的取消渲染成了错误（§11.4 要求如实，取消不是失败）');
-    }
-    const errNode = /__setrerr/.exec(importBody);
-    if (errNode && !/result\.error/.test(importBody.slice(Math.max(0, errNode.index - 300), errNode.index + 100))) {
-      problems.push('错误通道 `__setrerr` 附近看不到 `result.error` 条件 —— 它可能被别的路径（如 picker 的 catch）到达');
-    }
-  }
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§11.4]', '中性取消文案只走提示通道', '`ImportPanel` 删了');
 
 console.log('\n[36/37] 宿主拒绝理由不得被吞');
-check('[§11.4]', '必须把宿主的拒绝理由渲染出来（不是只 log）', OWNER_CLIENT, () => {
-  const problems = [];
-  if (!importBody) {
-    problems.push('找不到 `ImportPanel` 函数 —— 判据前提失效，请同步更新本断言');
-  } else if (!/result\.error/.test(importBody)) {
-    problems.push('ImportPanel 里没有 `result.error` —— 宿主给的具体拒绝理由被吞了（用户只能猜）');
-  } else if (!/导入被拒绝|被拒绝/.test(importBody)) {
-    problems.push('找不到「导入被拒绝…」这句渲染 —— `result.error` 可能只被 log 了，没进界面');
-  }
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§11.4]', '必须把宿主的拒绝理由渲染出来', '`ImportPanel` 删了');
 
 console.log('\n[37/37] 上限与跳过原因必须说');
-check('[§11.4]', '写明单次上限（10000）与跳过原因，且结果块以 result 为条件', OWNER_CLIENT, () => {
-  const problems = [];
-  if (!importBody) {
-    problems.push('找不到 `ImportPanel` 函数 —— 判据前提失效，请同步更新本断言');
-  } else {
-    if (!/10000/.test(importBody)) problems.push('没写明单次文件数上限（找不到 10000）—— 用户不知道边界在哪');
-    if (!/result\.skipped\b/.test(importBody)) problems.push('找不到 `result.skipped` —— 跳过了多少条没说');
-    if (!/跳过的是/.test(importBody)) problems.push('没有「跳过的是…」说明 —— 用户不知道为什么被跳过');
-    if (!/\bresult\s*(\?|&&)/.test(importBody)) problems.push('结果块没有以 `result` 为条件 —— 可能把空结果也渲染出来了');
-  }
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§11.4]', '写明单次上限（10000）', '`ImportPanel` 删了');
 
 
 // ── [38/45] R-9：节奏刻度护栏（从 ui-core 的 scratch 搬进**项目门禁**）──────────
@@ -1751,15 +1181,15 @@ check('[§12]', '★ apiGet 与 apiSend **各自**都调用 fetchWithTimeout（�
 });
 
 console.log('\n[45/45] R-1：超时与「插件没装」必须是两条不同的失败');
-check('[§12]', '★ 超时 / 普通失败 文案不同（两者下一步动作不同：点重试 vs 确认插件）', OWNER_CLIENT, () => {
-  const problems = [];
-  if (!/加载超时：/.test(CLIENT_SRC)) problems.push('没有超时文案（用户看不出「宿主没响应」和「插件没装」的区别）');
-  if (!/加载失败：/.test(CLIENT_SRC)) problems.push('普通失败文案被删了');
-  if (!/isTimeout/.test(CLIENT_SRC)) problems.push('没有分流判断');
-  assert(problems.length === 0, problems.join('；'));
-});
+retired('[§12]', '超时 / 普通失败 文案不同', '面板的加载失败分流删了；右栏的失败文案在 `RightPaneBody`');
 
 // ── 汇总 ──────────────────────────────────────────────────────────────────
+if (retiredList.length) {
+  console.log('\n── 已废弃的条款（' + retiredList.length + ' 条 · 主体随主面板一起删了）──');
+  console.log('   ⚠️ 它们**不是**"不用管了"：其中几条该**移植**到右栏，见');
+  console.log('      `docs/DEPRECATED-TESTS.md` §三「待补」。');
+  for (const r of retiredList) console.log('      · ' + r.spec + ' ' + r.title + ' —— ' + r.reason);
+}
 if (failureList.length) {
   console.log('\n── 失败清单（按负责人）──');
   for (const owner of [OWNER_CLIENT, OWNER_ICONS, OWNER_TABLES]) {
@@ -1770,5 +1200,6 @@ if (failureList.length) {
   }
 }
 
-console.log('\n结果：' + passed + ' 通过 / ' + failed + ' 失败');
+console.log('\n结果：' + passed + ' 通过 / ' + failed + ' 失败'
+  + (retiredList.length ? ' / ' + retiredList.length + ' 已废弃' : ''));
 process.exit(failed ? 1 : 0);
