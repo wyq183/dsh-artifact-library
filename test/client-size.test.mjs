@@ -51,8 +51,9 @@ const LIB_DIR = fileURLToPath(new URL('../lib/', import.meta.url))
  * | 2026-10-11 | 9414 | 建立时的实测值 |
  * | 2026-10-13 | 9460 | 换 `ctx.inject` + 加 `ctx.effect`（见提交）。<br>代码 **+13 行**、注释 +30、空行 +3。<br>⚠️ **这不是"变大"，是"变清晰"**：旧的 `tryRegister`（一个函数干四件事）<br>被拆成 `registerSlots` / `onSlotsReady` / `inEffect` 三个**单一职责**函数。<br>按 §4.2 的判据（**单个组件规模**）核查过：<br>`PanelInner` 1574 / `DirBrowser` 1413 / `registerAtSource` 84 —— **一行没变**；<br>只有 `apply` 224→270，而多出来的全是**新拆出的三个函数**。<br>⇒ 净增的是"函数边界"，不是"组件膨胀"。 |
  * | 2026-10-14 | 9614 | ⭐ **档 1a：接管官方文件树**（注册 `kind:"files"`）。<br>新增 `RightPaneBody` / `RightPaneTitle` 两个组件 + 14 条 CSS。<br>⚠️ **这是真实的新功能**，154 行全部是净增代码（不是重构）。<br>它同时是**下一步删代码的前提**：档 1b 会删掉 `main`/`panellist`/`footer` 三个席位<br>（约 **−1665 行**），那时这个数会大幅回落。 |
+ * | 2026-10-14 | 9676 | 档 1b：右栏加**三个粒度**（当前工作区／全部／当前会话，默认第一个）。<br>新增粒度切换按钮 + 空态分类 + `sessionId`/`useSessions` 取 cwd。<br>62 行净增（含 4 条 CSS）。宿主侧 `store.list` 加 `scope_dir`/`session_id` 两个筛选。 |
  */
-const CLIENT_BASELINE = 9614
+const CLIENT_BASELINE = 9676
 
 /** chunk 上限：和 `RULES.md` §4.2 的「单个新组件 > 300 行就拆」配套的硬顶。 */
 const CHUNK_MAX = 800
