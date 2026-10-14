@@ -66,7 +66,7 @@ check('★★ A2 每个 `<script>` 都**语法合法**（否则整块不执行�
   SCRIPTS.forEach((js, i) => {
     try {
       // 用 vm.Script 编译（不执行）—— 与浏览器同一个解析器行为
-      new vm.Script(js) // eslint-disable-line no-new -- 只为解析，不求值
+      new vm.Script(js)  
     } catch (error) {
       // ⚠️ `cause` 必须带上：原始 `SyntaxError` 里才有**行列号**，
       //    丢掉它就只能看到我们包装的这句话，等于把最有用的信息扔了。

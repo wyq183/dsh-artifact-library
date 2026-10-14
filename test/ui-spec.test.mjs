@@ -1167,16 +1167,31 @@ check('[§12]', '零散「5px/7px/11px」不再出现在间距声明里', OWNER_
 });
 
 console.log('\n[44/45] R-1：请求层两条通道都走超时通道');
-check('[§12]', '★ apiGet 与 apiSend **各自**都调用 fetchWithTimeout（漏一条等于没做）', OWNER_CLIENT, () => {
+check('[§12]', '★ 客户端 `apiGet` 与**网页版 `api()`** 都走超时通道（漏一条等于没做）', OWNER_CLIENT, () => {
   // 为什么用 bodyOf 分别切片，而不是「全文件出现 ≥2 次」：
   //   后者是「太松」—— 把两处都塞进 apiGet 也能凑够 2 次。
+  //
+  // ⚠️ 2026-10-14 移植：原来守的是 `apiGet` + `apiSend` 两条。
+  //    右栏只读 ⇒ `apiSend`（写通道）随主面板一起删了。
+  //    但**性质还在**：「每一条请求通道都要有超时」—— 否则慢请求会让界面
+  //    停在骨架屏上，用户不知道是在加载还是死了。
+  //    ⇒ 第二条改成守**网页版的 `api()`**（它现在是唯一的另一条通道）。
   const problems = [];
   const g = bodyOf(CLIENT_SRC, 'apiGet');
-  const s = bodyOf(CLIENT_SRC, 'apiSend');
   if (!g) problems.push('找不到 `apiGet` —— 判据前提失效，请同步更新本断言');
   else if (!/fetchWithTimeout\s*\(/.test(g)) problems.push('apiGet 没走超时通道（慢请求会停在骨架屏）');
-  if (!s) problems.push('找不到 `apiSend` —— 判据前提失效，请同步更新本断言');
-  else if (!/fetchWithTimeout\s*\(/.test(s)) problems.push('apiSend 没走超时通道（漏一条 = 没做）');
+
+  // 第二条通道：网页版
+  let ui = '';
+  try { ui = fs.readFileSync(path.join(ROOT, 'ui', 'index.html'), 'utf8'); } catch { /* 读不到在下面报 */ }
+  if (!ui) problems.push('读不到 ui/index.html —— 网页版那条通道没得测');
+  else {
+    const a = bodyOf(ui, 'api');
+    if (!a) problems.push('网页版里找不到 `api()` —— 判据前提失效');
+    else if (!/AbortSignal|signal\s*:/.test(a)) {
+      problems.push('网页版的 `api()` 没有超时/中止机制（慢请求会让界面一直"加载中"）');
+    }
+  }
   assert(problems.length === 0, problems.join('；'));
 });
 

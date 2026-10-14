@@ -26,6 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CLIENT_PATH = process.argv[2] ? path.resolve(process.argv[2]) : fileURLToPath(new URL('../lib/client.js', import.meta.url));
+const ROOT = path.dirname(path.dirname(CLIENT_PATH));
 
 let passed = 0;
 let failed = 0;
@@ -50,7 +51,10 @@ console.log('\n═══ 客户端纯函数适配层 ═══');
 console.log(' 被测：' + CLIENT_PATH);
 
 // ── 载入并注入测试钩子（不改源文件）────────────────────────────────────────
-const HOOK = 'exports.__test = { sessionChangesUrl: sessionChangesUrl, normalizeChanges: normalizeChanges, thumbUrlsFor: thumbUrlsFor, officialFileUrl: officialFileUrl, CHANGES_ROUTE: CHANGES_ROUTE, atMention: atMention, parseAtValue: parseAtValue, registerAtSource: registerAtSource, AT_SOURCE_NAME: AT_SOURCE_NAME };\n    exports.apply = apply;';
+// ⚠️ 2026-10-14：`sessionChangesUrl` / `normalizeChanges` / `thumbUrlsFor` /
+//    `officialFileUrl` 随主面板删了（能力搬进 `ui/index.html`）。
+//    那几节改成**抠网页版实现来测**（见本文件后半的 [W] 节）。
+const HOOK = 'exports.__test = { atMention: atMention, parseAtValue: parseAtValue, registerAtSource: registerAtSource, AT_SOURCE_NAME: AT_SOURCE_NAME };\n    exports.apply = apply;';
 const ANCHOR = 'exports.apply = apply;';
 const raw = fs.readFileSync(CLIENT_PATH, 'utf8');
 const src = raw.replace(ANCHOR, HOOK);
@@ -92,79 +96,116 @@ check('测试钩子注入成功（依赖 client.js 里 `exports.apply = apply;` 
 });
 const T = mod.__test || {};
 
-console.log('\n── 端点适配（URL 只在这一处拼）──');
-check('不带参数 = 宿主自行取最近一轮', () => assert(T.sessionChangesUrl() === T.CHANGES_ROUTE, T.sessionChangesUrl()));
-check('带 sessionId 时正确拼接并编码', () => {
-  assert(T.sessionChangesUrl('s-1') === T.CHANGES_ROUTE + '?sessionId=s-1', T.sessionChangesUrl('s-1'));
-  assert(T.sessionChangesUrl('s 1&x') === T.CHANGES_ROUTE + '?sessionId=s%201%26x', T.sessionChangesUrl('s 1&x'));
-});
-check('带 seq 时两个参数都在', () => {
-  const u = T.sessionChangesUrl('s-1', 7);
-  assert(u.indexOf('sessionId=s-1') >= 0 && u.indexOf('seq=7') >= 0, u);
-});
-check('空 seq 不产生空参数', () => {
-  const u = T.sessionChangesUrl('s-1', '');
-  assert(u.indexOf('seq=') < 0, u);
-});
+console.log('\n── [W] 网页版（ui/index.html）的纯函数：抠出来**行为级**测 ──');
+// ⚠️ 这几条原来是测 `lib/client.js` 的同名函数的（注入 HOOK 后调）。
+//    那些函数 2026-10-14 随主面板删了，**能力搬进了网页版** ⇒ 测试跟着搬。
+//    做法：把网页版 <script> 里那几个函数抠出来，用 vm 求值 —— 测的就是**真机跑的那份**。
+{
+  const UI = path.join(ROOT, 'ui', 'index.html');
+  const html = fs.readFileSync(UI, 'utf8');
+  const js = (/<script>([\s\S]*?)<\/script>/.exec(html) || [])[1] || '';
+  assert(js.length > 10000, '抠不出网页版的 script（<script> 锚点变了？）');
 
-console.log('\n── 返回规范化（官方原样字段：added/deleted/binary/oversized + cwd）──');
-check('files[] → 行模型（cwd 拼绝对 + name/dir/index）', () => {
-  const rows = T.normalizeChanges({ cwd: 'C:\\proj', files: [{ path: 'src/a.md', display: 'src/a.md', added: 12, deleted: 3 }] });
-  assert(rows.length === 1, 'rows=' + rows.length);
-  assert(rows[0].path === 'C:\\proj\\src\\a.md', 'cwd 没拼上: ' + rows[0].path);
-  assert(rows[0].name === 'a.md', 'name=' + rows[0].name);
-  assert(rows[0].dir === 'C:\\proj\\src\\', 'dir=' + rows[0].dir);
-  assert(rows[0].added === 12 && rows[0].deleted === 3, '行数不对: ' + JSON.stringify(rows[0]));
-  assert(rows[0].index === 0, 'index 应是数组下标');
-});
-check('cwd 外的绝对路径原样保留', () => {
-  const rows = T.normalizeChanges({ cwd: 'C:\\proj', files: [{ path: 'D:\\outside\\bin.dat', added: 1, deleted: 0 }] });
-  assert(rows[0].path === 'D:\\outside\\bin.dat', rows[0].path);
-});
-check('容忍 changes[] 与旧字段名 removed（过渡期兼容）', () => {
-  const rows = T.normalizeChanges({ changes: [{ path: '/tmp/x.ts', added: 1, removed: 2 }] });
-  assert(rows.length === 1 && rows[0].name === 'x.ts', JSON.stringify(rows));
-  assert(rows[0].deleted === 2, 'removed 应映射到 deleted: ' + rows[0].deleted);
-});
-check('binary / oversized 是真布尔，且行数为 0', () => {
-  const rows = T.normalizeChanges({ files: [{ path: 'a.bin', binary: true }, { path: 'big.txt', oversized: true }] });
-  assert(rows[0].binary === true && rows[0].oversized === false, JSON.stringify(rows[0]));
-  assert(rows[1].oversized === true && rows[1].binary === false, JSON.stringify(rows[1]));
-  assert(rows[0].added === 0 && rows[0].deleted === 0, '没有行数时应为 0');
-});
-check('负数/非数字行数被夹成 0', () => {
-  const rows = T.normalizeChanges({ files: [{ path: 'C:\\p\\c', added: -5, deleted: 'x' }] });
-  assert(rows[0].added === 0 && rows[0].deleted === 0, JSON.stringify(rows[0]));
-});
-check('空/畸形返回不抛', () => {
-  assert(T.normalizeChanges(undefined).length === 0, 'undefined');
-  assert(T.normalizeChanges({}).length === 0, '空对象');
-  assert(T.normalizeChanges({ files: null }).length === 0, 'files=null');
-});
-check('index 缺失时用数组下标兜底', () => {
-  const rows = T.normalizeChanges({ files: [{ path: 'C:\\p\\d' }, { path: 'C:\\p\\e' }] });
-  assert(rows[0].index === 0 && rows[1].index === 1, JSON.stringify(rows.map((r) => r.index)));
-});
+  // ⚠️ 抠取区间要**覆盖全部要测的函数**。第一版从 `isWindowsPath` 开始 ⇒
+  //    漏掉了排在它**前面**的 `THUMB_EXTS` / `thumbUrlsFor` ⇒ `ReferenceError`。
+  //    现在从 `const THUMB_EXTS` 到 `skeletonHtml`（那一段正好是这一批搬过来的）。
+  const from = js.indexOf('const THUMB_EXTS =');
+  const to = js.indexOf('function skeletonHtml(');
+  assert(from >= 0 && to > from, '抠不出缩略图/路径那一段（函数改名或调序了？）');
+  const code = js.slice(from, to);
 
-console.log('\n── 缩略图两级 URL（自建优先 / 官方后备）──');
-check('自建端点为首选（根相对，过 assertInScope）', () => {
-  const u = T.thumbUrlsFor({ name: 'a.png', path: 'C:\\p\\a.png', size: 100, isDirectory: false });
-  assert(u && u.primary.indexOf('/ext/artifacts/files/thumb?path=') === 0, JSON.stringify(u));
-});
-check('官方 api/file 作为后备保留', () => {
-  const u = T.thumbUrlsFor({ name: 'a.png', path: 'C:\\p\\a.png', size: 100, isDirectory: false });
-  assert(u.fallback.indexOf('/api/file?path=') >= 0, 'fallback=' + u.fallback);
-});
-check('非图片 / 目录 / 符号链接 / >5MB 都不出缩略图', () => {
-  assert(T.thumbUrlsFor({ name: 'a.md', path: 'C:\\p\\a.md', size: 1, isDirectory: false }) === null, 'md');
-  assert(T.thumbUrlsFor({ name: 'd', path: 'C:\\p\\d\\', size: 0, isDirectory: true }) === null, '目录');
-  assert(T.thumbUrlsFor({ name: 'l.png', path: 'C:\\p\\l.png', size: 1, isDirectory: false, isSymbolicLink: true }) === null, '链接');
-  assert(T.thumbUrlsFor({ name: 'big.png', path: 'C:\\p\\big.png', size: 6 * 1024 * 1024, isDirectory: false }) === null, '>5MB');
-});
-check('自建 URL 对中文与空格都编码', () => {
-  const u = T.thumbUrlsFor({ name: '中 文.png', path: 'C:\\p\\中 文.png', size: 1, isDirectory: false });
-  assert(u.primary.indexOf('%20') >= 0 && u.primary.indexOf('%E4%B8%AD') >= 0, u.primary);
-});
+  // ⚠️ `officialFileUrl` 用 `location.origin` ⇒ sandbox 必须给 location，否则报未定义
+  const box = {
+    console: { log: () => {}, warn: () => {}, error: () => {} },
+    URL, isFinite, Number, String, Math, Array, Object, JSON, RegExp,
+    location: { origin: 'http://127.0.0.1:19387' },
+  };
+  box.globalThis = box;
+  vm.createContext(box);
+  // ⚠️ 这几个是网页版的**模块级常量**（被抠出来的函数引用着）——
+  //    不补进 sandbox 就会 `ReferenceError: API is not defined`。
+  box.API = '/ext/artifacts'
+  box.location = { origin: 'http://127.0.0.1:19387' }
+
+  vm.runInContext(code + '\n;this.absoluteUnder=absoluteUnder;this.isWindowsPath=isWindowsPath;'
+    + 'this.normalizeChanges=normalizeChanges;this.splitPathParts=splitPathParts;'
+    + 'this.thumbUrlsFor=thumbUrlsFor;this.officialFileUrl=officialFileUrl;this.extOfName=extOfName;'
+    + 'this.chipOfName=chipOfName;this.chipMatches=chipMatches;this.CHIP_EXTS=CHIP_EXTS;', box);
+
+  // ── 缩略图两级 URL ──
+  check('[W] 缩略图：自建端点为首选（根相对，过 assertInScope）', () => {
+    const u = box.thumbUrlsFor({ name: 'a.png', path: 'C:\\p\\a.png', size: 100, isDirectory: false });
+    assert(u && u.primary.indexOf('/ext/artifacts/files/thumb?path=') === 0, JSON.stringify(u));
+  });
+  check('[W] 缩略图：官方 api/file 作为后备保留', () => {
+    const u = box.thumbUrlsFor({ name: 'a.png', path: 'C:\\p\\a.png', size: 100, isDirectory: false });
+    assert(u.fallback.indexOf('/api/file?path=') >= 0, 'fallback=' + u.fallback);
+  });
+  check('[W] 缩略图：非图片 / 目录 / 符号链接 / >5MB 都不出', () => {
+    assert(box.thumbUrlsFor({ name: 'a.md', path: 'C:\\p\\a.md', size: 1 }) === null, 'md');
+    assert(box.thumbUrlsFor({ name: 'd', path: 'C:\\p\\d', size: 0, isDirectory: true }) === null, '目录');
+    assert(box.thumbUrlsFor({ name: 'l.png', path: 'C:\\p\\l.png', size: 1, isSymbolicLink: true }) === null, '链接');
+    assert(box.thumbUrlsFor({ name: 'big.png', path: 'C:\\p\\big.png', size: 6 * 1024 * 1024 }) === null, '>5MB');
+  });
+  check('[W] 缩略图：中文与空格都编码', () => {
+    const u = box.thumbUrlsFor({ name: '中 文.png', path: 'C:\\p\\中 文.png', size: 1 });
+    assert(u.primary.indexOf('%20') >= 0 && u.primary.indexOf('%E4%B8%AD') >= 0, u.primary);
+  });
+  check('[W] 官方后备 URL：拒绝相对路径 / UNC / 控制字符（三道闸门）', () => {
+    assert(box.officialFileUrl('rel/a.png') === '', '相对路径该拒');
+    assert(box.officialFileUrl('\\\\srv\\share\\a.png') === '', 'UNC 该拒');
+    assert(box.officialFileUrl('C:\\p\\a\u0001b.png') === '', '控制字符该拒');
+    assert(box.officialFileUrl('C:\\p\\a.png').indexOf('/api/file?path=') >= 0, '正常路径该给');
+  });
+
+  // ── 路径拼接 ──
+  check('[W] ★ 分隔符跟着 base 形态走（POSIX 上不许出现反斜杠）', () => {
+    assert(box.absoluteUnder('C:\\proj', 'src/a.md') === 'C:\\proj\\src\\a.md', box.absoluteUnder('C:\\proj', 'src/a.md'));
+    assert(box.absoluteUnder('/home/x/proj', 'src/a.md') === '/home/x/proj/src/a.md',
+      '★ POSIX base 拼出了反斜杠：' + box.absoluteUnder('/home/x/proj', 'src/a.md'));
+  });
+
+  // ── 会话改动规范化 ──
+  check('[W] normalizeChanges：cwd 拼绝对 + name/dir/index', () => {
+    const rows = box.normalizeChanges({ cwd: 'C:\\proj', files: [{ path: 'src/a.md', display: 'src/a.md', added: 12, deleted: 3 }] });
+    assert(rows.length === 1, 'rows=' + rows.length);
+    assert(rows[0].path === 'C:\\proj\\src\\a.md', 'cwd 没拼上: ' + rows[0].path);
+    assert(rows[0].name === 'a.md', 'name=' + rows[0].name);
+    assert(rows[0].added === 12 && rows[0].deleted === 3, JSON.stringify(rows[0]));
+    assert(rows[0].index === 0, 'index 应是数组下标');
+  });
+  check('[W] normalizeChanges：cwd 外的绝对路径原样保留', () => {
+    const rows = box.normalizeChanges({ cwd: 'C:\\proj', files: [{ path: 'D:\\outside\\bin.dat', added: 1 }] });
+    assert(rows[0].path === 'D:\\outside\\bin.dat', rows[0].path);
+  });
+  check('[W] normalizeChanges：旧字段名 removed 也认（过渡期兼容）', () => {
+    const rows = box.normalizeChanges({ changes: [{ path: '/tmp/x.ts', added: 1, removed: 2 }] });
+    assert(rows.length === 1 && rows[0].name === 'x.ts', JSON.stringify(rows));
+    assert(rows[0].deleted === 2, 'removed 应映射到 deleted: ' + rows[0].deleted);
+  });
+  check('[W] normalizeChanges：binary / oversized 是真布尔', () => {
+    const rows = box.normalizeChanges({ files: [{ path: 'a.bin', binary: true }, { path: 'big.txt', oversized: true }] });
+    assert(rows[0].binary === true && rows[0].oversized === false, JSON.stringify(rows[0]));
+    assert(rows[1].oversized === true && rows[1].binary === false, JSON.stringify(rows[1]));
+  });
+  check('[W] normalizeChanges：负数/非数字行数被夹成 0', () => {
+    const rows = box.normalizeChanges({ files: [{ path: 'C:\\p\\c', added: -5, deleted: 'x' }] });
+    assert(rows[0].added === 0 && rows[0].deleted === 0, JSON.stringify(rows[0]));
+  });
+  check('[W] normalizeChanges：空/畸形返回不抛', () => {
+    assert(box.normalizeChanges(undefined).length === 0, 'undefined');
+    assert(box.normalizeChanges({}).length === 0, '空对象');
+    assert(box.normalizeChanges({ files: null }).length === 0, 'files=null');
+  });
+  check('[W] ★ 反向对照：把"无条件用反斜杠"的写法跑一遍，它必须**错**', () => {
+    // 证明上面那条 POSIX 判据不是空转
+    const WRONG = (cwd, p) => String(cwd).replace(/[\\/]+$/, '') + '\\' + String(p).replace(/^[\\/]+/, '');
+    const bad = WRONG('/home/x/proj', 'src/a.md');
+    assert(bad !== box.absoluteUnder('/home/x/proj', 'src/a.md'),
+      '★ 正确实现与错写法结果相同 ⇒ 那条判据没咬住');
+    assert(bad.indexOf('\\') >= 0 && bad.indexOf('/home') === 0, '对照前提失效: ' + bad);
+  });
+}
 
 console.log('\n── @ 引用来源（照抄 ui-reference 结构）──');
 check('mention 形状：无空格 @path / 含空格 @"path" / 目录带尾斜杠', () => {

@@ -152,13 +152,12 @@
  997 行 / 49 个符号（占文件 22%）
 ```
 
-**⚠️ 为什么这一轮不删**：一次只改一个维度。这一轮的主题是「**把面板能力搬进网页版**」，
+**⚠️ 为什么当时不删**：一次只改一个维度。那一轮的主题是「**把面板能力搬进网页版**」，
 再顺手删 997 行就分不清「网页版坏了」是哪一步造成的。
 
-**📌 但注意**：这些不是「垃圾」，是**能力的实现**——
-`Thumb` / `ViewControl` / `renderCards` / `renderTable` 代表的正是**网页版该有的那些视图**。
-⇒ 下一轮做「网页版补齐」时，**先看这些代码能不能直接搬过去**（比重新写省事，而且已经带了
-`onError` 回退、5MB 门槛这些踩过坑的细节），搬完再删。**顺序不能反。**
+**📌 这些不是「垃圾」，是能力的实现** ⇒ 下一轮**先搬、再删**（顺序不能反）。
+
+> ✅ **2026-10-14 晚已完成** —— 见下面的 **§三·续**。
 
 ---
 
@@ -194,3 +193,64 @@
 
 ⚠️ **`docs/UI-SPEC-v1.md` 本身不删** —— 那 37 条里大部分仍被 `ui-spec.test.mjs` 的其余断言
 （**27 条仍过**）和其他测试引用。**改规格文档要同时改测试**，否则 `ui-spec` 会红。
+
+
+---
+
+## 三·续 · 批次 A/B 执行记录（**2026-10-14 晚，已完成**）
+
+**做法**：先把能力搬进 `ui/index.html`，**在真机上验过**，再删 `client.js` 里的实现。
+结果：`client.js` **4438 → 3244 行**，模块层孤儿 **997 → 0**。
+
+### 搬过去并**真机验过**的（然后才删）
+
+| 能力 | 从哪搬 | 真机证据 |
+|:--|:--|:--|
+| **缩略图**（两级回退 + 5MB 门槛） | `Thumb` + `thumbUrlsFor` | `小图 → imgs=1 naturalW=64` · `大图 6MB → imgs=0`（门槛拦下） |
+| **密度 / 卡片尺寸** | `ViewControl` 的实质 | `cozy→compact` · `m→l`，**按钮选中态跟着变** |
+| **骨架屏** | `SkeletonRows` | 加载时出现、加载完 `.skel` 归 0 |
+| **空态三态** | `StateBlock` + §六 | 「被筛掉」与「真的空」分开说 + 一键清空 |
+| **文件类型芯片** | `FILTER_CHIPS` + `chipOfName` | `全部=23 → 图片=1 → 全部=23` |
+| **记住上次目录** | `rememberDir` | `alf-last-dir` 落盘、下次给「继续上次」 |
+| **时间双形状** | `rowTimeText` | 兼容 `mtimeMs`(ms) / `modified`(s) |
+| **路径拼接** | `absoluteUnder` + `isWindowsPath` | `test/ui-path.test.mjs` **20 条**（含 POSIX 分隔符的反向对照） |
+| **改动规范化** | `normalizeChanges` | `client-pure` **[W] 节 7 条**（抠网页版实现**行为级**测） |
+
+### 直接删掉（网页版已有等价实现，或面板专属）
+
+`Badges` `Stars` `StarButton` `RowAction` `NameText` `IconView` `cardSizePx`
+`cardSizeKeyFromPx` `PRODUCT_VIEWS` `COLUMN_LABELS` `THUMB_LIST_SIZE` `VIRTUAL_*`
+`byName` `rowIndent` `rowHeightPx` `placeMenu` `OVERLAY_ESTIMATE` `settingText`
+`settingKind` `settingValueText` `ACT_ICON_*` `STATE_ICON_*` `fmtDate` `fmtCount`
+`isImage` `iconForRecord` `nameParts` `rowTimeMs` `contentFontDelta` `sourceLabel`
+`SETTING_LABELS` `COLUMN_KEYS` `CARD_SIZES` `DENSITY_OPTIONS` `VIEW_KINDS`
+`OVERLAY_GAP` `OVERLAY_MARGIN` `RECENT_DIRS(_MAX)` `INDENT_PER_LEVEL` `ROW_PAD_LEFT`
+`apiSend` `sessionChangesUrl` `CHANGES_ROUTE` `appBase`
+
+### ⚠️ 这一轮顺手逮到的**三个真 bug**（都不是"测试坏了"，是**代码错了**）
+
+| # | bug | 怎么发现的 |
+|:-:|:--|:--|
+| 1 | **右栏预览用了缩略图端点**（会降采样），而不是原图 | 读 `Thumb` 时对照原版 `Thumb(big=true)` 用的是 `fileUrl` |
+| 2 | **网页版改动视图字段名错**：写的是 `removed`/`deletions`，官方是 **`deleted`** ⇒ 删除数**永远不显示**；`turn` 还是**顶层**字段 | 去读 `lib/http.js` 的返回体注释 |
+| 3 | **网页版 `api()` 没有超时** ⇒ 宿主不响应时界面永远停在"加载中" | `ui-spec` §12 的判据（把它从 `apiSend` 改指网页版时）**当场咬出来** |
+
+⇒ 第 3 条是**移植判据的副产品**：判据改了主体，就顺手验了新主体。
+
+### 判据前提失效 → 已同步（**不是"放宽"**）
+
+| 测试 | 原来 | 改成 |
+|:--|:--|:--|
+| `scope-leak` 扫描面下限 | ≥40 个模块层函数 | **≥25**（跟着实际规模走；否则代码变干净反而误报） |
+| `ui-spec` §12 两条通道 | `apiGet` + `apiSend` | `apiGet` + **网页版 `api()`**（并因此发现 bug 3） |
+| `client-pure` HOOK | 导出 9 个符号 | 4 个；缩略图/路径/规范化改**抠网页版实现来测** |
+| `categories` 注释 | 提到 `CHIP_EXTS` | 该常量已删，注释同步 |
+
+### 还没搬的（**如实记**）
+
+| 缺口 | 现状 |
+|:--|:--|
+| **项目合并的 UI** | ⚠️ **能力缺口**（不是"没搬"）：合并逻辑仍在宿主侧 `lib/project-merge.js`，但**界面上没有入口** —— 面板有、网页版没有 |
+| **索引覆盖率提示**（`indexCoverageNote`） | 面板的目录浏览有，网页版文件视图没有；小功能，待补 |
+| **虚拟滚动** | 网页版最多直接渲染 200 条（不虚拟化）；库大了会卡，当前 405 条无感 |
+| **列选择** | 有意不搬（网页版表格列固定） |

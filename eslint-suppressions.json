@@ -26,10 +26,10 @@
       "count": 3
     },
     "no-control-regex": {
-      "count": 2
+      "count": 1
     },
     "no-unused-vars": {
-      "count": 94
+      "count": 49
     },
     "no-useless-assignment": {
       "count": 3

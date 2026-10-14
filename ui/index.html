@@ -114,6 +114,7 @@
 .crumb{color:var(--acc);cursor:pointer}
 .crumb:hover{text-decoration:underline}
 .crumb-sep{color:var(--dim)}
+.crumb-on{font-weight:600;text-decoration:underline}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:var(--panel2);padding:1px 5px;border-radius:4px}
 /* ── 标签芯片（2026-10-14 从主面板 DetailDrawer 搬来）────────────────────
@@ -131,6 +132,29 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .tagchip.c-orange{border-color:#f97316;color:#fb923c}
 .tagchip.c-red{border-color:#ef4444;color:#f87171}
 .tagchip.c-violet{border-color:#8b5cf6;color:#a78bfa}
+/* ── 缩略图格（2026-10-14 从主面板的 Thumb 搬来）────────────────────────
+   ⚠️ 两级回退：`/files/thumb` → 官方 `api/file` → **类型图标**（不许留破图）。
+      所以格子里同时放 img 与 icon，谁失败谁让位（见 thumbError）。 */
+.thumbcell{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;overflow:hidden;border-radius:6px;background:var(--panel2)}
+.thumbcell img{width:100%;height:100%;object-fit:cover;display:block}
+.thumbcell .ico{font-size:20px;line-height:1}
+/* ── 密度 / 卡片尺寸（2026-10-14 从主面板的 ViewControl 搬来）────────────
+   ⚠️ 用 `data-*` 挂在**本页的 `<body>`** 上，不碰宿主元素 ——
+      这是 ui-spec「宿主边界」那条的要求。 */
+body[data-density="compact"] .card-body{padding:8px 10px}
+body[data-density="compact"] .card-summary{display:none}
+body[data-density="compact"] .card-actions button{padding:3px 7px;font-size:11px}
+body[data-density="compact"] td,body[data-density="compact"] th{padding:3px 8px}
+body[data-card="s"] .thumb{height:84px}
+body[data-card="m"] .thumb{height:130px}
+body[data-card="l"] .thumb{height:200px}
+/* ── 骨架屏（2026-10-14 从主面板的 SkeletonRows 搬来 · ui-spec §11.5）──
+   ⚠️ 只在**真的在加载**时显示；加载完必须撤掉（不许留个假骨架骗人）。 */
+@keyframes alfshimmer{0%{opacity:.45}50%{opacity:.9}100%{opacity:.45}}
+.skel{border-radius:6px;background:var(--panel2);animation:alfshimmer 1.2s ease-in-out infinite}
+.skel-row{display:flex;gap:10px;align-items:center;padding:8px 0}
+.skel-card{height:190px;border-radius:var(--radius)}
+@media (prefers-reduced-motion: reduce){.skel{animation:none;opacity:.6}}
 </style>
 </head>
 <body>
@@ -182,6 +206,18 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
     <button data-v="project" onclick="setView('project')">项目</button>
     <button data-v="files" onclick="setView('files')">文件</button>
     <button data-v="changes" onclick="setView('changes')">改动</button>
+  </div>
+  <div class="sep"></div>
+  <!-- ⭐ 2026-10-14 从主面板 ViewControl 搬来的**实质**：密度 + 卡片尺寸。
+       列选择没搬 —— 本页表格列固定，不需要。 -->
+  <div class="view-switch" title="显示密度（只影响本页观感，不写进产物库设置）">
+    <button id="denCozy" onclick="setDensity('cozy')">舒适</button>
+    <button id="denCompact" onclick="setDensity('compact')">紧凑</button>
+  </div>
+  <div class="view-switch" title="卡片缩略图尺寸">
+    <button id="cardS" onclick="setCardSize('s')">小</button>
+    <button id="cardM" onclick="setCardSize('m')">中</button>
+    <button id="cardL" onclick="setCardSize('l')">大</button>
   </div>
 </div>
 
@@ -334,7 +370,7 @@ let state = { view: 'card', trash: false, items: [], categories: { projects: [],
   // ⭐ 2026-10-14 新增（档 1d）：文件浏览 / 文件搜索 / 会话改动
   //    这三块原来是**主面板**的能力，面板删了 ⇒ 搬到网页版（依琪：「允许你做成网页版本展示全部内容」）
   files: { dir: '', entries: [], total: 0, truncated: false, error: '', loading: false },
-  fileQuery: '', fileResults: null, fileSearching: false,
+  fileQuery: '', fileResults: null, fileSearching: false, fileChip: '',
   changes: { status: 'idle', items: [], derived: false, sessionId: '', error: '' } }
 
 const $ = (id) => document.getElementById(id)
@@ -342,14 +378,44 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':
 const fmtSize = (b) => b > 1048576 ? (b/1048576).toFixed(1)+' MB' : b > 1024 ? (b/1024).toFixed(0)+' KB' : b+' B'
 const fmtDate = (ts) => ts ? new Date(ts*1000).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—'
 
+/**
+ * 带**超时**的请求。
+ *
+ * ⚠️ 2026-10-14 补：原来没有超时 —— 宿主没响应时界面会**永远**停在骨架屏上，
+ *    用户看不出「在加载」和「已经死了」的区别。
+ *    （这条是 `ui-spec` §12 的判据咬出来的：它原来守客户端的 `apiGet`/`apiSend`，
+ *      `apiSend` 随主面板删掉后我把判据改到网页版 —— 结果它当场报网页版没有超时。）
+ *
+ * ⚠️ 超时与**普通失败**必须**分开报**：两者下一步动作不同
+ *    （超时 ⇒ 重试；普通失败 ⇒ 看错误内容）。所以超时抛的文案里带「超时」。
+ */
+const API_TIMEOUT_MS = 15000
 async function api(url, opts = {}) {
-  const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts })
-  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.status) }
-  return r.json()
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), opts.timeoutMs || API_TIMEOUT_MS)
+  try {
+    const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts, signal: ctl.signal })
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}))
+      // ⚠️ 宿主的理由原样带出来（403 out-of-scope 的文案在这里）
+      throw new Error(j.error || j.hint || ('HTTP ' + r.status))
+    }
+    return await r.json()
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      throw new Error('请求超时（' + Math.round((opts.timeoutMs || API_TIMEOUT_MS) / 1000) + ' 秒无响应）—— 宿主可能没起来，点重试', { cause: e })
+    }
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
 }
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200) }
 
 async function reload() {
+  state.loading = true
+  state.loadError = ''
+  render() // ⚠️ 先画骨架屏（ui-spec §11.5）；加载完在 finally 里撤掉
   try {
     const p = new URLSearchParams({ sort: $('fSort').value })
     if (state.trash) p.set('status', 'trashed')
@@ -361,9 +427,14 @@ async function reload() {
     const tg = $('fTag').value; if (tg) p.set('tag', tg)
     state.items = await api(API + '?' + p)
     state.page = 1
-    render()
   } catch (e) {
-    $('content').innerHTML = `<div class="empty">❌ 加载失败：${esc(e.message)}（检查插件是否已安装并重启 dsh web）</div>`
+    // ⚠️ 失败**不能**只改 DOM 就完事：`state.items` 也得清掉，
+    //    否则下次 render() 会把**旧数据**画出来，看起来像"加载成功了"。
+    state.items = []
+    state.loadError = e && e.message ? e.message : String(e)
+  } finally {
+    state.loading = false
+    render()
   }
 }
 const debouncedReload = (() => { let t; return () => { clearTimeout(t); t = setTimeout(reload, 300) } })()
@@ -399,7 +470,20 @@ function undoToast(msg, undoFn) {
   clearTimeout(undoHandle)
   undoHandle = setTimeout(() => t.classList.remove('show'), 6000)
 }
-function setView(v) { state.view = v; document.querySelectorAll('.view-switch button').forEach((b) => b.classList.toggle('active', b.dataset.v === v)); render() }
+function setView(v) { state.view = v; syncViewButtons(); render() }
+/** 视图按钮的选中态（单独一个函数：偏好按钮也共用这套视觉）。 */
+function syncViewButtons() {
+  document.querySelectorAll('.view-switch button[data-v]').forEach((b) => b.classList.toggle('active', b.dataset.v === state.view))
+}
+/** 密度 / 卡片尺寸按钮的选中态。 */
+function syncPrefButtons() {
+  const d = uiPrefs.density === 'compact' ? 'denCompact' : 'denCozy'
+  const c = { s: 'cardS', m: 'cardM', l: 'cardL' }[uiPrefs.card]
+  for (const [id, on] of [['denCozy', d === 'denCozy'], ['denCompact', d === 'denCompact'], ['cardS', c === 'cardS'], ['cardM', c === 'cardM'], ['cardL', c === 'cardL']]) {
+    const el = $(id)
+    if (el) el.classList.toggle('active', on)
+  }
+}
 function toggleTrash() { state.trash = !state.trash; $('trashBar').style.display = state.trash ? 'flex' : 'none'; $('trashBtn').classList.toggle('primary', state.trash); reload() }
 async function emptyTrash() { if (!confirm('永久删除回收站内全部产物？')) return; const ids = state.items.map((r) => r.id); for (const id of ids) await api(API + '/' + id, { method: 'DELETE' }); toast('回收站已清空'); reload() }
 
@@ -518,9 +602,35 @@ function render() {
   if (state.view === 'files') { renderFiles(); return }
   if (state.view === 'changes') { renderChanges(); return }
 
+  // ⚠️ 加载失败**单独一支**（不许和"库是空的"共用一句 —— 那是两件事）
+  if (state.loadError) {
+    c.innerHTML = `<div class="empty">❌ 加载失败：${esc(state.loadError)}<br><br>`
+      + `<span class="hint">检查插件是否已安装并重启 dsh web。</span><br><br>`
+      + `<button onclick="reload()">重试</button></div>`
+    return
+  }
+
+  // ⚠️ 骨架屏：**只在真的在加载时**（ui-spec §11.5）。
+  //    加载完（含失败）在 reload 的 finally 里撤掉 —— 不许留个假骨架骗人。
+  if (state.loading) {
+    c.innerHTML = state.view === 'list' ? skeletonHtml('rows') : skeletonHtml('cards')
+    return
+  }
+
   if (!state.items.length) {
+    // ⚠️ 三态分开（ui-spec §六 的同一条教训）：
+    //    回收站空 / **被筛选过滤成空** / 库真的空 —— 下一步动作各不相同。
     const hasFilter = $('q').value || $('fKind').value || $('fRefine').value || $('fProject').value || $('fType').value || $('fTag').value
-    c.innerHTML = `<div class="empty">${state.trash ? '🗑️ 回收站是空的' : hasFilter ? '🔍 没有符合筛选条件的结果，试试清空筛选' : '✨ 库还是空的<br><br>点右上角「登记产物」手动登记，或让 Agent 调用 register_artifact；<br>也可以「📥 导入文件夹」把一批资料批量收进来'}</div>`
+    if (state.trash) {
+      c.innerHTML = `<div class="empty">🗑️ 回收站是空的。</div>`
+    } else if (hasFilter) {
+      // ⚠️ 必须说清是"**被筛掉了**"，并给一键清空 —— 否则用户会以为库空了
+      c.innerHTML = `<div class="empty">🔍 当前筛选条件下没有结果。<br><br>`
+        + `<span class="hint">库不是空的，是这几项筛选把结果筛掉了。</span><br><br>`
+        + `<button onclick="clearFilters()">清空筛选看全部</button></div>`
+    } else {
+      c.innerHTML = `<div class="empty">✨ 库还是空的<br><br>点右上角「登记产物」手动登记，或让 Agent 调用 register_artifact；<br>也可以「📥 导入文件夹」把一批资料批量收进来</div>`
+    }
     return
   }
   // 分页：每页 pageSize 条，末尾「加载更多」
@@ -528,7 +638,11 @@ function render() {
   const more = state.items.length > visible.length
   const moreBtn = more ? `<div style="text-align:center;margin:18px 0"><button onclick="loadMore()" style="padding:8px 24px">加载更多（还剩 ${state.items.length - visible.length} 条）</button></div>` : `<div class="hint" style="text-align:center;margin:14px 0">共 ${state.items.length} 条</div>`
   if (state.view === 'list') {
-    c.innerHTML = `<table><thead><tr><th></th><th>产物</th><th>项目</th><th>星级</th><th>大小</th><th>登记时间</th><th>来源会话</th><th>操作</th></tr></thead><tbody>${visible.map(listHtml).join('')}</tbody></table>${moreBtn}`
+    // ⚠️ `role="grid"` + `aria-rowcount`（ui-spec §三.3/§七）：读屏才知道这是表格、共几行。
+    //    `aria-rowcount` 取**全量**（不是可见行数）—— 否则读屏读到的是残缺的。
+    c.innerHTML = `<table role="grid" aria-rowcount="${state.items.length}">`
+      + `<thead><tr><th></th><th>产物</th><th>项目</th><th>星级</th><th>大小</th><th>登记时间</th><th>来源会话</th><th>操作</th></tr></thead>`
+      + `<tbody>${visible.map(listHtml).join('')}</tbody></table>${moreBtn}`
   } else if (state.view === 'project') {
     const groups = {}
     for (const r of visible) (groups[r.project || '(未分类)'] = groups[r.project || '(未分类)'] || []).push(r)
@@ -537,6 +651,13 @@ function render() {
   } else {
     c.innerHTML = `<div class="cards">${visible.map(cardHtml).join('')}</div>${moreBtn}`
   }
+}
+
+/** 清空全部筛选（含 `artifact_type` —— 漏一个就会「清空后仍被卡着」）。 */
+function clearFilters() {
+  $('q').value = ''
+  for (const id of ['fKind', 'fRefine', 'fProject', 'fType', 'fTag']) { const el = $(id); if (el) el.value = '' }
+  reload()
 }
 function loadMore() { state.page++; render() }
 
@@ -589,6 +710,8 @@ async function loadDir(dir) {
     state.files.entries = r.entries || []
     state.files.total = r.total || 0
     state.files.truncated = !!r.truncated
+    // ⚠️ 只记**成功打开过**的目录（403 的路径不该被记住）
+    rememberDir(dir)
   } catch (e) {
     // ⚠️ 宿主的理由原样带出来（403 out-of-scope 的文案在 e.message 里）
     state.files.error = e && e.message ? e.message : String(e)
@@ -622,28 +745,35 @@ function renderFiles() {
   const f = state.files
   const searching = state.fileQuery.trim() !== '' || state.fileResults !== null
 
+  const chipRow = '<div class="crumbs">' + FILTER_CHIPS.map((c) =>
+    `<span class="crumb${state.fileChip === c.key ? ' crumb-on' : ''}" onclick="setFileChip('${c.key}')">${c.label}</span>`
+  ).join('<span class="crumb-sep">·</span>') + '</div>'
   const bar = `<div class="files-bar">
     <input class="grow" id="fq" placeholder="搜索文件（Everything 语法：ext:md / dm:today / size:>10mb）"
       value="${esc(state.fileQuery)}"
       onkeydown="if(event.key==='Enter'){state.fileQuery=this.value;searchFiles()}">
     <button onclick="state.fileQuery=$('fq').value;searchFiles()">搜索</button>
     ${searching ? `<button class="ghost" onclick="state.fileQuery='';state.fileResults=null;render()">返回浏览</button>` : ''}
-  </div>`
+  </div>` + (searching ? '' : chipRow)
 
   if (searching) {
-    if (state.fileSearching) { c.innerHTML = bar + `<div class="empty">搜索中…</div>`; return }
+    if (state.fileSearching) { c.innerHTML = bar + `<div class="hint" style="margin:10px 0">搜索中…</div>` + skeletonHtml('rows'); return }
     const hits = state.fileResults || []
     if (!hits.length) {
-      c.innerHTML = bar + `<div class="empty">${state.fileResultsError ? '搜索失败：' + esc(state.fileResultsError) : '没有找到匹配的文件。<br><br>试试 <code>ext:md</code> 或 <code>dm:today</code>；<br>⚠️ 搜索依赖 Everything 索引，索引没起来时会搜不到。'}</div>`
+      // ⚠️ 三态分开：搜索失败 / 真无结果 / 有结果（不许拍平成同一句）
+      c.innerHTML = bar + (state.fileResultsError
+        ? `<div class="empty">⚠️ 搜索失败：${esc(state.fileResultsError)}</div>`
+        : `<div class="empty">没有找到匹配的文件。<br><br>试试 <code>ext:md</code> 或 <code>dm:today</code>；<br>⚠️ 搜索依赖 Everything 索引，索引没起来时会搜不到。</div>`)
       return
     }
     c.innerHTML = bar + `<div class="hint" style="margin:10px 0">找到 ${hits.length} 个文件</div>` +
       `<table><thead><tr><th>文件</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead><tbody>` +
       hits.map((h) => {
         const p = h.path || h.fullPath || ''
+        const ms = rowTimeMs(h)
         return `<tr><td class="mono" title="${esc(p)}">${esc(p)}</td>` +
           `<td>${h.size != null ? fmtSize(h.size) : '—'}</td>` +
-          `<td>${h.mtimeMs || h.modified ? fmtDate(Math.floor((h.mtimeMs || h.modified * 1000) / 1000)) : '—'}</td>` +
+          `<td>${ms ? fmtDate(Math.floor(ms / 1000)) : '—'}</td>` +
           `<td><button class="ghost" onclick="revealPath('${esc(p).replace(/'/g, "\\'")}')">📂 定位</button></td></tr>`
       }).join('') + `</tbody></table>`
     return
@@ -651,13 +781,16 @@ function renderFiles() {
 
   // ── 浏览模式 ──────────────────────────────────────────────────────────
   if (f.error) {
+    // ⚠️ 403 是**设计**（assertInScope），不是 bug —— 如实说，并把"为什么"讲清
     c.innerHTML = bar + `<div class="empty">⚠️ 打不开这个目录：${esc(f.error)}<br><br>` +
       `<span class="hint">宿主只放行<b>索引范围内</b>的路径。范围外的目录会被 403 挡下（这是设计，不是 bug）。</span></div>`
     return
   }
   if (!f.dir) {
+    const last = lastDir()
     c.innerHTML = bar + `<div class="empty">输入一个<b>绝对路径</b>开始浏览，或用上面的搜索框。<br><br>` +
-      `<button onclick="loadDir('${esc((state.workspaceHint || '').replace(/'/g, "\\'"))}')">用当前工作区</button></div>`
+      (last ? `<button onclick="loadDir('${esc(last).replace(/'/g, "\\'")}')">继续上次：<code>${esc(last)}</code></button>` : '')
+      + `</div>`
     return
   }
 
@@ -667,32 +800,49 @@ function renderFiles() {
     crumbs.map((cr) => `<span class="crumb" onclick="loadDir('${esc(cr.path).replace(/'/g, "\\'")}')">${esc(cr.name)}</span>`).join('<span class="crumb-sep">›</span>') +
     `</div>`
 
-  if (f.loading) { c.innerHTML = bar + crumbHtml + `<div class="empty">读取中…</div>`; return }
+  // ⚠️ 骨架屏：**只在真的在加载时**（不是"列表为空"时的占位）
+  if (f.loading) { c.innerHTML = bar + crumbHtml + skeletonHtml('rows'); return }
+
+  // ⚠️ 芯片过滤在**渲染前**做（不是隐藏行）—— 否则"共 N 项"会骗人
+  const shown = state.fileChip ? f.entries.filter((e) => e.isDirectory || chipMatches(state.fileChip, e.name)) : f.entries
 
   if (!f.entries.length) {
     c.innerHTML = bar + crumbHtml + `<div class="empty">这个文件夹是空的。</div>`
+    return
+  }
+  if (!shown.length) {
+    // ⚠️ **三态分开**（ui-spec §六 的同一条教训）：
+    //    目录非空、但**被芯片筛掉了** —— 必须说清是"筛掉的"，并给一键回到全部
+    c.innerHTML = bar + crumbHtml
+      + `<div class="empty">这个文件夹里有 ${f.entries.length} 项，但没有「${FILTER_CHIPS.find((c) => c.key === state.fileChip).label}」类型的文件。<br><br>`
+      + `<span class="hint">不是文件夹空的，是类型筛选把结果筛掉了。</span><br><br>`
+      + `<button onclick="setFileChip('')">看全部</button></div>`
     return
   }
 
   // ⚠️ 「真的空」与「被截断」是两件事（§六 的同一条教训）
   const note = f.truncated
     ? `<div class="hint" style="margin:10px 0">⚠️ 只列了前 ${f.entries.length} 项（共 ${f.total} 项）—— 宿主设了单次上限。</div>`
-    : `<div class="hint" style="margin:10px 0">共 ${f.entries.length} 项</div>`
+    : `<div class="hint" style="margin:10px 0">共 ${f.entries.length} 项${state.fileChip ? '，其中 ' + shown.length + ' 项符合类型筛选' : ''}</div>`
 
   c.innerHTML = bar + crumbHtml + note +
     `<table><thead><tr><th></th><th>名称</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead><tbody>` +
-    f.entries.map((e) => {
+    shown.map((e) => {
       const p = e.path || ''
       const isDir = !!e.isDirectory
-      return `<tr><td>${isDir ? '📁' : '📄'}</td>` +
+      const ms = rowTimeMs(e)
+      return `<tr><td>${thumbCellHtml(e)}</td>` +
         `<td>${isDir
           ? `<a href="#" onclick="event.preventDefault();loadDir('${esc(p).replace(/'/g, "\\'")}')">${esc(e.name)}</a>`
           : `<span class="mono" title="${esc(p)}">${esc(e.name)}</span>`}</td>` +
         `<td>${e.size != null ? fmtSize(e.size) : '—'}</td>` +
-        `<td>${e.mtimeMs ? fmtDate(Math.floor(e.mtimeMs / 1000)) : '—'}</td>` +
+        `<td>${ms ? fmtDate(Math.floor(ms / 1000)) : '—'}</td>` +
         `<td><button class="ghost" onclick="revealPath('${esc(p).replace(/'/g, "\\'")}')">📂 定位</button></td></tr>`
     }).join('') + `</tbody></table>`
 }
+
+/** 切文件类型芯片（只重渲染，不重拉 —— 过滤是本地做的）。 */
+function setFileChip(k) { state.fileChip = k; render() }
 
 /** 在资源管理器中定位（宿主端点，走 POST + CSRF 头）。 */
 async function revealPath(p) {
@@ -701,6 +851,256 @@ async function revealPath(p) {
     toast('已在资源管理器中定位')
   } catch (e) { toast('定位失败：' + (e && e.message ? e.message : e)) }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 缩略图（2026-10-14 从主面板的 `Thumb` / `thumbUrlsFor` 搬来）
+ * ══════════════════════════════════════════════════════════════════════════
+ * ⚠️ 三个细节都是**踩过坑**的，别省：
+ *
+ *   ① **两级回退**：首选自建 `/files/thumb`（过 `assertInScope`，会降采样），
+ *      失败退官方 `api/file`（绝对地址），**再失败退类型图标** ——
+ *      ⚠️ **不许留破图**（真机上就是那个灰色的小方块 + alt 文字）。
+ *
+ *   ② **5MB 门槛**：超大的图**不拉缩略图**。端点也会拦 413，
+ *      但前端先拦能**少一次请求**（列表里几十张图时这个差别很明显）。
+ *
+ *   ③ **扩展名白名单**：不按 mime 猜（宿主已经算好了 mime，
+ *      但 `files/list` 的条目**没有 mime**，只有 name/path）⇒ 这里只能按扩展名。
+ */
+const THUMB_EXTS = ['png', 'jpg', 'jpeg', 'jpe', 'gif', 'webp', 'bmp', 'ico', 'svg', 'avif']
+const THUMB_MAX_BYTES = 5 * 1024 * 1024
+
+/** 小写扩展名（无点）。 */
+function extOfName(name) {
+  const s = String(name || '')
+  const i = s.lastIndexOf('.')
+  return i >= 0 ? s.slice(i + 1).toLowerCase() : ''
+}
+
+/**
+ * 官方 `api/file` 的绝对地址（回退用）。
+ *
+ * ⚠️ 三道闸门（与 `lib/client.js` 的 `officialFileUrl` **同源**，别只留一道）：
+ *   · 必须是**绝对路径**（相对路径在官方那侧解析不到）；
+ *   · 拒绝 **UNC**（`\\server\share`）—— 那会去连网络共享；
+ *   · 拒绝控制字符 —— 拼进 URL 会造出畸形请求。
+ */
+function officialFileUrl(p) {
+  const raw = String(p === undefined || p === null ? '' : p)
+  if (!/^[A-Za-z]:[\\/]/.test(raw) && raw.charAt(0) !== '/') return ''
+  if (/^[/\\]{2}/.test(raw)) return ''
+  if (/[\u0000-\u001f\u007f]/.test(raw)) return ''
+  try { return new URL('api/file?path=' + encodeURIComponent(raw), location.origin + '/').href } catch { return '' }
+}
+
+/**
+ * 这条目录项该不该出缩略图，以及**两级 URL**。
+ * @returns {{primary: string, fallback: string}|null} `null` = 不出缩略图（用图标）
+ */
+function thumbUrlsFor(entry) {
+  if (!entry || entry.isDirectory) return null
+  if (entry.isSymbolicLink) return null
+  if (THUMB_EXTS.indexOf(extOfName(entry.name || entry.path)) < 0) return null
+  const size = Number(entry.size)
+  if (Number.isFinite(size) && size > THUMB_MAX_BYTES) return null
+  return {
+    primary: API + '/files/thumb?path=' + encodeURIComponent(String(entry.path)),
+    fallback: officialFileUrl(entry.path),
+  }
+}
+
+/** 缩略图格：img（两级回退）+ 一个**一直藏着**的图标（最后兜底）。 */
+function thumbCellHtml(entry) {
+  const icon = `<span class="ico"${''}>${entry.isDirectory ? '📁' : '📄'}</span>`
+  const urls = thumbUrlsFor(entry)
+  if (!urls) return `<span class="thumbcell">${icon}</span>`
+  const fb = urls.fallback ? ` data-fb="${esc(urls.fallback)}"` : ''
+  return `<span class="thumbcell">`
+    + `<img src="${esc(urls.primary)}" alt="" loading="lazy"${fb} onerror="thumbError(this)">`
+    + icon.replace('<span class="ico"', '<span class="ico" hidden')
+    + `</span>`
+}
+
+/**
+ * `onerror` 处理：**先试回退，再退图标**。
+ *
+ * ⚠️ 用 `data-fb` 标记"回退已经用过一次"，避免**无限重试**
+ *    （回退地址也失败时若不摘掉 `data-fb`，`onerror` 会一直触发）。
+ */
+function thumbError(img) {
+  const fb = img.getAttribute('data-fb')
+  if (fb) {
+    img.removeAttribute('data-fb')          // ⚠️ 先摘掉，防无限重试
+    img.src = fb
+    return
+  }
+  img.hidden = true
+  const cell = img.parentNode
+  if (cell) { const ico = cell.querySelector('.ico'); if (ico) ico.hidden = false }
+}
+
+/* ── 路径拼接（2026-10-14 从主面板的 `absoluteUnder` / `isWindowsPath` 搬来）
+ * ⚠️ 为什么要搬：`session-changes` 返回的 **`path` 可能是相对 cwd 的**
+ *    （官方形状如此，我们补了个 `cwd` 字段）。不拼成绝对路径 ⇒
+ *    「📂 定位」必然失败（拿到个相对路径，宿主解析不到）。
+ * ⚠️ 那条**踩过坑**的规则：**分隔符必须跟着 base 的形态走**。
+ *    无条件用 `\` 拼，在 POSIX 上会得到 `/home/x/proj\src/a.md` 这种废路径。
+ */
+function isWindowsPath(p) {
+  const t = String(p ?? '')
+  if (!t) return false
+  if (/^[A-Za-z]:[\\/]/.test(t)) return true
+  if (/^[A-Za-z]:$/.test(t)) return true
+  return t.indexOf('\\\\') === 0
+}
+
+/** 拆出目录与文件名（兼容 \\ 与 /）。 */
+function splitPathParts(p) {
+  const s = String(p || '')
+  const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'))
+  if (i < 0) return { dir: '', name: s }
+  return { dir: s.slice(0, i + 1), name: s.slice(i + 1) }
+}
+
+/**
+ * 把 \`session-changes\` 的返回值规范成渲染用的行模型。
+ * ⚠️ 2026-10-14 从主面板的 \`normalizeChanges\` 搬来。**它带的四条规矩都别省**：
+ *   ① \`path\` 可能是**相对 cwd**的 ⇒ 必须拼绝对（否则「定位」必失败）；
+ *   ② 字段名兼容 \`deleted\` 与旧的 \`removed\`（过渡期）；
+ *   ③ 行数**负数/非数字一律夹成 0**（否则界面会显示 \`+-5\` 这种鬼东西）；
+ *   ④ \`binary\` / \`oversized\` 转成**真布尔**（宿主可能不给字段）。
+ */
+function normalizeChanges(payload) {
+  let raw = payload && payload.files
+  if (!Array.isArray(raw)) raw = payload && payload.changes
+  if (!Array.isArray(raw)) return []
+  const cwd = payload && payload.cwd ? String(payload.cwd) : ''
+  return raw.map((item, i) => {
+    const source = item || {}
+    const relative = String(source.path || source.display || '')
+    const display = String(source.display || relative)
+    const absolute = absoluteUnder(cwd, relative)
+    const parts = splitPathParts(absolute || display)
+    let added = Number(source.added)
+    let deleted = Number(source.deleted)
+    if (!isFinite(deleted)) deleted = Number(source.removed)
+    return {
+      index: i,
+      path: absolute || display,
+      relative,
+      display,
+      dir: parts.dir,
+      name: parts.name,
+      added: isFinite(added) && added > 0 ? added : 0,
+      deleted: isFinite(deleted) && deleted > 0 ? deleted : 0,
+      binary: !!source.binary,
+      oversized: !!source.oversized,
+    }
+  })
+}
+
+/** 相对 cwd 的路径拼成绝对（已经是绝对的**原样返回**）。 */
+function absoluteUnder(cwd, p) {
+  const t = String(p ?? '')
+  if (!t) return ''
+  if (/^[A-Za-z]:[\\/]/.test(t) || t.charAt(0) === '/') return t
+  const base = String(cwd || '').replace(/[\\/]+$/, '')
+  if (!base) return t
+  let rel = t.replace(/^[\\/]+/, '')
+  const win = isWindowsPath(base)
+  if (win) rel = rel.replace(/\//g, '\\')
+  return base + (win ? '\\' : '/') + rel
+}
+
+/* ── 文件类型筛选芯片（2026-10-14 从主面板的 `FILTER_CHIPS` / `chipOfName` 搬来）
+ * ⚠️ 扩展名表**照抄**，不自己编：这张表是踩过坑的（比如 `.md` 归"文档"不归"代码"）。
+ * ⚠️ 认不出的扩展名归 `other`，**任何芯片都不命中它** ⇒ 选了类型就会把它筛掉
+ *    （这是对的：点了"图片"就该只看图片）。
+ */
+const CHIP_EXTS = {
+  doc: ['md', 'markdown', 'txt', 'text', 'log', 'json', 'xml', 'yml', 'yaml', 'toml', 'ini', 'csv', 'tsv', 'pdf', 'doc', 'docx', 'rtf', 'odt', 'xls', 'xlsx', 'ppt', 'pptx'],
+  image: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'bmp', 'ico', 'tif', 'tiff', 'heic', 'psd', 'ai', 'fig'],
+  media: ['mp4', 'm4v', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv', 'mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg', 'opus'],
+  code: ['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'h', 'cpp', 'cs', 'php', 'lua', 'html', 'htm', 'css', 'scss', 'less', 'sh', 'ps1', 'bat', 'cmd', 'sql', 'vue', 'svelte'],
+  archive: ['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'zst', 'cab', 'iso', 'jar'],
+}
+const FILTER_CHIPS = [
+  { key: '', label: '全部' },
+  { key: 'doc', label: '文档' },
+  { key: 'image', label: '图片' },
+  { key: 'media', label: '音视频' },
+  { key: 'code', label: '代码' },
+  { key: 'archive', label: '压缩包' },
+]
+/** 命中哪个芯片组（认不出来算 `other`）。 */
+function chipOfName(name) {
+  const s = String(name || '')
+  const i = s.lastIndexOf('.')
+  const ext = i > 0 ? s.slice(i + 1).toLowerCase() : ''
+  if (!ext) return ''
+  for (const key of Object.keys(CHIP_EXTS)) if (CHIP_EXTS[key].includes(ext)) return key
+  return 'other'
+}
+/** 芯片是否命中（空 = 「全部」永远命中）。 */
+function chipMatches(chip, name) { return !chip ? true : chipOfName(name) === chip }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 骨架屏 / 空态（2026-10-14 从主面板的 `SkeletonRows` / `StateBlock` 搬来）
+ * ══════════════════════════════════════════════════════════════════════════
+ * ⚠️ ui-spec §11.5「列表用骨架屏」和 §六「真的空 ≠ 被过滤成空」原来是守**面板**的，
+ *    面板删了那两条被废弃（见 `docs/DEPRECATED-TESTS.md` §四）。
+ *    ⇒ **在这里接回来**：本页的列表/卡片加载时用骨架屏；空态分三支。
+ */
+function skeletonHtml(kind) {
+  if (kind === 'cards') {
+    return `<div class="cards">` + Array.from({ length: 6 }, () => `<div class="skel skel-card"></div>`).join('') + `</div>`
+  }
+  return Array.from({ length: 6 }, () =>
+    `<div class="skel-row"><div class="skel" style="width:34px;height:34px"></div>`
+    + `<div class="skel" style="flex:1;height:14px"></div>`
+    + `<div class="skel" style="width:70px;height:14px"></div></div>`).join('')
+}
+
+/** 时间戳：兼容 `mtimeMs`（毫秒）与 `modified`（秒）两种形状。 */
+function rowTimeMs(row) {
+  if (!row) return 0
+  const ms = Number(row.mtimeMs)
+  if (Number.isFinite(ms) && ms > 0) return ms
+  const sec = Number(row.modified)
+  if (Number.isFinite(sec) && sec > 0) return sec * 1000
+  return 0
+}
+
+/* ── 显示偏好（密度 / 卡片尺寸）────────────────────────────────────────────
+ * 2026-10-14 从主面板的 `ViewControl` 搬来**实质**（它那 209 行里大部分是
+ * 浮层开合与列选择；列选择网页版不需要 —— 表格列是固定的 8 列）。
+ * ⚠️ 持久化用 `localStorage`（**不是**宿主的 settings）：
+ *    这是**本页的观感**，与产物库的设置无关。
+ */
+function loadPrefs() {
+  let p = {}
+  try { p = JSON.parse(localStorage.getItem('alf-ui-prefs') || '{}') || {} } catch { p = {} }
+  return {
+    density: p.density === 'compact' ? 'compact' : 'cozy',
+    card: ['s', 'm', 'l'].includes(p.card) ? p.card : 'm',
+  }
+}
+let uiPrefs = loadPrefs()
+function applyPrefs() {
+  document.body.dataset.density = uiPrefs.density
+  document.body.dataset.card = uiPrefs.card
+  try { localStorage.setItem('alf-ui-prefs', JSON.stringify(uiPrefs)) } catch { /* 存不上不影响用 */ }
+}
+function setDensity(v) { uiPrefs.density = v; applyPrefs(); syncPrefButtons(); render() }
+function setCardSize(v) { uiPrefs.card = v; applyPrefs(); syncPrefButtons(); render() }
+
+/* ── 记住上次浏览的目录 ────────────────────────────────────────────────────
+ * 2026-10-14 从主面板的 `rememberDir` 搬来。⚠️ 只记**成功打开过**的目录
+ * （403 的路径不该被记住 —— 否则下次打开还是失败页）。
+ */
+const DIR_KEY = 'alf-last-dir'
+function rememberDir(d) { try { if (d) localStorage.setItem(DIR_KEY, d) } catch { /* 忽略 */ } }
+function lastDir() { try { return localStorage.getItem(DIR_KEY) || '' } catch { return '' } }
 
 /* ══════════════════════════════════════════════════════════════════════════
  * 改动视图（2026-10-14 新增 · 档 1d）
@@ -719,9 +1119,14 @@ async function loadChanges() {
   try {
     const r = await api(API + '/session-changes?recent=1')
     state.changes.status = 'ready'
-    state.changes.items = (r && r.files) || []
+    // ⚠️ 统一走 normalizeChanges（cwd 拼绝对 / 字段兼容 / 夹负数）——
+    //    别在渲染里再写一遍那套判断（两处实现必然漂移）。
+    state.changes.items = normalizeChanges(r)
     state.changes.derived = !!(r && r.derived)
     state.changes.sessionId = (r && r.sessionId) || ''
+    state.changes.cwd = (r && r.cwd) || ''
+    state.changes.turn = (r && r.turn != null) ? r.turn : null
+    state.changes.total = (r && r.total != null) ? r.total : null
     state.changes.error = ''
   } catch (e) {
     const msg = e && e.message ? e.message : String(e)
@@ -759,19 +1164,22 @@ function renderChanges() {
     return
   }
   // ⚠️ 必须标 derived：这是「最近一次公告」，不是「当前会话」
+  // ⚠️ `turn` 在**顶层**（不是每行都有）—— 2026-10-14 修
+  const turnTxt = ch.turn != null ? ' · 第 ' + ch.turn + ' 轮' : ''
   const head = ch.derived
     ? `<div class="hint" style="margin:10px 0">⚠️ 这是<b>最近一次改动公告</b>（不是"当前会话"——宿主没有这个概念）` +
-      `${ch.sessionId ? ' · 会话 <code>' + esc(String(ch.sessionId).slice(0, 12)) + '…</code>' : ''}。</div>`
-    : `<div class="hint" style="margin:10px 0">共 ${ch.items.length} 个改动文件</div>`
-  c.innerHTML = head + `<table><thead><tr><th>文件</th><th>增/删</th><th>轮次</th><th>操作</th></tr></thead><tbody>` +
+      `${ch.sessionId ? ' · 会话 <code>' + esc(String(ch.sessionId).slice(0, 12)) + '…</code>' : ''}${turnTxt}。</div>`
+    : `<div class="hint" style="margin:10px 0">共 ${ch.items.length} 个改动文件${turnTxt}</div>`
+  c.innerHTML = head + `<table><thead><tr><th>文件</th><th>增/删</th><th>操作</th></tr></thead><tbody>` +
     ch.items.map((f) => {
-      const p = f.path || f.file || ''
-      const add = f.added != null ? f.added : (f.additions != null ? f.additions : '')
-      const del = f.removed != null ? f.removed : (f.deletions != null ? f.deletions : '')
-      return `<tr><td class="mono" title="${esc(p)}">${esc(p)}</td>` +
-        `<td>${add !== '' ? '+' + add : ''} ${del !== '' ? '−' + del : ''}</td>` +
-        `<td>${f.turn != null ? f.turn : '—'}</td>` +
-        `<td><button class="ghost" onclick="revealPath('${esc(p).replace(/'/g, "\\'")}')">📂 定位</button></td></tr>`
+      // ⚠️ `f` 是 normalizeChanges 出来的行模型（path 已拼成绝对）。
+      //    ⚠️ 二进制/超大是**宿主明确标出来的**，必须如实显示
+      //       （否则"行数是 0"会被误读成"没改动"）。
+      const flags = [f.binary ? '二进制' : '', f.oversized ? '过大' : ''].filter(Boolean).join('/')
+      const num = flags ? '<span class="hint">—</span>' : (`+${f.added} −${f.deleted}`)
+      return `<tr><td class="mono" title="${esc(f.path)}">${esc(f.display || f.relative)}${flags ? ' <span class="hint">(' + flags + ')</span>' : ''}</td>` +
+        `<td>${num}</td>` +
+        `<td><button class="ghost" onclick="revealPath('${esc(f.path).replace(/'/g, "\\'")}')">📂 定位</button></td></tr>`
     }).join('') + `</tbody></table>` +
     `<div style="text-align:center;margin:14px 0"><button onclick="loadChanges()">重新读取</button></div>`
 }
@@ -1120,7 +1528,18 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '2') { setView('card'); return }
   if (e.key === '3') { setView('project'); return }
 })
-;(async () => { try { await Promise.all([loadMeta(), refreshRefIndex(), reload(), loadManagedTags()]) } catch (e) { $('content').innerHTML = `<div class="empty">加载失败：${esc(e.message)}（插件是否已安装并重启 dsh？）</div>` } })()
+applyPrefs()
+syncPrefButtons()
+;(async () => {
+  try {
+    await Promise.all([loadMeta(), refreshRefIndex(), loadManagedTags(), reload()])
+  } catch (e) {
+    // ⚠️ 这里也要走 state，别只改 DOM —— 否则下次 render() 会把空白覆盖回去
+    state.loadError = e && e.message ? e.message : String(e)
+    state.loading = false
+    render()
+  }
+})()
 </script>
 </body>
 </html>
