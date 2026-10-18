@@ -344,11 +344,13 @@ check('E4 ★ 反向对照：不剥目录的错实现必须**错**', () => {
     '★ 正确实现与错实现结果相同 ⇒ E2 那条判据没咬住')
 })
 
-check('E5 ★ 行上真的渲染了后缀徽章，且**目录不渲染**', () => {
-  // ⚠️ 光有纯函数不算接上 —— 要证明它真的在行里被调用，
-  //    而且目录要跳过（目录本来就没有后缀，不跳会全显示 "?"）。
-  assert(/rec\.is_dir \? null : h\("span", \{ className: NS \+ "__rpext" \}, rpExtOf\(rec\)\)/.test(SRC),
-    '★ 行上没有接后缀徽章，或者没跳过目录')
+check('E5 ★ 行上真的渲染了后缀列，且**目录显示 —**（不是 "?"）', () => {
+  // ⚠️ 光有纯函数不算接上 —— 要证明它真的在行里被调用。
+  // ⚠️ 2026-10-18 晚改成表格布局后，目录显示 `—` 而不是跳过：
+  //    表格列不能空着（空着会让人以为是没加载出来），`—` 是"这里没有"的通用写法。
+  const seg = SRC.slice(SRC.indexOf('__rpext" },') - 200, SRC.indexOf('__rpext" },') + 120)
+  assert(seg.indexOf('rpExtOf(rec)') >= 0, '★ 行上没有接后缀列')
+  assert(/rec\.is_dir \? "—" :/.test(seg), '★ 目录没有特殊处理 —— 会显示成 "?"')
 })
 
 check('E6 ★ 后缀徽章不是 `artifact_type`（分类 ≠ 格式）', () => {
@@ -356,6 +358,75 @@ check('E6 ★ 后缀徽章不是 `artifact_type`（分类 ≠ 格式）', () => 
   // 拿它当"文件类型"显示会给出互相矛盾的信息。
   const seg = SRC.slice(SRC.indexOf('__rpext'), SRC.indexOf('__rpext') + 400)
   assert(seg.indexOf('artifact_type') < 0, '★ 后缀徽章用了 artifact_type（那是分类，不是格式）')
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+// [F] 表格式列布局 + 可拖分隔线（2026-10-18 晚 · 依琪：「像 win 文件管理一样」）
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n── [F] 表格式列布局 ──')
+
+check('F1 ★ 四列按依琪给的顺序：名字 / 标签 / 类型 / 大小', () => {
+  const seg = SRC.slice(SRC.indexOf('var RP_COLUMNS = ['), SRC.indexOf('var RP_COLS_KEY'))
+  const order = [...seg.matchAll(/key: "(\w+)"/g)].map((m) => m[1])
+  assert(JSON.stringify(order) === JSON.stringify(['name', 'tags', 'ext', 'size']),
+    '★ 列顺序不对：' + order.join('/') + '（依琪要的是 名字/标签/后缀/大小）')
+})
+
+check('F2 ★★ 行与表头共用**同一份** grid 模板（否则永远对不齐）', () => {
+  // ⚠️ 这是表格布局的**唯一**正确做法：两处各自算宽度必然会差几像素。
+  const header = SRC.slice(SRC.indexOf('function rpHeader('), SRC.indexOf('function rpStartDrag('))
+  assert(header.indexOf('rpGridTemplate(o.cols)') >= 0, '表头没用 rpGridTemplate')
+  const rowSeg = SRC.slice(SRC.indexOf('style: { gridTemplateColumns: rpGridTemplate(cols) }'), SRC.indexOf('style: { gridTemplateColumns: rpGridTemplate(cols) }') + 80)
+  assert(rowSeg.indexOf('rpGridTemplate(cols)') >= 0, '★ 行没用 rpGridTemplate —— 会与表头差几像素')
+})
+
+check('F3 ★★ 拖动用 pointer 事件 + setPointerCapture（不用 mousedown）', () => {
+  // ⚠️ 为什么必须是 pointer：
+  //    ① 触屏/手写笔也能用（Windows 平板常见）；
+  //    ② `setPointerCapture` 让指针移出侧栏也不丢事件 —— 否则拖出去列宽就卡住。
+  const fn = SRC.slice(SRC.indexOf('function rpStartDrag('), SRC.indexOf('function rpStartDrag(') + 2200)
+  assert(fn.indexOf('setPointerCapture') >= 0, '★ 没有 setPointerCapture —— 拖出侧栏会丢事件')
+  assert(fn.indexOf('document.addEventListener("pointermove"') >= 0, '没有 pointermove 监听')
+  assert(fn.indexOf('pointerup') >= 0 && fn.indexOf('pointercancel') >= 0,
+    '没有成对清理（pointerup / pointercancel）—— 会留下野监听')
+  assert(fn.indexOf('mousedown') < 0, '还在用 mousedown —— 触屏用不了')
+})
+
+check('F4 ★ 拖动夹到 min（不许拖成负宽 = 列消失）', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpStartDrag('), SRC.indexOf('function rpStartDrag(') + 2200)
+  assert(/Math\.max\(col\.min, Math\.round\(startW \+ dx\)\)/.test(fn),
+    '★ 没夹 min —— 能把列拖成负宽，看起来像列丢了')
+})
+
+check('F5 ★ 拖动不许触发排序（分隔线 stopPropagation）', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpStartDrag('), SRC.indexOf('function rpStartDrag(') + 2200)
+  assert(fn.indexOf('stopPropagation') >= 0, '★ 拖动没阻止冒泡 —— 会同时触发点表头排序')
+})
+
+check('F6 ★ 列宽持久化：读不到 / 畸形 / 负数都要落回默认', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpColsInitial('), SRC.indexOf('function rpGridTemplate('))
+  assert(fn.indexOf('JSON.parse') >= 0, '没有解析存量')
+  assert(/isFinite\(v\) && v >= c\.min/.test(fn),
+    '★ 没校验存量值 —— 存了个 0 或负数会让列消失（看起来像数据丢了）')
+  assert(fn.indexOf('catch') >= 0, '没有 try/catch —— 畸形 JSON 会把整张表搞崩')
+})
+
+check('F7 ★★ 标签列用既有 tagChips（受管表颜色），且**只显示前 N 个 + +N**', () => {
+  // 依琪：「我发现你的标签这边没有快速显示啊，帮人快速分辨」
+  // ⚠️ 不自己拼标签：颜色/字重只有规则层知道，自己拼会两边不一致。
+  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('/**', SRC.indexOf('function rpTagCell(')))
+  assert(fn.indexOf('tagChips(h,') >= 0, '★ 没用既有 tagChips —— 颜色会与预览区不一致')
+  assert(/tags\.slice\(0, RP_TAG_SHOW\)/.test(fn), '★ 没截断标签 —— 620px 里会把列撑爆')
+  assert(fn.indexOf('"+" + String(rest)') >= 0, '没有 +N 折叠')
+  // 折叠了但信息不许丢：title 里要能看到全部
+  assert(/title: tags\.join/.test(fn), '★ 折叠后没给 title —— "还有几个标签"的信息丢了')
+})
+
+check('F8 ★ 表头可点排序，且当前排序列有箭头指示', () => {
+  const header = SRC.slice(SRC.indexOf('function rpHeader('), SRC.indexOf('function rpStartDrag('))
+  assert(header.indexOf('onClick: isSortable') >= 0, '表头不可点排序')
+  assert(header.indexOf('"aria-sort"') >= 0, '没有 aria-sort（读屏不知道按什么排的）')
+  assert(header.indexOf('" ▲"') >= 0, '★ 没有箭头指示 —— 用户看不出现在按哪列排的')
 })
 
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')
