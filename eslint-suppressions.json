@@ -165,6 +165,11 @@
       "count": 1
     }
   },
+  "test/right-pane-scope.test.mjs": {
+    "preserve-caught-error": {
+      "count": 1
+    }
+  },
   "test/rp-boundary.test.mjs": {
     "preserve-caught-error": {
       "count": 2

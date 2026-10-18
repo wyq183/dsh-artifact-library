@@ -374,7 +374,10 @@ console.log('\n── [G] 行内标签 ──')
 check('G1 ★★ 行里真的调用了 rpTagCell（不是只在预览页有标签）', () => {
   // ⚠️ 2026-10-19 核对发现：回退后行里**只有** 名字 → 后缀 → 大小，
   //    `tagChips` 三处全在预览页 ⇒ 依琪的抱怨是对的。
-  assert(/rpTagCell\(h, rec, managed\)/.test(SRC),
+  // ⚠️ 2026-10-19：调用点变成 `rpTagCell(h, rec, rpManagedTags(managed))` ——
+  //    第三个参数必须过取值函数（否则 tagChips 判成"读不到"，每行吐红字）。
+  //    ⇒ 判据只认函数名，**不锁死参数形状**（参数迟早还会变）。
+  assert(/rpTagCell\(h, rec,/.test(SRC),
     '★ 行里没调用 rpTagCell —— 标签只在预览页能看到')
 })
 
@@ -400,6 +403,83 @@ check('G5 ★ 没标签时返回 `null`（行内空间宝贵，不占位）', ()
   const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 900)
   assert(/if \(!tags\.length\) return null/.test(fn),
     '★ 没标签时没返回 null —— 会占掉一段宽度')
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+// [H] 受管标签的**取值**（2026-10-19 · 依琪截图里那串红字逼出来的 bug）
+// ══════════════════════════════════════════════════════════════════════════
+//
+// 【bug 现场】行内每行都显示：
+//     标签样式读不到（/ext/artifacts/managed-tags 没拿到）
+//     下面按**无样式**显示；这不代表你没有配过受管标签。
+//
+// 【根因】`tagChips` 用 `Array.isArray(managed)` 判断"读没读到"。
+//    行内传的是**整个响应对象** `{ok:true, limit:null, tags:[…]}`
+//    ⇒ `Array.isArray` = false ⇒ 判成"读不到" ⇒ 每行都警告。
+//    而预览页自己多剥了一层 `.tags` ⇒ **同一个数据两种行为**。
+//    ⚠️ 端点一直是好的（实测 200，返回 8 个标签）——**不是网络问题**。
+//
+// 【修法】收出一个唯一取值函数 `rpManagedTags`，行内与预览都走它。
+console.log('\n── [H] 受管标签取值 ──')
+
+/** 抠出 rpManagedTags 求值。 */
+function loadManaged() {
+  const from = SRC.indexOf('function rpManagedTags(')
+  const to = SRC.indexOf('/**', from)
+  assert(from > 0 && to > from, '抠不出 rpManagedTags —— 函数改名了？')
+  const box = {}
+  vm.createContext(box)
+  vm.runInContext(SRC.slice(from, to) + '\n;this.rpManagedTags=rpManagedTags;', box)
+  return box.rpManagedTags
+}
+const managedOf = loadManaged()
+
+check('H1 ★★ 标准响应对象 ⇒ 取出 tags 数组（这就是那个 bug 的修法）', () => {
+  const body = { ok: true, limit: null, tags: [{ id: 'mt_a', tag: 'A', color: 'green' }] }
+  const out = managedOf(body)
+  assert(Array.isArray(out), '★ 没取出数组 —— tagChips 会判成"读不到"（依琪截图那串红字）')
+  assert(out.length === 1 && out[0].tag === 'A', '取出的内容不对')
+})
+
+check('H2 ★★ 反向对照：直接传响应对象给「Array.isArray」必须判 false', () => {
+  // 这条证明 H1 的 bug 是**真的会**发生，不是我想象的
+  const body = { ok: true, tags: [{ tag: 'A' }] }
+  assert(Array.isArray(body) === false, '前提变了：响应对象居然被当数组')
+  assert(Array.isArray(managedOf(body)) === true, '★ 修完之后还是判 false')
+})
+
+check('H3 ★ 三态不许拍平：null / [] / [{…}] 各自可辨', () => {
+  // ⚠️ 这三个的**下一步动作不同**：
+  //    null  ⇒ 去查设置（读不到）
+  //    []    ⇒ 什么都不用做（确实没配）
+  //    [{…}] ⇒ 正常
+  assert(managedOf(null) === null, 'null 该返回 null')
+  assert(managedOf(undefined) === null, 'undefined 该返回 null')
+  assert(managedOf({}) === null, '空对象该返回 null')
+  assert(managedOf({ ok: false }) === null, '★ ok:false 该返回 null（"拉过且失败"≠"拉到空"）')
+
+  const empty = managedOf({ ok: true, tags: [] })
+  assert(Array.isArray(empty) && empty.length === 0, '★ 拉到了但空表该返回 []，不是 null')
+})
+
+check('H4 ★ 畸形输入不抛（响应可能是任意形状）', () => {
+  for (const bad of [0, '', 'x', [], [1, 2], { tags: 'nope' }, { tags: null }]) {
+    let out
+    try { out = managedOf(bad) } catch (e) { throw new Error('畸形输入 ' + JSON.stringify(bad) + ' 抛了：' + e.message) }
+    assert(out === null || Array.isArray(out), '畸形输入返回了非 null 非数组：' + JSON.stringify(out))
+  }
+})
+
+check('H5 ★★ 行内与预览**走同一个出口**（防再次漂移）', () => {
+  // ⚠️ 这个 bug 的本质就是"两处各写一份"。
+  //    ⇒ 判据：两处都调 rpManagedTags。
+  assert(/rpTagCell\(h, rec, rpManagedTags\(managed\)\)/.test(SRC),
+    '★ 行内没走 rpManagedTags')
+  assert(/var managedTags = rpManagedTags\(props\.managed\)/.test(SRC),
+    '★ 预览没走 rpManagedTags')
+  // 反向：不许再有"自己剥 .tags"的写法（那就是漂移的源头）
+  assert(!/props\.managed\.ok === true && Array\.isArray\(props\.managed\.tags\)/.test(SRC),
+    '★ 还残留着自己剥 .tags 的旧写法')
 })
 
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')

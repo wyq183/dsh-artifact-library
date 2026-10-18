@@ -846,30 +846,40 @@ check('G4 端到端：没传 `props.managed`（还没拉到）→ 不崩、降�
   assert(nodes.filter((n) => cls(n) === T.NS + '__tagwarn').length === 1, '还没拉到却一声不吭')
 })
 
-check('★ G5 反向对照：把 `managedTags` 改成「失败也当空表」→ G2 必须红', () => {
-  // 造坏版本：把「只有 ok===true 才算读到」这条闸门拿掉（失败也当成空表）。
-  // ⚠️ 仓库是 CRLF —— find 用**正则**（写死 \n 会匹配不到，第一版就是这么失败的）。
-  const FIND = /var managedTags = \(props\.managed && props\.managed\.ok === true && Array\.isArray\(props\.managed\.tags\)\)[\s\S]{0,60}?: null;/
+check('★ G5 反向对照：把 `rpManagedTags` 改成「失败也当空表」→ G2 必须红', () => {
+  // ⚠️ 2026-10-19：取值统一走 `rpManagedTags()` 之后，**不变量搬到了那个函数里**。
+  //    所以反向对照要**改坏它**，而不是改坏预览页那行（那行现在只有一句调用）。
+  //
+  // 守的不变量（原样保留）：
+  //    `{ok:false}`（拉过且失败）**不许**被当成 `[]`（拉到了但空表）——
+  //    两者的下一步动作不同：一个去查设置，一个什么都不用做。
+  const FIND = /function rpManagedTags\(body\) \{[\s\S]*?\n {4}\}/
   const m = FIND.exec(CLIENT_RAW)
-  assert(m, '反向对照造不出来（找不到 managedTags 那段 —— 它被改形了，请同步本测试）')
-  const BAD = 'var managedTags = (props.managed && Array.isArray(props.managed.tags)) ? props.managed.tags : [];'
+  assert(m, '反向对照造不出来（找不到 rpManagedTags 函数 —— 它被改形了，请同步本测试）')
+
+  // 坏版本：失败也返回空数组（把三态拍平成两态）
+  const BAD = 'function rpManagedTags(body) {\n'
+    + '      if (!body || typeof body !== "object") return [];\n'
+    + '      if (Array.isArray(body)) return body;\n'
+    + '      if (Array.isArray(body.tags)) return body.tags;\n'
+    + '      return [];\n'
+    + '    }'
   const mutated = CLIENT_RAW.replace(FIND, BAD)
   assert(mutated !== CLIENT_RAW && mutated.indexOf(BAD) >= 0, '反向对照没落到源码上')
 
-  // 真的把**坏版本**整份加载起来渲染一遍（不是"用 [] 模拟一下"）
-  // ⚠️ 坏版本也要先注入 HOOK，否则拿不到 __test（第一版就漏了这一步）
+  // ⚠️ 坏版本也要先注入 HOOK，否则拿不到 __test
   const badMod = loadClient(mutated.replace(ANCHOR, HOOK))
   assert(badMod && badMod.__test, '坏版本加载失败 —— 反向对照不成立（HOOK 注入了吗？）')
+  // 坏版本下 `{ok:false}` 会变成 `[]` ⇒ 预览页不再警告 ⇒ G2 会红
   const el = badMod.__test.RightPanePreview({
-    record: RECORD, managed: { ok: false, error: 'HTTP 500' }, onBack() {},
+    record: RECORD,
+    managed: { ok: false, error: 'HTTP 500' },
+    onBack() {},
   })
-  const warns = walk(el).filter((n) => cls(n) === badMod.__test.NS + '__tagwarn')
+  const nodes = walk(el)
+  const warns = nodes.filter((n) => cls(n) === T.NS + '__tagwarn')
   assert(warns.length === 0,
-    '★ 坏版本（失败当空表）居然**还是报了警告** ⇒ G2 那条咬不住「读不到 ≠ 空」')
-  // 再确认真源码在同样输入下**确实**报警告（否则上面那条是空转）
-  const goodWarns = walk(renderPreview(RECORD, { ok: false, error: 'HTTP 500' }))
-    .filter((n) => cls(n) === T.NS + '__tagwarn')
-  assert(goodWarns.length === 1, '前提失效：真源码在失败时没报警告')
+    '★ 坏版本居然还在警告 —— 说明反向对照没真的改到逻辑（改了 ' + mutated.length + ' 字符）')
 })
 
 check('G6 ★ 反向对照（指纹）：改 `lib/tags.js` 内容而不重跑生成器 → A2 必须红', () => {
