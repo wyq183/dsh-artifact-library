@@ -498,11 +498,14 @@ check('I1 ★ 四列按依琪给的顺序：文件名 / 标签 / 类型 / 大小
 check('I2 ★★ 行与表头**共用同一份**模板（否则永远差几像素）', () => {
   // ⚠️ 这是表格布局的**唯一**正确做法。
   const header = SRC.slice(SRC.indexOf('function rpHeader('), SRC.indexOf('function rpTagCell('))
-  assert(header.indexOf('rpColumnTemplate()') >= 0, '表头没用 rpColumnTemplate')
-  assert(/style: \{ gridTemplateColumns: rpColumnTemplate\(\) \}/.test(SRC.slice(SRC.indexOf('__rprow" + (selected'), SRC.indexOf('__rprow" + (selected') + 800)),
+  assert(/rpColumnTemplate\(rpGetWidths\(\)\)/.test(header), '表头没用 rpColumnTemplate')
+
+  // 行：取 `__rprow` 到 `key: rec.id` 之间（那里就有 style）
+  const rowStart = SRC.indexOf('__rprow" + (selected')
+  const rowSeg = SRC.slice(rowStart, SRC.indexOf('key: rec.id', rowStart))
+  assert(/gridTemplateColumns: rpColumnTemplate\(rpGetWidths\(\)\)/.test(rowSeg),
     '★ 行没用 rpColumnTemplate —— 会与表头差几像素')
 })
-
 check('I3 ★★ 行必须是 **5 个格**（勾选 + 4 列），多一个少一个都会错位', () => {
   // ⚠️ 这条是白屏那版**没做完**的地方：元素当时是平铺的（8 个直接子项），
   //    套上 5 列的模板就变成 8 列，与表头完全对不上。
@@ -531,10 +534,74 @@ check('I4 ★ 标签格**再包一层**（rpTagCell 返回两个兄弟，不包�
 
 check('I5 ★ 表头有**列间分隔线**（依琪：「连同分割线」）', () => {
   const header = SRC.slice(SRC.indexOf('function rpHeader('), SRC.indexOf('function rpTagCell('))
-  assert(header.indexOf('__rpline') >= 0, '★ 表头没有分隔线')
+  // ⚠️ 2026-10-19 第 3 步：`__rpline`（纯装饰线）升级成 `__rpgrip`（线 + 拖动把手）。
+  //    它是**同一根线**的两种角色：看着是分割线，抓着就是把手。
+  assert(header.indexOf('__rpgrip') >= 0, '★ 表头没有分隔线')
   // ⚠️ 分隔线只在表头，**行内不放**（每行一根线太吵，且会与背景色打架）
   const rowSeg = SRC.slice(SRC.indexOf('__rprow" + (selected'), SRC.indexOf('__rprow" + (selected') + 5200)
-  assert(rowSeg.indexOf('__rpline') < 0, '★ 行内也有分隔线 —— 每行一根太吵')
+  assert(rowSeg.indexOf('__rpgrip') < 0, '★ 行内也有把手 —— 每行一根太吵')
+})
+// ══════════════════════════════════════════════════════════════════════════
+// [J] 拖动分隔线（2026-10-19 第 3 步）
+// ══════════════════════════════════════════════════════════════════════════
+// 依琪：「没看到分割线，就也没法拖动」—— 两件事是一个需求。
+console.log('\n── [J] 拖动调宽 ──')
+
+check('J1 ★★ overflow 不许在格子上（它会把把手裁掉 —— 就是"看不见线"的根因）', () => {
+  // ⚠️ 这是**根因级**判据：把手是 `position:absolute; right:-5px`，
+  //    在格子外面。格子上只要有 `overflow:hidden`，它就被裁得一干二净。
+  // ⚠️ 只取**这一条规则**（到行尾的 `",` 为止）——
+  //    第一版切 200 字符，把紧跟其后的 `__rpcoltext{…overflow:hidden}` 也圈进来了 ⇒ 假红。
+  const start = SRC.indexOf('__rpcol{')
+  assert(start > 0, '找不到 __rpcol 规则')
+  const seg = SRC.slice(start, SRC.indexOf('",', start))
+  assert(seg.indexOf('overflow:visible') >= 0,
+    '★ 格子又设了 overflow —— 把手会被裁掉（依琪就是因为这个看不到线）')
+  assert(seg.indexOf('overflow:hidden') < 0, '★ 格子上有 overflow:hidden（' + seg + '）')
+  // 裁文字的责任交给内层
+  assert(/__rpcoltext\{display:block;overflow:hidden/.test(SRC),
+    '★ 没有内层文字裁切 —— 长列名会溢出')
+})
+
+check('J2 ★★ 拖动用 pointer 事件 + setPointerCapture（触屏可用、拖出侧栏不丢）', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpStartDrag('), SRC.indexOf('function rpStartDrag(') + 2400)
+  assert(fn.indexOf('setPointerCapture') >= 0, '★ 没有 setPointerCapture —— 拖出侧栏会丢事件')
+  assert(fn.indexOf('addEventListener("pointermove"') >= 0, '没有 pointermove')
+  assert(fn.indexOf('pointerup') >= 0 && fn.indexOf('pointercancel') >= 0,
+    '★ 没成对清理 —— 触屏取消时会留野监听')
+  assert(fn.indexOf('mousedown') < 0, '还在用 mousedown —— 触屏用不了')
+})
+
+check('J3 ★ 拖动夹到 min（不许拖成负宽 = 列消失）', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpStartDrag('), SRC.indexOf('function rpStartDrag(') + 2400)
+  assert(/Math\.max\(col\.min, Math\.round\(startW \+ dx\)\)/.test(fn),
+    '★ 没夹 min —— 能把列拖成负宽，看起来像列丢了')
+})
+
+check('J4 ★ 拖动不许触发排序（把手 stopPropagation）', () => {
+  const header = SRC.slice(SRC.indexOf('function rpHeader('), SRC.indexOf('function rpTagCell('))
+  assert(/onClick: function \(event\) \{ if \(event && event\.stopPropagation\)/.test(header),
+    '★ 把手没拦点击 —— 拖完松手会顺带触发排序')
+})
+
+check('J5 ★ 弹性列（名字）**不给拖**', () => {
+  // 名字列是 `1fr`（吃剩余空间）。拖它等于跟浏览器抢 1fr 的解释权，拖完会弹回去。
+  assert(/defaultPx: null/.test(SRC), '名字列没有 defaultPx:null')
+  const fn = SRC.slice(SRC.indexOf('function rpStartDrag('), SRC.indexOf('function rpStartDrag(') + 400)
+  assert(fn.indexOf('defaultPx === null') >= 0, '★ 没拦弹性列 —— 拖了会弹回去（像坏了）')
+})
+
+check('J6 ★ 列宽持久化：畸形/负数一律忽略（坏值不许把布局搞崩）', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpWidthsInitial('), SRC.indexOf('function rpStartDrag('))
+  assert(fn.indexOf('JSON.parse') >= 0, '没有解析存量')
+  assert(/isFinite\(v\) && v >= c\.min/.test(fn), '★ 没校验存量值 —— 存了个 0 会让列消失')
+  assert(fn.indexOf('catch') >= 0, '没有 try/catch —— 畸形 JSON 会把整张表搞崩')
+})
+
+check('J7 ★ 双击把手恢复默认宽（Windows 同款手感）', () => {
+  const header = SRC.slice(SRC.indexOf('function rpHeader('), SRC.indexOf('function rpTagCell('))
+  assert(header.indexOf('onDoubleClick') >= 0, '把手没有双击恢复')
+  assert(SRC.indexOf('function rpResetCol(') >= 0, '没有 rpResetCol')
 })
 
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')
