@@ -233,16 +233,24 @@ check('C2 ★ 「工作区」下推给宿主的旧写法已删除（改成**本�
     '★ 还在把 session_id 下推给宿主 —— 应该本地筛（与生图插件一致）')
 })
 
-check('C3 ★ 偏好持久化：读不到 / 读到脏值 ⇒ 默认「当前工作区」', () => {
+check('C3 ★★ 偏好持久化：读不到 / 脏值 ⇒ 默认「全部」（**实测依据**）', () => {
   assert(/var RP_SCOPE_KEY = /.test(SRC), '没有持久化键')
-  const fn = SRC.slice(SRC.indexOf('function rpScopeInitial('), SRC.indexOf('function rpScopeInitial(') + 700)
-  // ⚠️ 默认值从 `true`（复选框）改成 `"workspace"`（三档）：
-  //    「当前会话」太窄（一次会话往往只有几条），「全部」太多（415 条）。
-  assert(fn.indexOf('return "workspace"') >= 0,
-    '★ 读不到时没默认到 "workspace" —— 默认「全部」会一次列出 400+ 条，默认「会话」又太窄')
-  // 脏值（比如旧版存的 "true"）也要落回默认 —— 否则下拉的 value 对不上任何 option
+  const fn = SRC.slice(SRC.indexOf('function rpScopeInitial('), SRC.indexOf('function rpScopeInitial(') + 900)
+
+  // ⚠️⚠️ 默认值是 `all`，**不是** `workspace` —— 这是 2026-10-19 根据实测改的：
+  //    依琪在 `Documents\互通` 下工作，而产物大多在别处 ⇒ 默认「工作区」
+  //    会让面板只显示 **27/446**（他自己的截图就是 27/446），
+  //    看起来像"库空了 / 坏了"。默认全量，让「工作区」成为**主动选择**。
+  //
+  // ⚠️ 这条判据**必须写死依据**：否则下一个人会觉得"默认全部太吵"而改回去，
+  //    然后那个 27/446 的困惑就会重现。
+  assert(fn.indexOf('return "all"') >= 0,
+    '★ 读不到时没默认到 "all" —— 默认「工作区」会在换目录时显示成"库空了"（实测 27/446）')
+
+  // 脏值（比如旧版存的 "workspace"/"true"）也要落回默认 —— 否则下拉的 value 对不上任何 option
   assert(/RP_SCOPES\[i\]\.id === v/.test(fn) || fn.indexOf('for (') >= 0,
-    '★ 没有校验存量值 —— 旧版存的 `"true"` 会让 <select> 的 value 对不上任何 option')
+    '★ 没有校验存量值 —— 旧版存的 "true" 会让 <select> 的 value 对不上任何 option')
+
   assert(fn.indexOf('catch') >= 0, '没有 try/catch —— localStorage 在隐私模式会抛')
 })
 
@@ -356,6 +364,42 @@ check('E6 ★ 后缀徽章不是 `artifact_type`（分类 ≠ 格式）', () => 
   // 拿它当"文件类型"显示会给出互相矛盾的信息。
   const seg = SRC.slice(SRC.indexOf('__rpext'), SRC.indexOf('__rpext') + 400)
   assert(seg.indexOf('artifact_type') < 0, '★ 后缀徽章用了 artifact_type（那是分类，不是格式）')
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+// [G] 行内标签（2026-10-19 · 依琪：「我发现你的标签这边没有快速显示啊」）
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n── [G] 行内标签 ──')
+
+check('G1 ★★ 行里真的调用了 rpTagCell（不是只在预览页有标签）', () => {
+  // ⚠️ 2026-10-19 核对发现：回退后行里**只有** 名字 → 后缀 → 大小，
+  //    `tagChips` 三处全在预览页 ⇒ 依琪的抱怨是对的。
+  assert(/rpTagCell\(h, rec, managed\)/.test(SRC),
+    '★ 行里没调用 rpTagCell —— 标签只在预览页能看到')
+})
+
+check('G2 ★★ 只显示前 2 个 + `+N`（不许把名字挤没）', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 900)
+  assert(/tags\.slice\(0, RP_TAG_SHOW\)/.test(fn), '★ 没截断 —— 620px 的行里塞 6 个标签会把名字压没')
+  assert(/var RP_TAG_SHOW = 2/.test(SRC), 'RP_TAG_SHOW 不是 2')
+  assert(fn.indexOf('"+" + String(rest)') >= 0, '没有 +N 折叠')
+})
+
+check('G3 ★ 折叠后**信息不丢**：`+N` 的 title 里给全部标签', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 900)
+  assert(/title: tags\.join/.test(fn), '★ 折叠后没给 title —— "还有几个标签是什么"的信息丢了')
+})
+
+check('G4 ★ 用既有 `tagChips`（受管表颜色），不自己拼', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 900)
+  assert(fn.indexOf('tagChips(h,') >= 0,
+    '★ 没用 tagChips —— 颜色/字重会与预览区不一致（那是规则层的事）')
+})
+
+check('G5 ★ 没标签时返回 `null`（行内空间宝贵，不占位）', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 900)
+  assert(/if \(!tags\.length\) return null/.test(fn),
+    '★ 没标签时没返回 null —— 会占掉一段宽度')
 })
 
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')
