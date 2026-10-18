@@ -584,13 +584,14 @@ check('J4 ★ 拖动不许触发排序（把手 stopPropagation）', () => {
     '★ 把手没拦点击 —— 拖完松手会顺带触发排序')
 })
 
-check('J5 ★ 弹性列（名字）**不给拖**', () => {
-  // 名字列是 `1fr`（吃剩余空间）。拖它等于跟浏览器抢 1fr 的解释权，拖完会弹回去。
-  assert(/defaultPx: null/.test(SRC), '名字列没有 defaultPx:null')
-  const fn = SRC.slice(SRC.indexOf('function rpStartDrag('), SRC.indexOf('function rpStartDrag(') + 400)
-  assert(fn.indexOf('defaultPx === null') >= 0, '★ 没拦弹性列 —— 拖了会弹回去（像坏了）')
+check('J5 ★★ **每一列都能拖**（包括名字列）', () => {
+  // ⚠️ 2026-10-19：之前名字列是 `1fr` 且在 rpStartDrag 里被 `defaultPx === null` 排除
+  //    ⇒ 依琪报「文件名跟标签之间拖不动」。
+  //    现在**没有弹性列**了（全部固定 px + 尾部空白），所有把手都该能拖。
+  assert(!/defaultPx: null/.test(SRC), '★ 还有弹性列 —— 它的把手会拖不动')
+  const fn = SRC.slice(SRC.indexOf('function rpStartDrag('), SRC.indexOf('function rpStartDrag(') + 600)
+  assert(fn.indexOf('defaultPx === null') < 0, '★ 还在排除弹性列 —— 名字列会拖不动')
 })
-
 check('J6 ★ 列宽持久化：畸形/负数一律忽略（坏值不许把布局搞崩）', () => {
   const fn = SRC.slice(SRC.indexOf('function rpWidthsInitial('), SRC.indexOf('function rpStartDrag('))
   assert(fn.indexOf('JSON.parse') >= 0, '没有解析存量')
@@ -602,6 +603,91 @@ check('J7 ★ 双击把手恢复默认宽（Windows 同款手感）', () => {
   const header = SRC.slice(SRC.indexOf('function rpHeader('), SRC.indexOf('function rpTagCell('))
   assert(header.indexOf('onDoubleClick') >= 0, '把手没有双击恢复')
   assert(SRC.indexOf('function rpResetCol(') >= 0, '没有 rpResetCol')
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+// [K] 拖哪一根只改哪一列（2026-10-19 严重 bug）
+// ══════════════════════════════════════════════════════════════════════════
+//
+// 【依琪报的】「文件名跟标签之间拖不动，后面两根可以拖动但是效果**都是**分割
+//              文件名跟标签之间的，这是严重的 bug」
+//
+// 【根因】名字列用 `1fr` 吃剩余空间：
+//     模板 = 16px | 1fr | 120px | 44px | 52px
+//                    ↑ 只有它在变
+//   拖**任何**一列改 px，容器总宽不变 ⇒ 多/少出来的全给那个 1fr
+//   ⇒ 视觉上永远是「名字/标签之间」那条线在动。**布局模型错了**，不是把手下发错。
+//
+// 【修法】全部固定 px + 尾部留一个 `minmax(0,1fr)` 空白列吸收剩余空间
+//   ⇒ 每根把手只改它左边那一列（Windows 资源管理器就是这个行为）。
+console.log('\n── [K] 拖动只改自己那列 ──')
+
+/** 抠出列定义与模板函数求值。 */
+function loadCols() {
+  const from = SRC.indexOf('var RP_COLUMNS = [')
+  // ⚠️ 切片要覆盖 `rpColumnTemplate` 与 `rpWidthsInitial` —— 它们排在 `rpGetWidths` **之后**。
+  const to = SRC.indexOf('function rpStartDrag(')
+  assert(from > 0 && to > from, '抠不出列定义')
+  const box = { isFinite, Number, Math, String, Object, Array }
+  vm.createContext(box)
+  vm.runInContext(SRC.slice(from, to) + '\n;this.RP_COLUMNS=RP_COLUMNS;this.rpColumnTemplate=rpColumnTemplate;this.rpWidthsInitial=rpWidthsInitial;', box)
+  return box
+}
+const C = loadCols()
+
+check('K1 ★★ 模板里**不许有列级 1fr**（只有尾部空白列可以有）', () => {
+  // 这一条直接守根因：任何一列是 1fr ⇒ 拖别的列时它会"偷走"变化量。
+  const tpl = C.rpColumnTemplate(C.rpWidthsInitial())
+  const parts = tpl.split(' ')
+  // 最后一项是尾部空白列，允许 minmax(0,1fr)
+  const cells = parts.slice(0, parts.length - 1)
+  const flexible = cells.filter((x) => x.indexOf('fr') >= 0)
+  assert(flexible.length === 0,
+    '★ 列里还有弹性单位：' + flexible.join(' ') + ' ⇒ 拖别的列时它会偷走变化量（依琪报的 bug）')
+  assert(parts[parts.length - 1] === 'minmax(0,1fr)',
+    '★ 尾部没有吸收剩余空间的空白列（' + parts[parts.length - 1] + '）')
+})
+
+check('K2 ★★ 拖一列 ⇒ **只有那一列变**，其他一个都不许变', () => {
+  // 这是依琪那个 bug 的**直接判据**。
+  const before = C.rpColumnTemplate(C.rpWidthsInitial()).split(' ')
+  const widths = {}
+  widths.tags = 160
+  const after = C.rpColumnTemplate(widths).split(' ')
+  const changed = before.map((x, i) => (x !== after[i] ? i : -1)).filter((i) => i >= 0)
+  assert(changed.length === 1,
+    '★ 拖「标签」时变了 ' + changed.length + ' 列（' + changed.join(',') + '）—— 应该只变 1 列')
+  assert(after[changed[0]] === '160px', '变的那列不是 160px：' + after[changed[0]])
+})
+
+check('K3 ★★ 名字列也**拖得动**（依琪：「文件名跟标签之间拖不动」）', () => {
+  const widths = {}
+  widths.name = 260
+  const after = C.rpColumnTemplate(widths).split(' ')
+  assert(after[1] === '260px', '★ 名字列没生效：' + after[1])
+})
+
+check('K4 ★ 过小值**夹到 min**，不是退回默认（否则拖窄会"跳回去"像没拖成）', () => {
+  const minOfTags = (C.RP_COLUMNS.filter((c) => c.key === 'tags')[0] || {}).min
+  const widths = {}
+  widths.tags = 10
+  const after = C.rpColumnTemplate(widths).split(' ')
+  assert(after[2] === minOfTags + 'px',
+    '★ 没夹到 min：' + after[2] + '（期望 ' + minOfTags + 'px）')
+})
+
+check('K5 ★ 非法值（NaN / 负数）落回默认，不产生畸形 CSS', () => {
+  const def = C.rpColumnTemplate(C.rpWidthsInitial()).split(' ')
+  for (const bad of [NaN, -5, null]) {
+    const widths = {}
+    widths.tags = bad
+    const t = C.rpColumnTemplate(widths)
+    assert(t.indexOf('NaN') < 0 && t.indexOf('-') < 0,
+      '★ 产生了畸形 CSS（' + JSON.stringify(bad) + ' → ' + t + '）')
+  }
+  // 一遍下来应该回到默认
+  const back = C.rpColumnTemplate({}).split(' ')
+  assert(back[2] === def[2], '空 widths 没落回默认：' + back[2] + ' vs ' + def[2])
 })
 
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')
