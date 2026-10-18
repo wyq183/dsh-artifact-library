@@ -29,7 +29,7 @@
       "count": 1
     },
     "no-unused-vars": {
-      "count": 49
+      "count": 50
     },
     "no-useless-assignment": {
       "count": 4
@@ -163,6 +163,11 @@
   "test/managed-tags.test.mjs": {
     "no-useless-assignment": {
       "count": 1
+    }
+  },
+  "test/rp-boundary.test.mjs": {
+    "preserve-caught-error": {
+      "count": 2
     }
   },
   "test/ui-spec.test.mjs": {
