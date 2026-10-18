@@ -293,6 +293,71 @@ check('D4 ★ 登记时提示「顺手精炼」：缺哪一项要说清', () => 
   assert(tools.indexOf('refineHint') >= 0, '没有把缺失项拼进返回值')
 })
 
+// ══════════════════════════════════════════════════════════════════════════
+// [E] 后缀徽章（2026-10-18 · 依琪：「文件要显示文件类型，后缀名」）
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n── [E] 后缀徽章 ──')
+
+/** 把 rpExtOf 抠出来求值（**行为级**测，不扫文本）。 */
+function loadExt() {
+  const from = SRC.indexOf('function rpExtOf(')
+  const to = SRC.indexOf('/**', from)
+  assert(from > 0 && to > from, '抠不出 rpExtOf —— 函数改名了？')
+  const box = { String }
+  vm.createContext(box)
+  vm.runInContext(SRC.slice(from, to) + '\n;this.rpExtOf=rpExtOf;', box)
+  return box.rpExtOf
+}
+const extOf = loadExt()
+
+check('E1 优先用宿主的 `extension`（带不带点都归一）', () => {
+  assert(extOf({ extension: '.md' }) === '.md', '.md')
+  assert(extOf({ extension: 'md' }) === '.md', '不带点要补上')
+  assert(extOf({ extension: '.MD' }) === '.md', '大写要归一')
+  assert(extOf({ extension: '.png', filename: 'x.md' }) === '.png', 'extension 优先于 filename')
+})
+
+check('E2 ★★ 三个坑：dotfile / 目录名里的点 / 点结尾', () => {
+  // ⚠️ 这三条与 store.js 的 extOfName 同源的教训：
+  assert(extOf({ filename: '.gitignore' }) === '?', '★ dotfile 被当成了后缀 gitignore')
+  assert(extOf({ path: 'C:\\a.b\\file' }) === '?', '★ 目录名里的点被当后缀（会抠出 .b\\file）')
+  assert(extOf({ path: 'C:\\a.b\\file.md' }) === '.md', '目录有点 + 文件有点')
+  assert(extOf({ filename: 'a.' }) === '?', '点结尾')
+})
+
+check('E3 ★ 拿不到时返回 `"?"`，**不许空串**（空串会让徽章变成看不见的框）', () => {
+  assert(extOf({}) === '?', '空对象')
+  assert(extOf(null) === '?', 'null')
+  assert(extOf({ filename: 'Makefile' }) === '?', '无后缀')
+  // 反向：单测里如果实现返回了空串，这条会立刻红
+  assert(extOf({}) !== '', '★ 返回了空串 —— 徽章会变成一个只有 padding 的看不见的框')
+})
+
+check('E4 ★ 反向对照：不剥目录的错实现必须**错**', () => {
+  const WRONG = (rec) => {
+    const n = String((rec && (rec.filename || rec.path)) || '')
+    const d = n.lastIndexOf('.')
+    return d <= 0 ? '?' : '.' + n.slice(d + 1).toLowerCase()
+  }
+  const bad = WRONG({ path: 'C:\\a.b\\file' })
+  assert(bad !== extOf({ path: 'C:\\a.b\\file' }),
+    '★ 正确实现与错实现结果相同 ⇒ E2 那条判据没咬住')
+})
+
+check('E5 ★ 行上真的渲染了后缀徽章，且**目录不渲染**', () => {
+  // ⚠️ 光有纯函数不算接上 —— 要证明它真的在行里被调用，
+  //    而且目录要跳过（目录本来就没有后缀，不跳会全显示 "?"）。
+  assert(/rec\.is_dir \? null : h\("span", \{ className: NS \+ "__rpext" \}, rpExtOf\(rec\)\)/.test(SRC),
+    '★ 行上没有接后缀徽章，或者没跳过目录')
+})
+
+check('E6 ★ 后缀徽章不是 `artifact_type`（分类 ≠ 格式）', () => {
+  // 实测库里 README.md 被归成 `doc`、别的 .md 归成 `document` —— 分类表本身不齐，
+  // 拿它当"文件类型"显示会给出互相矛盾的信息。
+  const seg = SRC.slice(SRC.indexOf('__rpext'), SRC.indexOf('__rpext') + 400)
+  assert(seg.indexOf('artifact_type') < 0, '★ 后缀徽章用了 artifact_type（那是分类，不是格式）')
+})
+
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')
 if (failed) {
   console.log('\n── 失败清单 ──')
