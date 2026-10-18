@@ -46,7 +46,10 @@ console.log('\n── [A] 工作区判定（行为级）──')
 /** 把 client.js 里那几个纯函数抠出来求值。 */
 function loadPure() {
   const from = SRC.indexOf('function rpNormPath(')
-  const to = SRC.indexOf('/**\n     * 筛选芯片')
+  // ⚠️ 锚点必须跟着**实际排在 rpInWorkspace 之后**的那段走。
+  //    2026-10-18 晚在中间插了 `RP_SCOPES` / `RP_FILTERS` / `RP_SORTS`，
+  //    原来锚的「筛选芯片」注释已经不存在了 ⇒ 第一版报「抠不出结尾」。
+  const to = SRC.indexOf('/** 单次最多渲染多少行')
   assert(from > 0, '抠不出 rpNormPath —— 函数改名了？')
   assert(to > from, '抠不出 rpInWorkspace 的结尾 —— 后面那段锚点变了？')
   const code = SRC.slice(from, to)
@@ -99,6 +102,31 @@ check('A6 反向对照：把「拿不到就返回 false」的错实现跑一遍�
     '★ 正确实现与错实现结果相同 ⇒ A4 没咬住')
 })
 
+check('A7 ★ 归一化等价类：正斜杠 / 盘符大小写 / 尾斜杠 ⇒ 同一结果', () => {
+  // ⚠️ 这三条是**真库上量过的**（2026-10-18，445 条）：
+  //    `C:\…\dsh学` 与 `C:/…/dsh学` 与 `c:\…\dsh学` 三种写法都是 **29 条**。
+  //    不一致就说明归一化漏了一路 —— 而那一路正是 `store.js` 的 `inScopeDir` 踩过的坑。
+  const rec = { path: 'C:\\Users\\A\\Documents\\proj\\a.md' }
+  assert(P.rpInWorkspace(rec, { cwd: 'C:\\Users\\A\\Documents\\proj' }) === true, '基准用例没命中')
+  assert(P.rpInWorkspace(rec, { cwd: 'C:/Users/A/Documents/proj' }) === true, '正斜杠没归一')
+  assert(P.rpInWorkspace(rec, { cwd: 'c:\\Users\\A\\Documents\\proj' }) === true, '盘符大小写没归一')
+  assert(P.rpInWorkspace(rec, { cwd: 'C:\\Users\\A\\Documents\\proj\\' }) === true, '尾斜杠没归一')
+})
+
+check('A8 ★ 多路匹配：会话命中**或**路径命中都算（不能只看一路）', () => {
+  // ⚠️ 我们**没有** `workspaceId` 这种强标识，只有 `session_id` 与 `path` 两个弱标识
+  //    ⇒ 单看哪一个都会漏：换了目录但同一会话的，只有 session 能救回来。
+  const sessOnly = { session_id: 's-1', path: 'D:\\完全\\别处\\a.md' }
+  assert(P.rpInWorkspace(sessOnly, { sessionId: 's-1', cwd: 'C:\\proj' }) === true,
+    '★ 同会话但路径在别处 ⇒ 必须靠 session 命中，否则漏')
+  const pathOnly = { path: 'C:\\proj\\a.md' }
+  assert(P.rpInWorkspace(pathOnly, { sessionId: 's-other', cwd: 'C:\\proj' }) === true,
+    '★ 路径命中但会话不同 ⇒ 必须靠 path 命中')
+  // 两路都不命中 ⇒ false（这才是唯一该被筛掉的情况）
+  assert(P.rpInWorkspace({ session_id: 'x', path: 'D:\\y\\a.md' }, { sessionId: 's-1', cwd: 'C:\\proj' }) === false,
+    '两路都不命中时没筛掉')
+})
+
 // ══════════════════════════════════════════════════════════════════════════
 // [B] 接线：四样东西必须真的接上
 // ══════════════════════════════════════════════════════════════════════════
@@ -145,15 +173,15 @@ check('B4 ★ 截断必须明说（不许静默 slice）', () => {
   assert(!/items\.slice\(0, 200\)/.test(SRC), '★ 还残留裸的 `items.slice(0, 200)`')
 })
 
-check('B5 ★ 空态分四种，且「被工作区筛掉」那一支给一键取消', () => {
+check('B5 ★ 空态分五种，且「被范围筛掉」那一支给一键切回全部', () => {
   const fn = SRC.slice(SRC.indexOf('function rpEmptyText('), SRC.indexOf('function RightPaneBody('))
   assert(fn.indexOf('isFiltering') >= 0, '缺「被搜索/筛选筛掉」那一支')
-  assert(fn.indexOf('droppedByWs') >= 0, '★ 缺「被工作区筛掉」那一支 —— 那正是看起来像"库空了"的场景')
+  assert(fn.indexOf('droppedByScope') >= 0, '★ 缺「被范围筛掉」那一支 —— 那正是看起来像"库空了"的场景')
   assert(fn.indexOf('拿不到当前工作目录') >= 0, '缺「拿不到 cwd」那一支')
   assert(fn.indexOf('库里还没有产物') >= 0, '缺「库真空」那一支')
   // 一键取消按钮
   assert(/看全部 " \+ String\(snap\.items\.length\)/.test(SRC),
-    '★ 「被工作区筛掉」的空态没有"看全部 N 条"按钮 —— 用户只能自己去点复选框')
+    '★ 「被范围筛掉」的空态没有"看全部 N 条"按钮 —— 用户只能自己去切下拉')
 })
 
 check('B6 ★ 预览操作行四个动作都在，且定位/打开走**不同**端点', () => {
@@ -181,11 +209,19 @@ check('B7 ★ 写请求带 CSRF 头（不带会被宿主 403）', () => {
 // ══════════════════════════════════════════════════════════════════════════
 console.log('\n── [C] 旧设计退场 ──')
 
-check('C1 ★ 三个平行粒度按钮已删除（`RP_SCOPES` / `__rpseg`）', () => {
-  assert(SRC.indexOf('RP_SCOPES') < 0, '★ `RP_SCOPES` 还在 —— 两套范围控件并存')
-  // `__rpseg` 只允许出现在注释里（解释为什么不用它）
+check('C1 ★ 三档走**一个下拉**，没有平行按钮 / 没有复选框', () => {
+  // ⚠️ 2026-10-18 晚：`RP_SCOPES` **必须存在**（三档下拉要用它）。
+  //    这里要守的不是「它不在」，而是「**只有一种控件**」——
+  //    历史上出现过两种错法：三个平行按钮（层级混淆）、一个复选框（依琪否掉）。
+  assert(SRC.indexOf('RP_SCOPES') >= 0, '没有 RP_SCOPES ⇒ 三档范围没定义')
+  assert(/id: "session"/.test(SRC) && /id: "workspace"/.test(SRC) && /id: "all"/.test(SRC),
+    '三档不齐（依琪要的顺序：当前会话 / 当前工作区 / 全部）')
+  // 单选控件必须是 <select>，不是一组带 aria-pressed 的 button
+  assert(/function rpSelect\(h, o\)/.test(SRC), '没有下拉组件 rpSelect')
   const codeOnly = SRC.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
-  assert(codeOnly.indexOf('__rpseg') < 0, '★ 代码里还有 `__rpseg`（已删的旧粒度按钮样式）')
+  assert(codeOnly.indexOf('__rpseg') < 0, '★ 代码里还有 `__rpseg`（已删的旧平行按钮样式）')
+  assert(codeOnly.indexOf('__rpchip') < 0, '★ 代码里还有 `__rpchip`（已删的芯片样式）')
+  assert(codeOnly.indexOf('__rpcheck') < 0, '★ 代码里还有 `__rpcheck`（已否掉的复选框样式）')
 })
 
 check('C2 ★ 「工作区」下推给宿主的旧写法已删除（改成**本地筛**）', () => {
@@ -197,12 +233,64 @@ check('C2 ★ 「工作区」下推给宿主的旧写法已删除（改成**本�
     '★ 还在把 session_id 下推给宿主 —— 应该本地筛（与生图插件一致）')
 })
 
-check('C3 ★ 偏好持久化用的是 localStorage 且**读失败默认勾上**', () => {
-  assert(/var RP_SCOPE_KEY = "alf-only-current-workspace"/.test(SRC), '没有持久化键')
-  const fn = SRC.slice(SRC.indexOf('function rpScopeInitial('), SRC.indexOf('function rpScopeInitial(') + 500)
-  assert(/return v === null \? true : v === "true"/.test(fn),
-    '★ 读不到时不是默认 `true` —— 默认不勾会让"我刚做的东西"这个第一诉求失效')
+check('C3 ★ 偏好持久化：读不到 / 读到脏值 ⇒ 默认「当前工作区」', () => {
+  assert(/var RP_SCOPE_KEY = /.test(SRC), '没有持久化键')
+  const fn = SRC.slice(SRC.indexOf('function rpScopeInitial('), SRC.indexOf('function rpScopeInitial(') + 700)
+  // ⚠️ 默认值从 `true`（复选框）改成 `"workspace"`（三档）：
+  //    「当前会话」太窄（一次会话往往只有几条），「全部」太多（415 条）。
+  assert(fn.indexOf('return "workspace"') >= 0,
+    '★ 读不到时没默认到 "workspace" —— 默认「全部」会一次列出 400+ 条，默认「会话」又太窄')
+  // 脏值（比如旧版存的 "true"）也要落回默认 —— 否则下拉的 value 对不上任何 option
+  assert(/RP_SCOPES\[i\]\.id === v/.test(fn) || fn.indexOf('for (') >= 0,
+    '★ 没有校验存量值 —— 旧版存的 `"true"` 会让 <select> 的 value 对不上任何 option')
   assert(fn.indexOf('catch') >= 0, '没有 try/catch —— localStorage 在隐私模式会抛')
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+// [D] 精炼（2026-10-18 晚 · 依琪：「去掉待精炼，只留下一键精炼 + 标记未精炼的」）
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n── [D] 精炼 ──')
+
+check('D1 ★★ 「待精化」**不再是类型筛选**（它是状态标记 + 动作，不是一类东西）', () => {
+  // ⚠️ 这条守的是**维度纪律**：把"状态"塞进"类型下拉"就是维度混淆。
+  const filters = SRC.slice(SRC.indexOf('var RP_FILTERS = ['), SRC.indexOf('var RP_SORTS = ['))
+  assert(filters.indexOf('"refine"') < 0,
+    '★ RP_FILTERS 里又有 refine 了 —— 「未精炼」是状态标记，不该混进类型下拉')
+  assert(filters.indexOf('deliverable') >= 0 && filters.indexOf('reference') >= 0,
+    '类型筛选缺产出/资料')
+})
+
+check('D2 ★★ 未精炼标记用 `needsRefine`（**内容判定**），不是 `refineRequested`（人工标记）', () => {
+  // ⚠️ 两者语义完全不同（见 store.js）：
+  //    · needsRefine      = 摘要 + 标签 + 项目**三者齐备**才算已精炼（v2 规则）
+  //    · refineRequested  = 人工打的「⚡优先」
+  //    面板上那个点必须跟**内容**走，否则 AI 精炼完了点还在。
+  assert(SRC.indexOf('rec.needsRefine') >= 0, '行上没按 needsRefine 打标记')
+  const dot = SRC.slice(Math.max(0, SRC.indexOf('__rpdot') - 400), SRC.indexOf('__rpdot') + 200)
+  assert(dot.indexOf('refineRequested') < 0,
+    '★ 标记用了 refineRequested —— 那是人工「⚡优先」，不是"AI 没精炼过"')
+})
+
+check('D3 ★ 一键精炼 = 打标记（refine-request），不在栏里直接跑 AI', () => {
+  // ⚠️ 为什么不在右栏直接跑 `refine-session`：它会开一个**真会话**（耗时、要模型），
+  //    620px 里既看不到进度也接不住失败。⇒ 只打标记 + 把人送到管理页。
+  assert(SRC.indexOf('"/refine-request"') >= 0, '没有调 refine-request')
+  // ⚠️ 只查**代码**不查注释 —— 上面那段注释里就写着 `refine-session`
+  //    （第一版查全文，被自己的注释绊倒：和 tag-chip 那次同一个坑）
+  const codeOnly = SRC.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+  assert(codeOnly.indexOf('/refine-session') < 0,
+    '★ 右栏直接跑了 refine-session —— 那个会开真会话，栏里接不住进度与失败')
+  assert(SRC.indexOf('onRefineAll') >= 0, '没有 onRefineAll')
+})
+
+check('D4 ★ 登记时提示「顺手精炼」：缺哪一项要说清', () => {
+  // 依琪：「ai可以在登记产物库的时候顺手精炼」
+  // ⇒ 只写"待精化"三个字没用，agent 还得再查一次才知道缺什么。必须**点名**。
+  const tools = fs.readFileSync(path.join(REPO, 'lib', 'tools.js'), 'utf8')
+  assert(tools.indexOf('顺手精炼') >= 0, 'register_artifact 的描述里没有「顺手精炼」的约定')
+  assert(tools.indexOf("missing.push('summary')") >= 0,
+    '★ 返回值里没有指出**缺哪一项** —— agent 看到"待精化"还得再查一次')
+  assert(tools.indexOf('refineHint') >= 0, '没有把缺失项拼进返回值')
 })
 
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')
