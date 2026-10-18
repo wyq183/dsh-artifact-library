@@ -28,8 +28,11 @@
     "no-control-regex": {
       "count": 1
     },
+    "no-redeclare": {
+      "count": 1
+    },
     "no-unused-vars": {
-      "count": 54
+      "count": 51
     },
     "no-useless-assignment": {
       "count": 4
