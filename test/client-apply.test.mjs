@@ -104,6 +104,11 @@ function makeReact(stateQueue = []) {
     useEffect() {},
     useCallback(fn) { return fn; },
     useRef(init) { return { current: init }; },
+    // ⭐ 2026-10-18 加：`RightPaneBody` 用 `useMemo` 做「仅看此工作区」的本地过滤
+    //    （`items` 400+ 条，不缓存会每次 render 重算）。
+    //    ⚠️ mock 里**必须真的求值**（不能返回 undefined）—— 否则下游拿到 undefined
+    //       会在渲染时抛，把"组件不抛"那条断言证成假绿。
+    useMemo(fn) { return fn(); },
   };
 }
 

@@ -744,7 +744,7 @@ check('F5 ★ 列表重拉**不许碰** `managed`（它是独立状态，不随�
   //    `managed: previous.managed` 保住它；右栏是**独立 state**，天生不会被列表重拉碰。
   //    ⇒ 判据改成「列表 effect 里不许出现 setManaged」——
   //      这才是这个架构下「弄丢 managed」唯一可能的路径。
-  const listBody = effectBodyBy(CLIENT_SRC, 'var query = listQuery(')
+  const listBody = effectBodyBy(CLIENT_SRC, 'setSnap({ status: "loading", items: [], error: "" });')
   assert(listBody, '切不出列表加载 effect —— F5 的判据前提失效')
   assert(listBody.indexOf('setManaged') < 0,
     '★ 列表 effect 里出现了 setManaged —— 每次筛选都会把受管表重置（样式会闪没）')
@@ -761,9 +761,9 @@ check('★ F5b 反向对照：宽窗口会**假红** ⇒ 证明 F5 的花括号�
   //    三个 `setManaged` 分别在列表 effect 起点前 626 / 344 / 281 字符。
   //    ⇒ 往前取 900 字符就会框进后两个。**这个前提写进断言**（位置一变就当场红，
   //      不会退化成空转 —— 我第一版就是取「往后 1800」，方向反了，被这条当场抓住）。
-  const at = CLIENT_SRC.indexOf('var query = listQuery(')
-  assert(at > 0, '找不到列表 effect 锚点 `var query = listQuery(`')
-  const narrow = effectBodyBy(CLIENT_SRC, 'var query = listQuery(')
+  const at = CLIENT_SRC.indexOf('setSnap({ status: "loading", items: [], error: "" });')
+  assert(at > 0, '找不到列表 effect 锚点 `setSnap({ status: "loading" … })`')
+  const narrow = effectBodyBy(CLIENT_SRC, 'setSnap({ status: "loading", items: [], error: "" });')
   assert(narrow, '切不出列表 effect')
   const wide = CLIENT_SRC.slice(at - 900, at + 1200)
   assert(wide.length > narrow.length, '宽切片没比配平切片长 —— 对照不成立')
