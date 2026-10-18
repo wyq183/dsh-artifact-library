@@ -352,13 +352,13 @@ check('E4 ★ 反向对照：不剥目录的错实现必须**错**', () => {
     '★ 正确实现与错实现结果相同 ⇒ E2 那条判据没咬住')
 })
 
-check('E5 ★ 行上真的渲染了后缀徽章，且**目录不渲染**', () => {
-  // ⚠️ 光有纯函数不算接上 —— 要证明它真的在行里被调用，
-  //    而且目录要跳过（目录本来就没有后缀，不跳会全显示 "?"）。
-  assert(/rec\.is_dir \? null : h\("span", \{ className: NS \+ "__rpext" \}, rpExtOf\(rec\)\)/.test(SRC),
-    '★ 行上没有接后缀徽章，或者没跳过目录')
+check('E5 ★★ 类型格：目录显示 `—`（**不是 null** —— null 会让后面的列左移一格）', () => {
+  // ⚠️ 2026-10-19 改成 grid 布局后，`rec.is_dir ? null : …` **不行了**：
+  //    返回 null 会让 grid 少一格，标签/大小格全部左移 ⟹ 与表头错位。
+  const seg = SRC.slice(SRC.indexOf('__rpext" },') - 300, SRC.indexOf('__rpext" },') + 120)
+  assert(seg.indexOf('rpExtOf(rec)') >= 0, '★ 行上没有接类型格')
+  assert(/rec\.is_dir \? "—" :/.test(seg), '★ 目录没显示 — —— 会少一格导致整行错位')
 })
-
 check('E6 ★ 后缀徽章不是 `artifact_type`（分类 ≠ 格式）', () => {
   // 实测库里 README.md 被归成 `doc`、别的 .md 归成 `document` —— 分类表本身不齐，
   // 拿它当"文件类型"显示会给出互相矛盾的信息。
@@ -480,6 +480,61 @@ check('H5 ★★ 行内与预览**走同一个出口**（防再次漂移）', ()
   // 反向：不许再有"自己剥 .tags"的写法（那就是漂移的源头）
   assert(!/props\.managed\.ok === true && Array\.isArray\(props\.managed\.tags\)/.test(SRC),
     '★ 还残留着自己剥 .tags 的旧写法')
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+// [I] 表头 + 四列对齐 + 分割线（2026-10-19 第 2 步）
+// ══════════════════════════════════════════════════════════════════════════
+// 依琪：「你要标注好，文件名，标签，这样顶上分类连同分割线」
+console.log('\n── [I] 表格式列布局 ──')
+
+check('I1 ★ 四列按依琪给的顺序：文件名 / 标签 / 类型 / 大小', () => {
+  const seg = SRC.slice(SRC.indexOf('var RP_COLUMNS = ['), SRC.indexOf('function rpColumnTemplate('))
+  const order = [...seg.matchAll(/key: "(\w+)"/g)].map((m) => m[1])
+  assert(JSON.stringify(order) === JSON.stringify(['name', 'tags', 'ext', 'size']),
+    '★ 列顺序不对：' + order.join('/') + '（依琪要的是 文件名/标签/类型/大小）')
+})
+
+check('I2 ★★ 行与表头**共用同一份**模板（否则永远差几像素）', () => {
+  // ⚠️ 这是表格布局的**唯一**正确做法。
+  const header = SRC.slice(SRC.indexOf('function rpHeader('), SRC.indexOf('function rpTagCell('))
+  assert(header.indexOf('rpColumnTemplate()') >= 0, '表头没用 rpColumnTemplate')
+  assert(/style: \{ gridTemplateColumns: rpColumnTemplate\(\) \}/.test(SRC.slice(SRC.indexOf('__rprow" + (selected'), SRC.indexOf('__rprow" + (selected') + 800)),
+    '★ 行没用 rpColumnTemplate —— 会与表头差几像素')
+})
+
+check('I3 ★★ 行必须是 **5 个格**（勾选 + 4 列），多一个少一个都会错位', () => {
+  // ⚠️ 这条是白屏那版**没做完**的地方：元素当时是平铺的（8 个直接子项），
+  //    套上 5 列的模板就变成 8 列，与表头完全对不上。
+  const seg = SRC.slice(SRC.indexOf('__rprow" + (selected[rec.id]'), SRC.indexOf('__rprow" + (selected[rec.id]') + 5200)
+  const cells = [
+    ['① 勾选', '__rpck"'],
+    ['② 名字', '__rpname"'],
+    ['③ 标签', '__rptagcell"'],
+    ['④ 类型', '__rpext"'],
+    ['⑤ 大小', '__rpszcell"'],
+  ]
+  let prev = -1
+  for (const [name, key] of cells) {
+    const p = seg.indexOf(key)
+    assert(p >= 0, '★ 缺 ' + name + ' 格')
+    assert(p > prev, '★ ' + name + ' 格顺序错了')
+    prev = p
+  }
+})
+
+check('I4 ★ 标签格**再包一层**（rpTagCell 返回两个兄弟，不包会占两格）', () => {
+  // `rpTagCell` 返回 [chips, +N] 两个兄弟节点 —— 直接放进行里就是**两格**。
+  assert(/h\("span", \{ className: NS \+ "__rptagcell" \},\s*\n\s*rpTagCell\(h, rec,/.test(SRC),
+    '★ 标签格没包 —— rpTagCell 的两个兄弟会各占一格，把后面挤歪')
+})
+
+check('I5 ★ 表头有**列间分隔线**（依琪：「连同分割线」）', () => {
+  const header = SRC.slice(SRC.indexOf('function rpHeader('), SRC.indexOf('function rpTagCell('))
+  assert(header.indexOf('__rpline') >= 0, '★ 表头没有分隔线')
+  // ⚠️ 分隔线只在表头，**行内不放**（每行一根线太吵，且会与背景色打架）
+  const rowSeg = SRC.slice(SRC.indexOf('__rprow" + (selected'), SRC.indexOf('__rprow" + (selected') + 5200)
+  assert(rowSeg.indexOf('__rpline') < 0, '★ 行内也有分隔线 —— 每行一根太吵')
 })
 
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')
