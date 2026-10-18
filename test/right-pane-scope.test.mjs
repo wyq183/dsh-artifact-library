@@ -381,18 +381,28 @@ check('G1 ★★ 行里真的调用了 rpTagCell（不是只在预览页有标�
     '★ 行里没调用 rpTagCell —— 标签只在预览页能看到')
 })
 
-check('G2 ★★ 只显示前 2 个 + `+N`（不许把名字挤没）', () => {
-  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 900)
-  assert(/tags\.slice\(0, RP_TAG_SHOW\)/.test(fn), '★ 没截断 —— 620px 的行里塞 6 个标签会把名字压没')
-  assert(/var RP_TAG_SHOW = 2/.test(SRC), 'RP_TAG_SHOW 不是 2')
-  assert(fn.indexOf('"+" + String(rest)') >= 0, '没有 +N 折叠')
-})
+check('G2 ★★ 不许按**固定个数**折叠（依琪：「给标签更多空间了还在折叠这就不对」）', () => {
+  // ⚠️⚠️ 这条守的是**模型**，不是数字：
+  //    原来 `RP_TAG_SHOW = 2` 硬截前 2 个 + `+N` —— 写死个数，**无视用户拖宽了列**。
+  //    空间够了还在折叠 ⇒ 错。
+  //    现在：全部渲染，超出靠 CSS 裁（列宽决定显示多少），个数上限只做**防御**。
+  assert(/var RP_TAG_SHOW = 20/.test(SRC),
+    '★ 上限不是 20 —— 太小就变成"按个数折叠"（真库最多 13 个标签，20 永不触发）')
 
-check('G3 ★ 折叠后**信息不丢**：`+N` 的 title 里给全部标签', () => {
-  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 900)
-  assert(/title: tags\.join/.test(fn), '★ 折叠后没给 title —— "还有几个标签是什么"的信息丢了')
+  // 防御上限必须**高于真实最大值**，否则又变成"按个数截"
+  const m = /var RP_TAG_SHOW = (\d+)/.exec(SRC)
+  assert(m && Number(m[1]) >= 13,
+    '★ 上限 ' + (m ? m[1] : '?') + ' < 真库最大标签数 13 ⇒ 正常数据也会被折叠')
 })
-
+check('G3 ★ 悬停能看到**全部**标签（裁切是视觉的，信息不许丢）', () => {
+  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 1100)
+  // ⚠️ title 现在挂在**容器**上（不是 +N 上）—— 因为正常情况下不折叠了，
+  //    被裁掉的标签也要能通过悬停看到。
+  assert(/title: tags\.join/.test(fn), '★ 容器没给 title —— 被 CSS 裁掉的标签看不到了')
+  // 防御性 +N 的文案也必须自解释（依琪就是没看懂裸的 "+5"）
+  assert(/还有 " \+ String\(rest\) \+ " 个标签/.test(fn),
+    '★ +N 文案没自解释 —— 用户看不懂 "+5" 是什么')
+})
 check('G4 ★ 用既有 `tagChips`（受管表颜色），不自己拼', () => {
   const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 900)
   assert(fn.indexOf('tagChips(h,') >= 0,
@@ -688,6 +698,36 @@ check('K5 ★ 非法值（NaN / 负数）落回默认，不产生畸形 CSS', ()
   // 一遍下来应该回到默认
   const back = C.rpColumnTemplate({}).split(' ')
   assert(back[2] === def[2], '空 widths 没落回默认：' + back[2] + ' vs ' + def[2])
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+// [L] 标签溢出行为（2026-10-19 · 依琪：「给标签更多空间了还在折叠这就不对」）
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n── [L] 标签溢出 ──')
+
+check('L1 ★★ 标签本身 **flex:none**（不压缩）—— 否则每个都变"…"，谁也看不清', () => {
+  // ⚠️ 这是"看不清"的根因：给 `flex-shrink:1` + `text-overflow:ellipsis` 时，
+  //    空间不够是**所有标签一起被压窄**，而不是末尾被裁。
+  const i = SRC.indexOf('__rptags > span{')
+  assert(i > 0, '找不到标签芯片 CSS')
+  const seg = SRC.slice(i, SRC.indexOf('",', i))
+  assert(seg.indexOf('flex:none') >= 0, '★ 标签会被压缩（' + seg + '）')
+  assert(seg.indexOf('text-overflow') < 0, '★ 标签自带省略号 —— 会每个都变"…"')
+})
+
+check('L2 ★★ 容器 **nowrap + overflow:hidden** —— 末尾整块被裁', () => {
+  const i = SRC.indexOf('__rptags{')
+  assert(i > 0, '找不到容器 CSS')
+  const seg = SRC.slice(i, SRC.indexOf('",', i))
+  assert(seg.indexOf('flex-wrap:nowrap') >= 0, '★ 会换行 —— 行高会炸')
+  assert(seg.indexOf('overflow:hidden') >= 0, '★ 没裁 —— 会溢出到别的列上')
+})
+
+check('L3 ★ 标签列默认宽 ≥ 170px（真库中位数 6 个标签，太窄一打开就被裁）', () => {
+  const m = /\{ key: "tags", label: "标签", min: (\d+), defaultPx: (\d+) \}/.exec(SRC)
+  assert(m, '找不到标签列定义')
+  assert(Number(m[2]) >= 170,
+    '★ 标签列默认只有 ' + m[2] + 'px —— 一打开就被裁，看起来像"又折叠了"')
 })
 
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')
