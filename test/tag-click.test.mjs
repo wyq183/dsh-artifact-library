@@ -91,18 +91,24 @@ check('C1 ★★ 点标签后**必须切到列表视图**（第一版条件写�
   assert(!/!== 'card' &&/.test(fn), '★ 又把 card 排除在外了 —— 默认视图下永远不生效')
 })
 
-check('C2 ★ 标签不在下拉里时**临时补一个 option**（否则静默筛成"全部"）', () => {
-  // `fTag.value = tag` 对不存在的 option 会静默失败（value 变空 ⇒ 筛成全部）
-  const fn = JS.slice(JS.indexOf('function filterByTag'), JS.indexOf('function filterByTag') + 1400)
-  assert(fn.indexOf('createElement(\'option\')') >= 0, '★ 没补 option —— 新标签点了会静默失效')
+check('C2 ★★ 标签不在下拉里时也能筛（第一版:静默失效）', () => {
+  // ⚠️ 2026-10-19 第 4 步：`fTag` 从 `<select>` 改成多选组件（`MF.tag.picked`）。
+  //    旧实现靠"临时补一个 <option>"解决"标签不在选项里"的问题 ——
+  //    现在**根本不需要**：`picked` 是自由数组，任何名字都能放进去。
+  //    ⇒ 判据变成：直接写 `MF.tag.picked`，不走 `sel.value`（走那条路会静默失败）。
+  const fn = JS.slice(JS.indexOf('function filterByTag'), JS.indexOf('function filterByTag') + 1600)
+  assert(fn.indexOf('MF.tag.picked') >= 0,
+    '★ 没直接写 MF.tag.picked —— 设 sel.value 对不存在的值会静默失败')
+  assert(fn.indexOf("sel.value = name") < 0,
+    '★ 还在设 sel.value（fTag 已不是 select）')
 })
-
-check('C3 ★ 复用 `fTag`，不另存一份"当前筛选"', () => {
-  // 两份"当前筛选"迟早不一致（受管标签那次就是栽在这）
-  const fn = JS.slice(JS.indexOf('function filterByTag'), JS.indexOf('function filterByTag') + 1400)
-  assert(fn.indexOf("$('fTag')") >= 0, '★ 没复用 fTag')
+check('C3 ★★ 复用**同一份**筛选状态（不另存"当前标签筛选"）', () => {
+  // ⚠️ 这个不变量没变，只是**载体**从 `fTag` 换成了 `MF.tag`：
+  //    标签点击与下拉必须共用一处状态，否则两份"当前筛选"必然漂移。
+  const fn = JS.slice(JS.indexOf('function filterByTag'), JS.indexOf('function filterByTag') + 1600)
+  assert(fn.indexOf('MF.tag.picked') >= 0,
+    '★ 没复用 MF.tag —— 会出现两份"当前标签筛选"')
 })
-
 // ── D. 列表视图要有标签列 ──────────────────────────────────────────────
 check('D1 ★★ 列表视图**有标签列**（第一版只在卡片里有）', () => {
   // ⚠️ 2026-10-19 真机：列表视图的列是 产物/项目/星级/大小/时间/会话/操作
@@ -146,13 +152,18 @@ check('E2 ★ 每一项能**单独取消**，且有多项时给「全部清除�
   assert(fn.indexOf("'q'") >= 0, 'clearOneFilter 没处理搜索框（q）')
   assert(fn.indexOf('sel.value') >= 0, 'clearOneFilter 没清 select')
 })
-check('E3 ★ 痕迹条的数据**只从 DOM 读**，不另存 state', () => {
-  // 两份"当前筛选"必然漂移（受管标签那次的根因）
+check('E3 ★★ 痕迹条的每一项都能**单独取消**，且取消真的生效', () => {
+  // ⚠️ 数据源变了（2026-10-19 第 4 步）：多选维度从 `MF` 读、单选从 DOM 读。
+  //    但**"必须有单项取消"这条不变量没变** —— 用户能看见筛了什么、也能逐项撤。
   const fn = JS.slice(JS.indexOf('function renderFilterChips'), JS.indexOf('function clearOneFilter'))
-  assert(fn.indexOf("$('fTag')") >= 0 || fn.indexOf("'fTag'") >= 0, '没从 DOM 读筛选值')
-  assert(!/state\.filter/.test(fn), '★ 又存了一份 state.filter —— 会与 DOM 不一致')
+  assert(fn.indexOf('MF_LABEL') >= 0 || fn.indexOf('MF[') >= 0,
+    '★ 痕迹条没读多选状态')
+  assert(/clearOneFilter/.test(fn), '痕迹条没给单项取消按钮')
+  // 取消要能处理 mf: 前缀
+  const clr = JS.slice(JS.indexOf('function clearOneFilter'), JS.indexOf('function clearAllFilters'))
+  assert(clr.indexOf("'mf:'") >= 0 || clr.indexOf('mf:') >= 0,
+    '★ clearOneFilter 没处理 mf: 前缀 —— 多选维度取消不掉')
 })
-
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')
 if (failed) {
   console.log('\n── 失败清单 ──')

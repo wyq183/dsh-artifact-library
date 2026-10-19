@@ -171,7 +171,30 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
   .listtags{width:200px}
   .listtags .tagchips{margin:0;gap:3px;flex-wrap:wrap}
   .listtags .tagchip,.listtags .tagfree{font-size:11px;line-height:15px;padding:0 6px;white-space:nowrap}
-  .tagclick{cursor:pointer;font:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:999px;color:var(--fg);padding:1px 9px;line-height:16px;transition:.12s}
+  /* ── 多选下拉（2026-10-19 第 4 步 · 与侧栏同一视觉语言）───────────── */
+/* ⚠️ 容器 relative：弹层绝对定位相对它 */
+.mfwrap{position:relative;display:inline-flex;min-width:0}
+.mfsum{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:200px;border:1px solid var(--line);background:var(--panel);color:var(--dim);font:inherit;font-size:13px;line-height:20px;padding:6px 10px;border-radius:8px;cursor:pointer}
+.mfsum:hover{border-color:var(--acc)}
+/* 有选中值 ⇒ 描边高亮（一眼看出这个维度筛过） */
+.mfwrap.mfopen .mfsum,.mfsum--on{border-color:var(--acc);color:var(--fg)}
+.mflab{flex:none;color:var(--dim)}
+.mfval{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mfcar{flex:none;font-size:12px;opacity:.7}
+/* 弹层：绝对定位 + 最大高度 + 内部滚动（标签有 1340 个值） */
+.mflist{display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:30;width:max(200px,100%);max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:0 8px 24px rgba(0,0,0,.28);padding:4px}
+.mfwrap.mfopen .mflist{display:block}
+.mfopt{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:13px;line-height:18px;color:var(--dim)}
+.mfopt:hover{background:var(--panel2);color:var(--fg)}
+.mfopt--on{color:var(--fg);font-weight:600}
+.mfck{flex:none;width:14px;height:14px;margin:0;accent-color:var(--acc);cursor:pointer}
+.mfname{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mfct{flex:none;color:var(--dim);font-variant-numeric:tabular-nums;font-size:12px}
+.mfempty{padding:6px 8px;color:var(--dim);font-size:12px}
+.mfclear{display:block;width:100%;margin-top:4px;border:0;border-top:1px solid var(--line);background:transparent;color:var(--dim);font:inherit;font-size:12px;line-height:20px;padding:6px;cursor:pointer;text-align:center;border-radius:0 0 6px 6px}
+.mfclear:hover{color:var(--acc);background:var(--panel2)}
+
+.tagclick{cursor:pointer;font:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:999px;color:var(--fg);padding:1px 9px;line-height:16px;transition:.12s}
 .tagclick:hover{border-color:var(--acc);color:var(--acc)}
 .tagclick:active{transform:scale(.97)}
 .tagclick:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
@@ -241,11 +264,15 @@ body[data-card="l"] .thumb{height:200px}
 
 <div class="toolbar">
   <input class="grow" id="q" placeholder="搜索标题 / 摘要 / 正文 / 文件名…" oninput="debouncedReload()">
-  <select id="fKind" onchange="reload()"><option value="">全部</option><option value="deliverable">产出</option><option value="reference">资料</option></select>
+  <!-- 多选筛选（2026-10-19 第 4 步）——由 JS 渲染到这几个容器里。
+       ⚠️ 保留 `fKind`/`fProject`/`fType`/`fTag` 这几个 **id**（下面还有别处按 id 取值，
+          比如标签点击 filterByTag）—— 但它们不再是 <select>，而是**隐藏的同步容器**，
+          由 multiFilter 统一维护。这样旧代码点标签/清筛选仍然能用。 -->
+  <div class="mfwrap" id="mfKind"></div>
+  <div class="mfwrap" id="mfType"></div>
+  <div class="mfwrap" id="mfProject"></div>
+  <div class="mfwrap" id="mfTag"></div>
   <select id="fRefine" onchange="reload()"><option value="">全部状态</option><option value="1">待精化</option><option value="0">已精化</option></select>
-  <select id="fProject" onchange="reload()"><option value="">全部项目</option></select>
-  <select id="fType" onchange="reload()"><option value="">全部类型</option></select>
-  <select id="fTag" onchange="reload()"><option value="">全部标签</option></select>
   <select id="fSort" onchange="reload()">
     <option value="created_desc">最新登记</option>
     <option value="created_asc">最早登记</option>
@@ -421,7 +448,7 @@ body[data-card="l"] .thumb{height:200px}
 
 <script>
 const API = '/ext/artifacts'
-let state = { view: 'card', trash: false, items: [], categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
+let state = { view: 'card', trash: false, items: [], allItems: [], categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
   // ⭐ 2026-10-14 新增（档 1d）：文件浏览 / 文件搜索 / 会话改动
   //    这三块原来是**主面板**的能力，面板删了 ⇒ 搬到网页版（依琪：「允许你做成网页版本展示全部内容」）
   files: { dir: '', entries: [], total: 0, truncated: false, error: '', loading: false },
@@ -467,6 +494,163 @@ async function api(url, opts = {}) {
 }
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200) }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * 多选筛选（2026-10-19 第 4 步）
+ * ══════════════════════════════════════════════════════════════════════════
+ * 依琪：「同样是下拉式展开多选择分类」
+ *
+ * ⚠️ 宿主 store.list() 是**单值相等**签名（没有 kind[]）⇒ 多选只能前端做：
+ *    拉一次全量，本地过滤。与侧栏同一套语义：
+ *      · 维度内 = OR（选了「产出+资料」= 两者都要）
+ *      · 维度间 = AND
+ *      · 空数组 = 不筛（不是"筛不出东西"）
+ *
+ * ⚠️ 搜索 q **仍然走服务端**（要搜 contentIndex 正文，本地搜会漏）。
+ */
+const MF = {
+  kind: { label: '类别', picked: [] },
+  artifact_type: { label: '类型', picked: [] },
+  project: { label: '项目', picked: [] },
+  tag: { label: '标签', picked: [] },
+}
+
+/** 已选总数（"N 项"文案）。 */
+function mfCount() {
+  let n = 0
+  for (const k of Object.keys(MF)) n += MF[k].picked.length
+  return n
+}
+
+/** 一条记录是否通过多选筛选。⚠️ 空 = 不筛，写法与侧栏 rpMatchPicks 同口径。 */
+function mfMatch(r) {
+  if (MF.kind.picked.length && MF.kind.picked.indexOf(r.kind) < 0) return false
+  if (MF.artifact_type.picked.length && MF.artifact_type.picked.indexOf(r.artifact_type) < 0) return false
+  if (MF.project.picked.length) {
+    const p = String(r.project || '')
+    if (MF.project.picked.indexOf(p) < 0) return false
+  }
+  if (MF.tag.picked.length) {
+    const tags = Array.isArray(r.tags) ? r.tags : []
+    let hit = false
+    for (const t of MF.tag.picked) { if (tags.indexOf(t) >= 0) { hit = true; break } }
+    // ⚠️ 标签是**多值字段**：选 a+b 表示"带 a **或** 带 b"，不是"同时有"
+    if (!hit) return false
+  }
+  return true
+}
+
+/**
+ * 从全量记录里算某个维度的可选值（带计数）。
+ * ⚠️ 计数基于**全量**（state.allItems），不是筛后结果 ——
+ *    否则选了之后别的值计数会跳，看起来像数据在变。
+ */
+/**
+ * 机器值 → 人话（2026-10-19 真机修：下拉里显示的是 `deliverable`，用户看不懂）。
+ * ⚠️ 只翻译**有确定中文**的维度；项目/标签是自由文本，原样显示。
+ */
+function mfLabelOf(key, value) {
+  if (key === 'kind') {
+    return { deliverable: '产出', reference: '资料' }[value] || value
+  }
+  if (key === 'artifact_type') {
+    // 分类 id → 中文名。⚠️ 分类表可能还没拉到 ⇒ 原样回退（不显示空白）
+    const cats = state.categories && Array.isArray(state.categories.types) ? state.categories.types : []
+    return cats.indexOf(value) >= 0 ? value : value
+  }
+  return value
+}
+
+function mfOptions(key) {
+  const count = {}
+  const list = state.allItems || []
+  for (const r of list) {
+    if (key === 'tag') {
+      const tags = Array.isArray(r.tags) ? r.tags : []
+      for (const t of tags) { const k = String(t); count[k] = (count[k] || 0) + 1 }
+    } else {
+      const v = String(r[key] === undefined || r[key] === null ? '' : r[key])
+      if (!v) continue   // 空值不进选项（'未分类'要单给，不能混进真值）
+      count[v] = (count[v] || 0) + 1
+    }
+  }
+  return Object.entries(count)
+    .map(([value, n]) => ({ value, count: n }))
+    .sort((a, b) => (b.count - a.count) || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0))
+}
+
+/** 切换一个值（返回时**新数组**，不改原引用）。 */
+function mfToggle(key, value) {
+  const arr = MF[key].picked
+  const at = arr.indexOf(value)
+  if (at >= 0) arr.splice(at, 1)
+  else arr.push(value)
+}
+
+/** 渲染一个多选下拉。 */
+function mfRender(key) {
+  const box = $('mf' + key.charAt(0).toUpperCase() + key.slice(1).replace('artifact_type', 'Type'))
+  const host = $('mf' + ({ kind: 'Kind', artifact_type: 'Type', project: 'Project', tag: 'Tag' })[key])
+  if (!host) return
+  const picked = MF[key].picked
+  const summary = !picked.length ? '全部'
+    : picked.length <= 2 ? picked.map((v) => mfLabelOf(key, v)).join('、')
+    : picked.slice(0, 2).map((v) => mfLabelOf(key, v)).join('、') + ' +' + (picked.length - 2)
+  const opts = mfOptions(key)
+  host.innerHTML =
+    `<button type="button" class="mfsum${picked.length ? ' mfsum--on' : ''}" data-k="${key}" aria-expanded="false">` +
+      `<span class="mflab">${esc(MF[key].label)}</span><span class="mfval">${esc(summary)}</span><span class="mfcar">▾</span>` +
+    '</button>' +
+    '<div class="mflist">' +
+      (opts.length ? opts.map((o) =>
+        `<label class="mfopt${picked.indexOf(o.value) >= 0 ? ' mfopt--on' : ''}">` +
+        `<input type="checkbox" class="mfck" data-k="${key}" value="${esc(o.value)}"${picked.indexOf(o.value) >= 0 ? ' checked' : ''}>` +
+        `<span class="mfname">${esc(mfLabelOf(key, o.value))}</span><span class="mfct">${o.count}</span></label>`
+      ).join('') : '<div class="mfempty">没有可选项</div>') +
+      (picked.length ? `<button type="button" class="mfclear" data-k="${key}">清空「${esc(MF[key].label)}」</button>` : '') +
+    '</div>'
+}
+
+/** 渲染全部 4 个。 */
+function mfRenderAll() { for (const k of Object.keys(MF)) mfRender(k) }
+
+/* 多选下拉的交互（**事件委托**：4 个下拉走一处，不绑 4 套）。
+ * ⚠️ 同时只允许展开一个 —— 两个叠着会互相遮。
+ * ⚠️ 点外 / Esc 关闭要自己补（不是原生 <details>，浏览器不会自动收）。 */
+document.addEventListener('click', (e) => {
+  const t = e.target
+  if (!t || !t.closest) return
+  const hostOf = (k) => document.getElementById('mf' + ({ kind: 'Kind', artifact_type: 'Type', project: 'Project', tag: 'Tag' })[k])
+  const sum = t.closest(".mfsum")
+  if (sum) {
+    const host = sum.parentElement
+    const wasOpen = host.classList.contains("mfopen")
+    document.querySelectorAll(".mfwrap.mfopen").forEach((x) => x.classList.remove("mfopen"))
+    if (!wasOpen) host.classList.add("mfopen")
+    return
+  }
+  const ck = t.closest(".mfck")
+  if (ck) {
+    mfToggle(ck.dataset.k, ck.value)
+    mfRender(ck.dataset.k)
+    // ⚠️ 选完**不自动收**（多选时自动收会让人反复点开）
+    const h = hostOf(ck.dataset.k); if (h) h.classList.add("mfopen")
+    reload()
+    return
+  }
+  const clr = t.closest(".mfclear")
+  if (clr) {
+    MF[clr.dataset.k].picked.length = 0
+    mfRender(clr.dataset.k)
+    const h2 = hostOf(clr.dataset.k); if (h2) h2.classList.add("mfopen")
+    reload()
+    return
+  }
+  if (!t.closest(".mfwrap")) document.querySelectorAll(".mfwrap.mfopen").forEach((x) => x.classList.remove("mfopen"))
+})
+document.addEventListener('keydown', (e) => {
+  if (e.key === "Escape") document.querySelectorAll(".mfwrap.mfopen").forEach((x) => x.classList.remove("mfopen"))
+})
+
 async function reload() {
   state.loading = true
   state.loadError = ''
@@ -474,13 +658,15 @@ async function reload() {
   try {
     const p = new URLSearchParams({ sort: $('fSort').value })
     if (state.trash) p.set('status', 'trashed')
+    // ⚠️ 搜索 **仍走服务端**：它要搜 contentIndex（正文），而列表响应里的正文
+    //    可能被截断 ⇒ 本地搜会漏。这是唯一不能下放本地的维度。
     const q = $('q').value.trim(); if (q) p.set('q', q)
-    const kd = $('fKind').value; if (kd) p.set('kind', kd)
     const rf = $('fRefine').value; if (rf) p.set('refine', rf)
-    const pr = $('fProject').value; if (pr) p.set('project', pr)
-    const ty = $('fType').value; if (ty) p.set('artifact_type', ty)
-    const tg = $('fTag').value; if (tg) p.set('tag', tg)
-    state.items = await api(API + '?' + p)
+    // ⚠️ 多选维度**不拼进 URL**（宿主单值相等，拼不了多个）——
+    //    拉全量之后在本地用 mfMatch 过滤。见 MF 那段注释。
+    state.allItems = await api(API + '?' + p)
+    state.items = state.allItems.filter(mfMatch)
+    mfRenderAll()
     renderFilterChips()
     state.page = 1
   } catch (e) {
@@ -504,9 +690,11 @@ function refNames(ids) { return (ids || []).map((id) => state.refIndex[id] || id
 async function loadMeta() {
   const [cats, stats] = await Promise.all([api(API + '/categories'), api(API + '/stats')])
   state.categories = cats; state.stats = stats
-  $('fProject').innerHTML = '<option value="">全部项目</option>' + cats.projects.map((x) => `<option>${esc(x)}</option>`).join('')
-  $('fType').innerHTML = '<option value="">全部类型</option>' + cats.types.map((x) => `<option>${esc(x)}</option>`).join('')
-  $('fTag').innerHTML = '<option value="">全部标签</option>' + cats.tags.map((x) => `<option>${esc(x)}</option>`).join('')
+  // ⚠️ 2026-10-19 第 4 步：fProject / fType / fTag 已从 <select> 改成多选组件
+  //    （id 变成 mfProject / mfType / mfTag）⇒ **不能再给它们写 innerHTML**，
+  //    否则空指针（真机报 `Cannot set properties of null`）。
+  //    多选的选项由 mfRender 从 state.allItems 自己算（带计数），不需要这里灌。
+  //    ⇒ 这里只保留 **分类表** 的拉取（别处还要用 cats）。
   $('stats').innerHTML =
     `<div class="stat">共 <b>${stats.total}</b> 件</div>` +
     `<div class="stat">待精化 <b>${stats.pendingRefine || 0}</b></div>` +
@@ -632,21 +820,19 @@ function tagChipsHtml(tags) {
   function renderFilterChips() {
     const bar = $('filterBar')
     if (!bar) return
-    const picks = [
-      { id: 'fTag', label: '标签' },
-      { id: 'fProject', label: '项目' },
-      { id: 'fType', label: '类型' },
-      { id: 'fKind', label: '类别' },
-      { id: 'fRefine', label: '状态' },
-    ]
+    // ⚠️ 2026-10-19 第 4 步：4 个多选维度改从 `MF` 读（fTag 等已不是 <select>）。
+    //    `refine` 仍是单选（select），照旧读 DOM。
     const active = []
-    for (const p of picks) {
-      const sel = $(p.id)
-      if (!sel || !sel.value) continue
-      // 值可能是 kind（deliverable）这种机器值，显示要用人话
-      const opt = sel.options[sel.selectedIndex]
-      const text = opt ? opt.textContent : sel.value
-      active.push({ id: p.id, label: p.label, text: text, value: sel.value })
+    const MF_LABEL = { kind: '类别', artifact_type: '类型', project: '项目', tag: '标签' }
+    for (const k of Object.keys(MF_LABEL)) {
+      for (const v of MF[k].picked) {
+        active.push({ id: 'mf:' + k, label: MF_LABEL[k], text: mfLabelOf(k, v), value: v })
+      }
+    }
+    const rfSel = $('fRefine')
+    if (rfSel && rfSel.value) {
+      const opt = rfSel.options[rfSel.selectedIndex]
+      active.push({ id: 'fRefine', label: '状态', text: opt ? opt.textContent : rfSel.value, value: rfSel.value })
     }
     const q = $('q').value.trim()
     if (q) active.push({ id: 'q', label: '搜索', text: q, value: q })
@@ -662,7 +848,14 @@ function tagChipsHtml(tags) {
   
   /** 取消某一个筛选。⚠️ 只清它，别的不动。 */
   function clearOneFilter(id) {
-    if (id === 'q') { $('q').value = '' } else {
+    // ⚠️ 2026-10-19 第 4 步：筛选痕迹条现在会给出 `mf:kind` 这种 id
+    //    （多选维度）和 `fRefine`（仍是单选）。两种形态都要处理。
+    if (id === 'q') {
+      $('q').value = ''
+    } else if (id.indexOf('mf:') === 0) {
+      const k = id.slice(3)
+      if (MF[k]) { MF[k].picked.length = 0; mfRender(k) }
+    } else {
       const sel = $(id)
       if (sel) sel.value = ''
     }
@@ -671,10 +864,9 @@ function tagChipsHtml(tags) {
   
   /** 清空全部筛选（含搜索）。 */
   function clearAllFilters() {
-    for (const id of ['fTag', 'fProject', 'fType', 'fKind', 'fRefine']) {
-      const sel = $(id)
-      if (sel) sel.value = ''
-    }
+    for (const k of Object.keys(MF)) { MF[k].picked.length = 0; mfRender(k) }
+    const rf = $('fRefine')
+    if (rf) rf.value = ''
     $('q').value = ''
     reload()
   }
@@ -682,18 +874,11 @@ function tagChipsHtml(tags) {
 function filterByTag(tag) {
   const name = String(tag || '')
   if (!name) return
-  const sel = $('fTag')
-  if (sel) {
-    let found = false
-    for (const opt of sel.options) { if (opt.value === name) { found = true; break } }
-    if (!found) {
-      const opt = document.createElement('option')
-      opt.value = name
-      opt.textContent = name
-      sel.appendChild(opt)
-    }
-    sel.value = name
-  }
+  // ⚠️ 2026-10-19 第 4 步：fTag 从 <select> 改成了多选组件 ⇒ 不能再设 .value。
+  //    改成直接写 MF.tag.picked（**唯一真相源**）。
+  //    ⚠️ 点同一个标签 = 取消选中（与侧栏 rpTogglePick 同语义）。
+  MF.tag.picked.length = 0
+  MF.tag.picked.push(name)
   // ⚠️ **始终切到列表视图**（2026-10-19 真机修）：
   //    第一版我写的是 `if (state.view !== 'list' && state.view !== 'card')` ——
   //    等于把 card 排除在外，而**默认视图就是 card** ⇒ 这个"切列表"从来没生效过。
@@ -1001,7 +1186,9 @@ function render() {
 /** 清空全部筛选（含 `artifact_type` —— 漏一个就会「清空后仍被卡着」）。 */
 function clearFilters() {
   $('q').value = ''
-  for (const id of ['fKind', 'fRefine', 'fProject', 'fType', 'fTag']) { const el = $(id); if (el) el.value = '' }
+  // ⚠️ 2026-10-19：4 个维度已不是 <select>（改成多选组件 MF）⇒ 清 MF.picked
+  for (const k of Object.keys(MF)) { MF[k].picked.length = 0; mfRender(k) }
+  const rf = $('fRefine'); if (rf) rf.value = ''
   reload()
 }
 function loadMore() { state.page++; render() }

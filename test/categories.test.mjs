@@ -358,8 +358,14 @@ console.log('\n=== [F] 客户端接线守卫（防「图能点、请求不带上
     let ui
     try { ui = fs.readFileSync(uiPath, 'utf8') } catch { ui = '' }
     assert(ui, '读不到 ui/index.html —— 管理页不见了？分类筛选的替代界面就没了')
-    assert(/id="fType"/.test(ui),
-      '★ 管理页里没有分类下拉（`#fType`）—— 面板删了、网页版也没有 ⇒ 分类筛选**彻底没了**')
+    // ⚠️ 2026-10-19 第 4 步：`#fType` 从 <select> 改成了**多选组件**
+    //    （容器 id = `mfType`，状态在 `MF.artifact_type`）。
+    //    **这条要守的东西没变**：分类筛选这个能力不许无声消失。
+    //    ⇒ 判据从"有 #fType 下拉"改成"有多选容器 + 真的按 artifact_type 过滤"。
+    assert(/id="mfType"/.test(ui),
+      '★ 管理页里没有分类筛选容器（`#mfType`）—— 面板删了、网页版也没有 ⇒ 分类筛选**彻底没了**')
+    assert(/MF\.artifact_type/.test(ui),
+      '★ 分类筛选没有落到 MF.artifact_type —— 选了也不会生效')
     assert(/artifact_type/.test(ui),
       '★ 管理页的分类下拉没有把 artifact_type 拼进请求 —— 下拉是死的')
   })
