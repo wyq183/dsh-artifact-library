@@ -36,6 +36,7 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
 console.log('\n═══ 标签可点击 ═══')
 
 const html = fs.readFileSync(PAGE, 'utf8')
+const js = html
 
 // 抠出内联 <script>（这是唯一能"真的执行"页面的方式）
 const blocks = []
@@ -106,7 +107,11 @@ check('C3 ★ 复用 `fTag`，不另存一份"当前筛选"', () => {
 check('D1 ★★ 列表视图**有标签列**（第一版只在卡片里有）', () => {
   // ⚠️ 2026-10-19 真机：列表视图的列是 产物/项目/星级/大小/时间/会话/操作
   //    ——**没有标签**，所以"标签可点"在列表里根本看不到。
-  assert(/<th>标签<\/th>/.test(html), '★ 表头没有「标签」列')
+  // ⚠️ 2026-10-19 第 3 步：表头从写死改成由 `COLS` 动态生成（为了可拖列宽）⇒
+  //    不能再找 `<th>标签</th>` 字面量。判据改成：COLS 里有 tags 列 + 表头确实由它生成。
+  assert(/key: 'tags', label: '标签'/.test(js), '★ COLS 里没有「标签」列')
+  assert(/COLS\.map\(\(c, i\) =>\s*\n?\s*'<th class="pvth">'/.test(js),
+    '★ 表头不是由 COLS 生成的')
   assert(/class="listtags"/.test(JS), '★ 行里没有标签格')
 })
 

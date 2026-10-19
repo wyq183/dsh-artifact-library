@@ -109,7 +109,11 @@ check('B2 `render()` 必须在「空库」兜底**之前**分流两个新视图'
   //    若排在空库兜底之后，空库时它们永远显示"库是空的"。
   const r = html.indexOf('function render()')
   assert(r > 0, '找不到 render()')
-  const body = html.slice(r, r + 900)
+  // ⚠️ 2026-10-19：我在 render() 开头加了 `requestAnimationFrame(applyCols)` 和注释，
+  //    把「空库兜底」挤出了 900 字符的窗口 ⇒ 假红（"没有空库兜底"）。
+  //    ⇒ 窗口改成到**下一个顶层函数**为止，不靠固定字数。
+  const nextFn = html.indexOf('\nfunction ', r + 20)
+  const body = html.slice(r, nextFn > r ? nextFn : r + 4000)
   const filesAt = body.indexOf("state.view === 'files'")
   const emptyAt = body.indexOf('if (!state.items.length)')
   assert(filesAt > 0, 'render() 里没有 files 分支')

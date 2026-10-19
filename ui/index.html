@@ -54,7 +54,35 @@
   th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
   th{color:var(--dim);font-weight:600;font-size:12px;background:var(--panel2)}
   tr:hover td{background:var(--panel2)}
-  td .mini-thumb{width:52px;height:36px;object-fit:cover;border-radius:6px;display:block;background:var(--panel2)}
+  td /* ══ 列表表格：可拖列宽 + 可拖行高（2026-10-19 第 3 步）══════════════════
+   ⚠️ `table-layout:fixed` 必须开：否则浏览器会按内容重新分配列宽，
+      <colgroup> 里设的 width 会被"参考"而不是"遵守"——拖了会弹回去。
+   ⚠️ 行高用 CSS 变量 `--row-h`（表格上设），td 的 height 跟着它走；
+      缩略图 `height: calc(var(--row-h) - 16px)` ⇒ 行高拖大，图跟着变大。 */
+.pvtable{table-layout:fixed;width:100%}
+.pvtable td{padding:8px 10px;height:var(--row-h,56px)}
+.pvtable th.pvth{position:sticky;top:0;z-index:2;padding:8px 10px}
+/* 表头里的列宽把手：视觉是 1px 细线，**可点区 10px**（1px 鼠标抓不住） */
+.colgrip{position:absolute;top:-8px;right:-5px;width:10px;height:calc(100% + 16px);cursor:col-resize;z-index:3}
+.colgrip::after{content:'';position:absolute;top:0;left:4px;width:1px;height:100%;background:var(--line)}
+.colgrip:hover::after{background:var(--acc);width:2px;left:4px}
+/* ⚠️ th 必须 position:relative 才能让把手贴在自己右边缘 */
+.pvtable th.pvth{position:relative;overflow:visible}
+/* 行高把手：表头下方的一整行（横跨所有列）
+   ⚠️ 常态显示一条细线 + 淡淡的手柄提示，hover 变蓝 ——
+      依琪已经因为"看不见分割线"抱怨过两次，不许再藏到 hover 才出现。 */
+.rowgripr th.rowgripth{height:10px;padding:0;cursor:row-resize;background:var(--panel2);border-bottom:1px solid var(--line);position:relative}
+.rowgripr th.rowgripth::after{content:'';position:absolute;left:0;right:0;top:4px;height:2px;background:var(--line);border-radius:1px}
+.rowgripr th.rowgripth:hover::after{background:var(--acc)}
+.rowgriplab{font-size:11px;color:var(--dim);opacity:.55;pointer-events:none;line-height:10px;display:block;text-align:center}
+.rowgripr th.rowgripth:hover .rowgriplab{opacity:1;color:var(--acc)}
+/* 缩略图：跟着行高变 */
+.mini-thumb{width:52px;height:36px;object-fit:cover;border-radius:6px;display:block;background:var(--panel2)}
+.pvtable .mini-thumb{width:52px;height:calc(var(--row-h,56px) - 22px);min-height:18px}
+.pvtype{font-size:18px;display:inline-block}
+/* 图标列：缩略图变大时不能把列撑开 */
+.pvico{overflow:hidden}
+.mini-thumb{width:52px;height:36px;object-fit:cover;border-radius:6px;display:block;background:var(--panel2)}
   /* 项目视图 */
   .group{margin-bottom:18px}
   .group h3{font-size:15px;margin-bottom:10px;color:var(--acc2);display:flex;align-items:center;gap:8px}
@@ -710,9 +738,166 @@ function cardHtml(r) {
   </div>`
 }
 
+  /* ══════════════════════════════════════════════════════════════════════
+   * 列表列宽 + 行高（2026-10-19 第 3 步 · 依琪「都使用分割线来自由控制」）
+   * ══════════════════════════════════════════════════════════════════════
+   * ⚠️ 列模型**照抄侧栏**：每列固定 px，**尾部多一个空列吃剩余空间**。
+   *    侧栏曾栽过一次：名字列用 `1fr` 时，拖任何一列都只有它在动
+   *    （因为多/少出来的空间全给了那个 1fr）。
+   * ⚠️ 行高用 CSS 变量 `--row-h`，拖表头下那根横向分隔线改它；
+   *    缩略图 `height: calc(var(--row-h) - 12px)` —— 一行高度变了图也跟着变。
+   */
+  const COLS = [
+    // key / 表头 / 默认 px / 最小 px
+    { key: 'ico', label: '', w: 64, min: 48 },
+    { key: 'name', label: '产物', w: 340, min: 160 },
+    { key: 'project', label: '项目', w: 130, min: 70 },
+    { key: 'tags', label: '标签', w: 200, min: 80 },
+    { key: 'stars', label: '星级', w: 92, min: 60 },
+    { key: 'size', label: '大小', w: 76, min: 50 },
+    { key: 'date', label: '登记时间', w: 96, min: 70 },
+    { key: 'session', label: '来源会话', w: 110, min: 60 },
+    { key: 'ops', label: '操作', w: 180, min: 120 },
+  ]
+  
+  /** 列宽/行高持久化键。 */
+  const COLS_KEY = 'alf-page-cols'
+  const ROWH_KEY = 'alf-page-rowh'
+  const ROW_H_DEFAULT = 56
+  const ROW_H_MIN = 32
+  const ROW_H_MAX = 240
+  
+  /** 读列宽。⚠️ 畸形/过小一律落回默认（存了个 0 会让列消失）。 */
+  function loadCols() {
+    const out = {}
+    for (const c of COLS) out[c.key] = c.w
+    try {
+      const raw = localStorage.getItem(COLS_KEY)
+      if (!raw) return out
+      const saved = JSON.parse(raw)
+      for (const c of COLS) {
+        const v = Number(saved && saved[c.key])
+        if (Number.isFinite(v) && v >= c.min) out[c.key] = v
+      }
+    } catch { /* 忽略：用默认 */ }
+    return out
+  }
+  
+  function saveCols(w) {
+    try { localStorage.setItem(COLS_KEY, JSON.stringify(w)) } catch { /* 忽略 */ }
+  }
+  
+  /** 读行高（夹到 [MIN, MAX]）。 */
+  function loadRowH() {
+    try {
+      const v = Number(localStorage.getItem(ROWH_KEY))
+      if (Number.isFinite(v) && v >= ROW_H_MIN && v <= ROW_H_MAX) return v
+    } catch { /* 忽略 */ }
+    return ROW_H_DEFAULT
+  }
+  
+  /** 当前列宽 / 行高（模块级状态，拖动时频繁改，不走重渲）。 */
+  let colW = loadCols()
+  let rowH = loadRowH()
+  
+  /** 把列宽/行高落到 DOM 上（拖的时候只调这个，不重画整个表）。 */
+  function applyCols() {
+    const table = document.querySelector("#content table")
+    if (!table) return
+    for (const c of COLS) {
+      const col = table.querySelector(`col[data-k="${c.key}"]`)
+      if (col) col.style.width = colW[c.key] + "px"
+    }
+    table.style.setProperty("--row-h", rowH + "px")
+  }
+  
+  /**
+   * 开始拖一列的分隔线。
+   * ⚠️ 用 **pointer 事件 + setPointerCapture**（与侧栏一致）：
+   *    ① 触屏/手写笔能用；② 指针移出表格也不丢事件。
+   * ⚠️ 夹到 min：不夹能拖成负宽 = 列消失。
+   * ⚠️ 成对清理 pointerup / pointercancel（只在 up 清会留野监听）。
+   */
+  function startColDrag(event, col) {
+    if (!event) return
+    event.preventDefault()
+    event.stopPropagation()
+    const startX = Number(event.clientX) || 0
+    const startW = colW[col.key]
+    const grip = event.currentTarget
+    try { if (grip.setPointerCapture) grip.setPointerCapture(event.pointerId) } catch { /* 老浏览器 */ }
+    const prevCursor = document.body.style.cursor
+    document.body.style.cursor = "col-resize"
+    function onMove(e) {
+      const dx = (Number(e.clientX) || 0) - startX
+      colW[col.key] = Math.max(col.min, Math.round(startW + dx))
+      applyCols()
+    }
+    function onUp() {
+      document.body.style.cursor = prevCursor
+      try { if (grip.releasePointerCapture) grip.releasePointerCapture(event.pointerId) } catch { /* 忽略 */ }
+      document.removeEventListener("pointermove", onMove)
+      document.removeEventListener("pointerup", onUp)
+      document.removeEventListener("pointercancel", onUp)
+      saveCols(colW)
+    }
+    document.addEventListener("pointermove", onMove)
+    document.addEventListener("pointerup", onUp)
+    document.addEventListener("pointercancel", onUp)
+  }
+  
+  /** 开始拖行高（表头下方那根横向分隔线）。 */
+  function startRowDrag(event) {
+    if (!event) return
+    event.preventDefault()
+    const startY = Number(event.clientY) || 0
+    const startH = rowH
+    const grip = event.currentTarget
+    try { if (grip.setPointerCapture) grip.setPointerCapture(event.pointerId) } catch { /* 忽略 */ }
+    const prevCursor = document.body.style.cursor
+    document.body.style.cursor = "row-resize"
+    function onMove(e) {
+      const dy = (Number(e.clientY) || 0) - startY
+      rowH = Math.max(ROW_H_MIN, Math.min(ROW_H_MAX, Math.round(startH + dy)))
+      applyCols()
+    }
+    function onUp() {
+      document.body.style.cursor = prevCursor
+      try { if (grip.releasePointerCapture) grip.releasePointerCapture(event.pointerId) } catch { /* 忽略 */ }
+      document.removeEventListener("pointermove", onMove)
+      document.removeEventListener("pointerup", onUp)
+      document.removeEventListener("pointercancel", onUp)
+      try { localStorage.setItem(ROWH_KEY, String(rowH)) } catch { /* 忽略 */ }
+    }
+    document.addEventListener("pointermove", onMove)
+    document.addEventListener("pointerup", onUp)
+    document.addEventListener("pointercancel", onUp)
+  }
+  
+  /** 表头里的拖动把手（与侧栏同一视觉语言：一根线，可点区 10px）。 */
+  function gripHtml(col, isLast) {
+    if (isLast) return ''
+    return `<span class="colgrip" role="separator" aria-orientation="vertical"` +
+      ` aria-label="拖动调整「${esc(col.label || '图标')}」列宽"` +
+      ` title="拖动调整列宽（双击恢复默认）"` +
+      ` data-k="${col.key}"` +
+      ` onpointerdown="startColDrag(event, COLS.find(c=>c.key===this.dataset.k))"` +
+      ` ondblclick="resetColWidth(this.dataset.k)"` +
+      ` onclick="event.stopPropagation()"></span>`
+  }
+  
+  /** 双击恢复该列默认宽。 */
+  function resetColWidth(key) {
+    const c = COLS.find((x) => x.key === key)
+    if (!c) return
+    colW[key] = c.w
+    applyCols()
+    saveCols(colW)
+  }
+  
 function listHtml(r) {
   return `<tr>
-    <td>${r.mime_type.startsWith('image/') && r.exists ? `<img class="mini-thumb" src="${API}/${r.id}/file">` : `<span style="font-size:18px">${typeIcon(r.artifact_type)}</span>`}</td>
+    <td class="pvico">${r.mime_type.startsWith('image/') && r.exists ? `<img class="mini-thumb" src="${API}/${r.id}/file" loading="lazy">` : `<span class="pvtype">${typeIcon(r.artifact_type)}</span>`}</td>
     <td><b>${esc(r.title)}</b><br><span style="color:var(--dim);font-size:11px">${esc(r.path)}</span></td>
     <td>${esc(r.project || '—')}</td>
     <td class="listtags">${tagChipsHtml(r.tags)}</td>
@@ -731,6 +916,10 @@ function listHtml(r) {
 }
 
 function render() {
+  // ⚠️ 重画之后必须把列宽/行高再落一次：拖动改的是 colW 变量，
+  //    而重画会用 colgroup 里**渲染时**的值 —— 两者要同步。
+  //    用 requestAnimationFrame 是为了等 DOM 真的挂上去。
+  requestAnimationFrame(applyCols)
   const c = $('content')
 
   // ⭐ 2026-10-14：文件 / 改动两个视图**不吃 state.items**（数据源不同）
@@ -776,9 +965,29 @@ function render() {
   if (state.view === 'list') {
     // ⚠️ `role="grid"` + `aria-rowcount`（ui-spec §三.3/§七）：读屏才知道这是表格、共几行。
     //    `aria-rowcount` 取**全量**（不是可见行数）—— 否则读屏读到的是残缺的。
-    c.innerHTML = `<table role="grid" aria-rowcount="${state.items.length}">`
-      + `<thead><tr><th></th><th>产物</th><th>项目</th><th>标签</th><th>星级</th><th>大小</th><th>登记时间</th><th>来源会话</th><th>操作</th></tr></thead>`
-      + `<tbody>${visible.map(listHtml).join('')}</tbody></table>${moreBtn}`
+    // ══ 列表表格（2026-10-19 第 3 步：可拖列宽 + 可拖行高）══════════════════
+      // ⚠️ `<colgroup><col>` 定义列宽：一次定义整列，不用给每个 `<td>` 写 style
+      //    （447 行 × 9 列 = 4023 个 style，改宽度还要全量重渲）。
+      // ⚠️ 尾部多一个空列吃剩余空间 —— 与侧栏同一套列模型。
+      const colgroup = '<colgroup>' +
+        COLS.map((c) => '<col data-k="' + c.key + '" style="width:' + (colW[c.key] || c.w) + 'px">').join('') +
+        '<col>' +
+        '</colgroup>'
+      const headCells = COLS.map((c, i) =>
+        '<th class="pvth">' + esc(c.label) + gripHtml(c, i === COLS.length - 1) + '</th>').join('')
+      c.innerHTML = '<table role="grid" class="pvtable" aria-rowcount="' + state.items.length + '" style="--row-h:' + rowH + 'px">'
+        + colgroup
+        + '<thead><tr>' + headCells + '</tr>'
+        // ⚠️ 行高把手**放在表头里**（表头 sticky）：447 行时它始终可见。
+        //    放在表格下方的话，用户要滚到最底才看得到 —— 与"看不见分割线"同一个错。
+        + '<tr class="rowgripr"><th class="rowgripth" colspan="' + (COLS.length + 1) + '"'
+        + ' title="拖动调整行高（缩略图会跟着变大）" onpointerdown="startRowDrag(event)">'
+        + '<span class="rowgriplab">↕ 拖动调整行高</span></th></tr>'
+        + '</thead>'
+        + '<tbody>' + visible.map(listHtml).join('') + '</tbody></table>'
+        // 行高把手：**横跨整张表**的一根线，放在表格下方 ——
+        // ⚠️ 不放在表头里：表头是 th，塞一根横线会破坏列布局。
+        + moreBtn
   } else if (state.view === 'project') {
     const groups = {}
     for (const r of visible) (groups[r.project || '(未分类)'] = groups[r.project || '(未分类)'] || []).push(r)
