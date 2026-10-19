@@ -124,6 +124,31 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .tagchip{border:1px solid var(--line);border-radius:999px;padding:1px 9px;background:var(--panel2);color:var(--fg)}
 .tagchip.bold{font-weight:600}
 .tagfree{color:var(--dim);padding:1px 4px}
+/* 可点标签（2026-10-19）：点一下 = 按这个标签筛。
+   ⚠️ 要看起来"能点"：光标 + hover 描边。不做这两样的话，
+      用户永远不知道标签是可操作的（今晚我已经在别的按钮上栽过一次）。 */
+.filterbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 12px}
+  .fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--acc);border-radius:999px;padding:2px 4px 2px 10px;font-size:12px;line-height:18px;background:var(--panel2)}
+  .fchiplab{color:var(--dim)}
+  .fchiptxt{color:var(--fg);font-weight:600;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fchipx{border:0;background:transparent;color:var(--dim);cursor:pointer;font:inherit;padding:0 4px;line-height:18px;border-radius:999px}
+  .fchipx:hover{color:var(--danger,#f87171)}
+  .fchipall{border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:999px;padding:2px 10px;font:inherit;font-size:12px;cursor:pointer}
+  .fchipall:hover{border-color:var(--acc);color:var(--acc)}
+  /* 列表里的标签格。
+     ⚠️ 2026-10-19 真机修：第一版只写了 `max-width`，结果表格**自动布局**把这一列
+        压到很窄 ⇒ 每个标签都被迫换行，一行撑成 7 行高（截图里看得清清楚楚）。
+        ⇒ 必须给 `<td>` 一个**明确宽度**（`width` 而不是 `max-width`），
+          表格才会真的给它那么宽。 */
+  .listtags{width:200px}
+  .listtags .tagchips{margin:0;gap:3px;flex-wrap:wrap}
+  .listtags .tagchip,.listtags .tagfree{font-size:11px;line-height:15px;padding:0 6px;white-space:nowrap}
+  .tagclick{cursor:pointer;font:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:999px;color:var(--fg);padding:1px 9px;line-height:16px;transition:.12s}
+.tagclick:hover{border-color:var(--acc);color:var(--acc)}
+.tagclick:active{transform:scale(.97)}
+.tagclick:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.tagfree.tagclick{background:transparent;border-color:transparent;padding:1px 4px}
+.tagfree.tagclick:hover{border-color:var(--acc)}
 .tagchip.c-neutral{border-color:var(--line);color:var(--dim)}
 .tagchip.c-blue{border-color:#3b82f6;color:#60a5fa}
 .tagchip.c-sky{border-color:#0ea5e9;color:#38bdf8}
@@ -183,6 +208,8 @@ body[data-card="l"] .thumb{height:200px}
   <button onclick="selectAllPending()">全选待精化</button>
   <button onclick="clearSel()">清除选择</button>
 </div>
+
+<div id="filterBar" class="filterbar" style="display:none"></div>
 
 <div class="toolbar">
   <input class="grow" id="q" placeholder="搜索标题 / 摘要 / 正文 / 文件名…" oninput="debouncedReload()">
@@ -426,6 +453,7 @@ async function reload() {
     const ty = $('fType').value; if (ty) p.set('artifact_type', ty)
     const tg = $('fTag').value; if (tg) p.set('tag', tg)
     state.items = await api(API + '?' + p)
+    renderFilterChips()
     state.page = 1
   } catch (e) {
     // ⚠️ 失败**不能**只改 DOM 就完事：`state.items` 也得清掉，
@@ -536,11 +564,118 @@ function tagChipsHtml(tags) {
   const byKey = new Map(table.map((m) => [normTag(m.tag), m]))
   return '<div class="tagchips">' + tags.map((t) => {
     const m = byKey.get(normTag(t))
-    if (!m) return `<span class="tagfree">${esc(t)}</span>`
+    // ⚠️ **受管与自由词都要能点** —— 用户看到两个长得不一样的标签，
+    //    如果只有一个能点，那就是在教他"有的标签能用有的不能用"（假规律）。
+    // ⚠️ 用 `<button>` 不用 `<span onclick>`：键盘可达、读屏认得出这是可操作元素。
+    // ⚠️ `onclick` 里必须 `event.stopPropagation()`：
+    //    标签在卡片/行内部，而整张卡片是可点的（点它会打开详情）——
+    //    不拦住的话「点标签」会变成「打开详情」，看起来像点错了。
+    const click = ` onclick="event.stopPropagation();filterByTag(this.dataset.tag)"`
+    // `data-tag` 存**原始标签名**（不是归一化的）—— 服务端按原名精确匹配
+    const data = ` data-tag="${esc(t)}"`
+    if (!m) {
+      return `<button type="button" class="tagfree tagclick"${data}${click} title="按标签「${esc(t)}」筛选">${esc(t)}</button>`
+    }
     // 颜色/字重**只来自规则层**（不在这里自己判一遍）
-    const cls = 'tagchip' + (m.color ? ' c-' + esc(m.color) : '') + (m.weight === 'bold' ? ' bold' : '')
-    return `<span class="${cls}" title="${esc(m.tag)}">${esc(t)}</span>`
+    const cls = 'tagchip tagclick' + (m.color ? ' c-' + esc(m.color) : '') + (m.weight === 'bold' ? ' bold' : '')
+    return `<button type="button" class="${cls}"${data}${click} title="按标签「${esc(m.tag)}」筛选">${esc(t)}</button>`
   }).join('') + '</div>'
+}
+
+/**
+ * 点标签 ⇒ 按该标签筛选。
+ *
+ * ⚠️ 复用 `fTag` 而不是新造一套筛选状态：
+ *    新造就会有两份"当前筛选"（下拉里一份、state 里一份），迟早不一致。
+ * ⚠️ 切到 list 视图 + 滚回顶部：
+ *    在卡片视图里点完看不到"只剩这些"的效果（卡片区要往下滚才知道少了几张）。
+ * ⚠️ 标签不在下拉选项里时（比如新增的标签、下拉还没刷新）**也要能筛**：
+ *    `fTag.value = tag` 对不存在的 option 会静默失败（value 变空）⇒ 会筛成"全部"。
+ *    ⇒ 先查有没有这个 option，没有就**临时补一个**（否则用户点了没反应，还会以为库坏了）。
+ */
+  
+  /**
+   * 渲染「当前筛选痕迹」条（2026-10-19）。
+   *
+   * ⚠️ 数据**只从 DOM 的 select 读**，不另存 state —— 否则会出现"两份当前筛选"，
+   *    迟早不一致（今晚已经在受管标签上栽过一次同类问题）。
+   * ⚠️ 没有筛选时**整条隐藏**（`display:none`），不占位置。
+   */
+  function renderFilterChips() {
+    const bar = $('filterBar')
+    if (!bar) return
+    const picks = [
+      { id: 'fTag', label: '标签' },
+      { id: 'fProject', label: '项目' },
+      { id: 'fType', label: '类型' },
+      { id: 'fKind', label: '类别' },
+      { id: 'fRefine', label: '状态' },
+    ]
+    const active = []
+    for (const p of picks) {
+      const sel = $(p.id)
+      if (!sel || !sel.value) continue
+      // 值可能是 kind（deliverable）这种机器值，显示要用人话
+      const opt = sel.options[sel.selectedIndex]
+      const text = opt ? opt.textContent : sel.value
+      active.push({ id: p.id, label: p.label, text: text, value: sel.value })
+    }
+    const q = $('q').value.trim()
+    if (q) active.push({ id: 'q', label: '搜索', text: q, value: q })
+    if (!active.length) { bar.style.display = 'none'; bar.innerHTML = ''; return }
+    bar.style.display = 'flex'
+    bar.innerHTML = active.map((a) =>
+      `<span class="fchip"><span class="fchiplab">${esc(a.label)}</span>` +
+      `<span class="fchiptxt">${esc(a.text)}</span>` +
+      `<button type="button" class="fchipx" title="取消这个筛选" aria-label="取消 ${esc(a.label)} 筛选" onclick="clearOneFilter('${esc(a.id)}')">✕</button></span>`
+    ).join('') +
+      (active.length > 1 ? `<button type="button" class="fchipall" onclick="clearAllFilters()">全部清除</button>` : '')
+  }
+  
+  /** 取消某一个筛选。⚠️ 只清它，别的不动。 */
+  function clearOneFilter(id) {
+    if (id === 'q') { $('q').value = '' } else {
+      const sel = $(id)
+      if (sel) sel.value = ''
+    }
+    reload()
+  }
+  
+  /** 清空全部筛选（含搜索）。 */
+  function clearAllFilters() {
+    for (const id of ['fTag', 'fProject', 'fType', 'fKind', 'fRefine']) {
+      const sel = $(id)
+      if (sel) sel.value = ''
+    }
+    $('q').value = ''
+    reload()
+  }
+  
+function filterByTag(tag) {
+  const name = String(tag || '')
+  if (!name) return
+  const sel = $('fTag')
+  if (sel) {
+    let found = false
+    for (const opt of sel.options) { if (opt.value === name) { found = true; break } }
+    if (!found) {
+      const opt = document.createElement('option')
+      opt.value = name
+      opt.textContent = name
+      sel.appendChild(opt)
+    }
+    sel.value = name
+  }
+  // ⚠️ **始终切到列表视图**（2026-10-19 真机修）：
+  //    第一版我写的是 `if (state.view !== 'list' && state.view !== 'card')` ——
+  //    等于把 card 排除在外，而**默认视图就是 card** ⇒ 这个"切列表"从来没生效过。
+  //    为什么会写错：我想的是"列表和卡片都能看"，但卡片视图下**看不出条数变少了**
+  //    （卡片铺满整屏，筛完只剩 1 张也铺满第一行）⇒ 必须切列表才看得出效果。
+  if (state.view !== 'list') state.view = 'list'
+  syncViewButtons()
+  reload()
+  // 滚回顶部：筛选后还停在旧位置会让人以为"没变"
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* 忽略 */ }
 }
 
 function cardHtml(r) {
@@ -580,6 +715,7 @@ function listHtml(r) {
     <td>${r.mime_type.startsWith('image/') && r.exists ? `<img class="mini-thumb" src="${API}/${r.id}/file">` : `<span style="font-size:18px">${typeIcon(r.artifact_type)}</span>`}</td>
     <td><b>${esc(r.title)}</b><br><span style="color:var(--dim);font-size:11px">${esc(r.path)}</span></td>
     <td>${esc(r.project || '—')}</td>
+    <td class="listtags">${tagChipsHtml(r.tags)}</td>
     <td>${starsHtml(r)}</td>
     <td>${fmtSize(r.size_bytes)}</td>
     <td>${fmtDate(r.created_at)}</td>
@@ -641,7 +777,7 @@ function render() {
     // ⚠️ `role="grid"` + `aria-rowcount`（ui-spec §三.3/§七）：读屏才知道这是表格、共几行。
     //    `aria-rowcount` 取**全量**（不是可见行数）—— 否则读屏读到的是残缺的。
     c.innerHTML = `<table role="grid" aria-rowcount="${state.items.length}">`
-      + `<thead><tr><th></th><th>产物</th><th>项目</th><th>星级</th><th>大小</th><th>登记时间</th><th>来源会话</th><th>操作</th></tr></thead>`
+      + `<thead><tr><th></th><th>产物</th><th>项目</th><th>标签</th><th>星级</th><th>大小</th><th>登记时间</th><th>来源会话</th><th>操作</th></tr></thead>`
       + `<tbody>${visible.map(listHtml).join('')}</tbody></table>${moreBtn}`
   } else if (state.view === 'project') {
     const groups = {}
