@@ -173,6 +173,24 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
   .listtags .tagchip,.listtags .tagfree{font-size:11px;line-height:15px;padding:0 6px;white-space:nowrap}
   /* ── 多选下拉（2026-10-19 第 4 步 · 与侧栏同一视觉语言）───────────── */
 /* ⚠️ 容器 relative：弹层绝对定位相对它 */
+/* 「只看未精炼」开关（2026-10-19）
+   ⚠️ 形状上就是个 toggle：未开=灰边，开了=蓝边+蓝点。不用 checkbox 是因为
+      它旁边还有 4 个下拉，checkbox 在视觉上会显得"更小一级"。 */
+.togglebtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);color:var(--dim);font:inherit;font-size:13px;line-height:20px;padding:6px 10px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.togglebtn:hover{border-color:var(--acc)}
+.togglebtn.on{border-color:var(--acc);color:var(--fg);background:var(--panel2)}
+.tgl-dot{flex:none;font-size:11px;color:var(--dim);transition:.15s}
+.togglebtn.on .tgl-dot{color:var(--acc)}
+.togglebtn:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+/* 「已精炼」标签（2026-10-19）
+   ⚠️ 它会出现在**多数行**上（424/448）⇒ 必须是"扫读时不存在、细看时找得到"的形态：
+      · 无边框无背景（有的话会变成一排小盒子，抢注意力）
+      · muted 色 + 11px
+      · 与标题留 6px 间距，垂直居中对齐
+   这是"打标记"与"满屏噪音"之间的那个点。 */
+.refined{display:inline-block;margin-left:6px;font-size:11px;line-height:16px;color:var(--dim);opacity:.85;vertical-align:middle;font-weight:400;white-space:nowrap}
+/* hover 时才略亮（给"细看"用） */
+td:hover .refined{opacity:1;color:var(--fg)}
 .mfwrap{position:relative;display:inline-flex;min-width:0}
 .mfsum{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:200px;border:1px solid var(--line);background:var(--panel);color:var(--dim);font:inherit;font-size:13px;line-height:20px;padding:6px 10px;border-radius:8px;cursor:pointer}
 .mfsum:hover{border-color:var(--acc)}
@@ -272,7 +290,14 @@ body[data-card="l"] .thumb{height:200px}
   <div class="mfwrap" id="mfType"></div>
   <div class="mfwrap" id="mfProject"></div>
   <div class="mfwrap" id="mfTag"></div>
-  <select id="fRefine" onchange="reload()"><option value="">全部状态</option><option value="1">待精化</option><option value="0">已精化</option></select>
+  <!-- 状态快捷化（2026-10-19）：只有一个开关 = 只看未处理。
+       ⚠️ 不用下拉：「已精化」是默认状态，筛它等于看全部；只有「待处理」是真正的待办。
+       ⚠️ 保留 id `fRefine` 作为隐藏的**状态载体**（别的代码还要读它）→ 见下面。 -->
+  <button type="button" id="btnUnrefined" class="togglebtn" onclick="toggleUnrefined()"
+    title="只看 AI 还没精炼过的（缺摘要/标签/项目之一）" aria-pressed="false">
+    <span class="tgl-dot" aria-hidden="true">●</span>只看未精炼
+  </button>
+  <input type="hidden" id="fRefine" value="">
   <select id="fSort" onchange="reload()">
     <option value="created_desc">最新登记</option>
     <option value="created_asc">最早登记</option>
@@ -651,6 +676,33 @@ document.addEventListener('keydown', (e) => {
   if (e.key === "Escape") document.querySelectorAll(".mfwrap.mfopen").forEach((x) => x.classList.remove("mfopen"))
 })
 
+/**
+ * 「只看未精炼」开关（2026-10-19）。
+ * ⚠️ 映射到服务端 `refine=1`（宿主认这个参数）—— 不改契约。
+ * ⚠️ 按钮的 `aria-pressed` 必须跟上：读屏靠它知道开关状态。
+ */
+function toggleUnrefined() {
+  const el = $('fRefine')
+  const btn = $('btnUnrefined')
+  const on = el.value !== '1'
+  el.value = on ? '1' : ''
+  if (btn) {
+    btn.classList.toggle('on', on)
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+  }
+  reload()
+}
+
+/** 把开关的视觉/ARIA 与 `fRefine` 的值对齐（清筛选后要调）。 */
+function syncUnrefinedBtn() {
+  const el = $('fRefine')
+  const btn = $('btnUnrefined')
+  if (!el || !btn) return
+  const on = el.value === '1'
+  btn.classList.toggle('on', on)
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+}
+
 async function reload() {
   state.loading = true
   state.loadError = ''
@@ -829,10 +881,12 @@ function tagChipsHtml(tags) {
         active.push({ id: 'mf:' + k, label: MF_LABEL[k], text: mfLabelOf(k, v), value: v })
       }
     }
-    const rfSel = $('fRefine')
-    if (rfSel && rfSel.value) {
-      const opt = rfSel.options[rfSel.selectedIndex]
-      active.push({ id: 'fRefine', label: '状态', text: opt ? opt.textContent : rfSel.value, value: rfSel.value })
+    // ⚠️ 2026-10-19：「状态」已从三值下拉改成**开关**（fRefine 变成 hidden input）。
+    //    ⇒ 不能再用 `rfSel.options[...]`（hidden input 没有 options）——
+    //       真机就是这么崩的：`Cannot read properties of undefined`。
+    const refineOn = $('fRefine') && $('fRefine').value === '1'
+    if (refineOn) {
+      active.push({ id: 'fRefine', label: '状态', text: '只看未精炼', value: '1' })
     }
     const q = $('q').value.trim()
     if (q) active.push({ id: 'q', label: '搜索', text: q, value: q })
@@ -857,7 +911,10 @@ function tagChipsHtml(tags) {
       if (MF[k]) { MF[k].picked.length = 0; mfRender(k) }
     } else {
       const sel = $(id)
+      // ⚠️ 2026-10-19：`fRefine` 现在是 hidden input（开关），清它之后
+      //    必须同步按钮的视觉/ARIA，否则按钮看着还"开着"。
       if (sel) sel.value = ''
+      if (id === 'fRefine') syncUnrefinedBtn()
     }
     reload()
   }
@@ -867,6 +924,7 @@ function tagChipsHtml(tags) {
     for (const k of Object.keys(MF)) { MF[k].picked.length = 0; mfRender(k) }
     const rf = $('fRefine')
     if (rf) rf.value = ''
+    syncUnrefinedBtn()
     $('q').value = ''
     reload()
   }
@@ -1080,10 +1138,30 @@ function cardHtml(r) {
     saveCols(colW)
   }
   
+/**
+ * 精炼状态标签（2026-10-19 · 依琪：「已处理打上**已经精炼标签**就可以」）。
+ *
+ * ⚠️ **已精炼的打标签，未精炼的留白** —— 这是依琪的原话，照做。
+ *
+ * ⚠️ 但必须承认一件事（我第一版在这里自欺）：
+ *    实测 **424/448 是已精炼**，所以这个标签会出现**满屏**。
+ *    我原来的注释写着"给多数打标签等于没有标签"，然后代码还是给多数打了
+ *    —— 注释与代码相反，那注释就是**假的**（已按实际改掉这段说明）。
+ *
+ * ⇒ 解决办法不是"不标"（那是违背要求），而是**让它退到背景**：
+ *    · `.refined` 用 muted 色 + 小字号（扫读时自动忽略、细看能找到）
+ *    · 只在**列表视图**渲染（卡片视图有别的表达方式，不重复堆）
+ *    · 与「只看未精炼」开关**互补**：开关是主动筛，标签是被动扫。
+ */
+function refineBadge(r) {
+  if (r.needsRefine) return ''
+  return '<span class="refined" title="AI 已精炼（摘要 / 标签 / 项目齐备）">✓ 已精炼</span>'
+}
+
 function listHtml(r) {
   return `<tr>
     <td class="pvico">${r.mime_type.startsWith('image/') && r.exists ? `<img class="mini-thumb" src="${API}/${r.id}/file" loading="lazy">` : `<span class="pvtype">${typeIcon(r.artifact_type)}</span>`}</td>
-    <td><b>${esc(r.title)}</b><br><span style="color:var(--dim);font-size:11px">${esc(r.path)}</span></td>
+    <td><b>${esc(r.title)}</b>${refineBadge(r)}<br><span style="color:var(--dim);font-size:11px">${esc(r.path)}</span></td>
     <td>${esc(r.project || '—')}</td>
     <td class="listtags">${tagChipsHtml(r.tags)}</td>
     <td>${starsHtml(r)}</td>
@@ -1130,7 +1208,9 @@ function render() {
   if (!state.items.length) {
     // ⚠️ 三态分开（ui-spec §六 的同一条教训）：
     //    回收站空 / **被筛选过滤成空** / 库真的空 —— 下一步动作各不相同。
-    const hasFilter = $('q').value || $('fKind').value || $('fRefine').value || $('fProject').value || $('fType').value || $('fTag').value
+    // ⚠️ 2026-10-19：fKind/fProject/fType/fTag 已不是 <select>（改成多选 MF）
+    //    ⇒ 不能再读 .value（会 undefined 或空指针）。改成读 MF + refine 开关。
+    const hasFilter = $('q').value || $('fRefine').value || mfCount() > 0
     if (state.trash) {
       c.innerHTML = `<div class="empty">🗑️ 回收站是空的。</div>`
     } else if (hasFilter) {
@@ -1189,6 +1269,7 @@ function clearFilters() {
   // ⚠️ 2026-10-19：4 个维度已不是 <select>（改成多选组件 MF）⇒ 清 MF.picked
   for (const k of Object.keys(MF)) { MF[k].picked.length = 0; mfRender(k) }
   const rf = $('fRefine'); if (rf) rf.value = ''
+  syncUnrefinedBtn()
   reload()
 }
 function loadMore() { state.page++; render() }
@@ -1915,8 +1996,14 @@ async function startRefineSession(opts = {}) {
   } catch (e) { toast('❌ ' + e.message) }
 }
 async function refineProject() {
-  const pr = $('fProject').value
-  if (!pr) return toast('请先在筛选里选择一个项目')
+  // ⚠️ 2026-10-19：项目已改成**多选**（MF.project.picked），不再是 <select>。
+  //    这个函数只能精化**一个**项目的条目 ⇒ 多选时取第一个，并在提示里说清，
+  //    不静默挑一个（用户会以为"我选了三个，怎么只精化了一个"）。
+  const pr = MF.project.picked[0]
+  if (!pr) return toast('请先在「项目」筛选里选一个项目')
+  if (MF.project.picked.length > 1) {
+    toast('项目选了 ' + MF.project.picked.length + ' 个，只精化第一个：「' + pr + '」')
+  }
   try { const r = await api(API + '/refine-request', { method: 'POST', body: JSON.stringify({ project: pr }) }); toast(`⚡ 已标记项目「${pr}」${r.marked} 条优先精化`); reload() } catch (e) { toast('❌ ' + e.message) }
 }
 async function refineFolder() {
@@ -2030,7 +2117,9 @@ async function batchTrash() {
 }
 async function batchProject() {
   const ids = [...state.selected]; if (!ids.length) return toast('请先勾选条目')
-  const project = prompt('把这些条目归到哪个项目？', $('fProject').value || '')
+  // ⚠️ 同上：项目改成多选后没有"当前值"这个概念 —— 默认留空让用户自己填，
+  //    不猜（猜错会把一批东西归到错的项目的，比留空糟）。
+  const project = prompt('把这些条目归到哪个项目？', '')
   if (project === null) return
   for (const id of ids) await api(API + '/' + id, { method: 'PATCH', body: JSON.stringify({ project }) })
   toast(`📁 已把 ${ids.length} 条归入「${project}」`); state.selected.clear(); updateSelBar(); reload()
