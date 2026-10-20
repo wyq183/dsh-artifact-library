@@ -12,7 +12,11 @@
     --radius:10px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--fg);font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif;padding:20px;max-width:1200px;margin:0 auto}
+  /* ⚠️ 2026-10-20：max-width 从 body 挪到 .layout ——
+   树 + 列表本来就需要更宽，把树挤在 1200px 里会两列都难受。 */
+body{background:var(--bg);color:var(--fg);font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif;padding:20px;margin:0 auto}
+.layout{display:flex;gap:16px;max-width:1600px;margin:0 auto;align-items:flex-start}
+#content{flex:1 1 auto;min-width:0}
   header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:18px}
   header h1{font-size:20px;font-weight:700;letter-spacing:.5px}
   header h1 .dot{color:var(--acc2)}
@@ -271,6 +275,52 @@ body[data-card="l"] .thumb{height:200px}
 .skel-row{display:flex;gap:10px;align-items:center;padding:8px 0}
 .skel-card{height:190px;border-radius:var(--radius)}
 @media (prefers-reduced-motion: reduce){.skel{animation:none;opacity:.6}}
+
+  /* ══ 资料库目录树（2026-10-20 · 鲸鱼资料库）═════════════════════════════
+     ⚠️ 用 <details> 而不是自造展开逻辑：白送键盘可达性 + 展开动画。
+     ⚠️ 460 条记录不需要虚拟化（那是给 1 万+ 节点准备的）—— 加了只会更复杂。 */
+  .treebar{flex:0 0 auto;width:230px;background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--radius);padding:0;overflow:hidden;position:sticky;top:20px;
+    max-height:calc(100vh - 40px);display:flex;flex-direction:column}
+  /* 收起态：只剩一条窄边。
+     ⚠️ **不能 display:none 整栏** —— 那样就没有地方点回来了（死路）。
+     ⚠️ 44px 里塞不下「＋」和「«」两个按钮 ⇒ 收起时把「＋」也藏掉，
+        只留「»」作为"点我展开"的唯一入口。 */
+  .treebar.collapsed{width:40px}
+  .treebar.collapsed .treebody,
+  .treebar.collapsed .treetitle{display:none}
+  .treebar.collapsed .treehead{padding:8px 4px;justify-content:center}
+  /* 收起时「＋」藏掉（新建目录要先展开才有意义），只留展开按钮 */
+  .treebar.collapsed .treebtn[onclick*="openNewFolder"]{display:none}
+  .treehead{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line);flex:none}
+  .treetitle{flex:1 1 auto;min-width:0;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .treebtn{flex:none;border:1px solid var(--line);background:transparent;color:var(--dim);
+    font:inherit;font-size:13px;line-height:18px;padding:0 6px;border-radius:6px;cursor:pointer}
+  .treebtn:hover{border-color:var(--acc);color:var(--acc)}
+  .treebody{flex:1 1 auto;min-height:0;overflow:auto;padding:6px 4px}
+  .treeempty{padding:10px;color:var(--dim);font-size:12px;text-align:center}
+  /* 目录项 */
+  .treenode{padding:0}
+  .treenode>summary{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;
+    cursor:pointer;list-style:none;font-size:13px;line-height:20px;color:var(--fg)}
+  .treenode>summary::-webkit-details-marker{display:none}
+  .treenode>summary::before{content:"▸";flex:none;color:var(--dim);font-size:10px;transition:.12s;display:inline-block;width:10px}
+  .treenode[open]>summary::before{transform:rotate(90deg)}
+  .treenode>summary:hover{background:var(--panel2)}
+  .treename{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .treecount{flex:none;color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
+  /* 叶子（没有子目录的）不显示三角 */
+  .treenode.leaf>summary::before{content:""}
+  /* 当前选中的目录 */
+  .treenode.on>summary{background:var(--panel2);box-shadow:inset 2px 0 0 var(--acc)}
+  .treenode.on>summary .treename{color:var(--acc);font-weight:600}
+  /* 根节点（全部 / 未归类） */
+  .treeroot{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;
+    cursor:pointer;font-size:13px;line-height:20px}
+  .treeroot:hover{background:var(--panel2)}
+  .treeroot.on{background:var(--panel2);box-shadow:inset 2px 0 0 var(--acc)}
+  .treeroot.on .treename{color:var(--acc);font-weight:600}
+  .treechildren{padding-left:14px}
 </style>
 </head>
 <body>
@@ -359,7 +409,19 @@ body[data-card="l"] .thumb{height:200px}
   <button onclick="emptyTrash()" class="danger">清空回收站</button>
 </div>
 
-<main id="content"></main>
+<!-- 资料库目录树（2026-10-20 · 鲸鱼资料库方案 B）
+     ⚠️ 只包 #content，不改它的 id —— render() 往它里面写，改 id 会全线崩。 -->
+<div class="layout">
+  <aside class="treebar" id="treebar">
+    <div class="treehead">
+      <span class="treetitle">📚 资料库</span>
+      <button type="button" class="treebtn" onclick="openNewFolder()" title="新建目录">＋</button>
+      <button type="button" class="treebtn" onclick="toggleTree()" title="收起/展开目录栏" id="treeToggle">«</button>
+    </div>
+    <div class="treebody" id="folderTree"><div class="treeempty">加载中…</div></div>
+  </aside>
+  <main id="content"></main>
+</div>
 
 <div id="lightbox" onclick="if(event.target===this)closeLb()">
   <div class="close" onclick="closeLb()">✕</div>
@@ -666,6 +728,51 @@ function mfRenderAll() { for (const k of Object.keys(MF)) mfRender(k) }
 /* 多选下拉的交互（**事件委托**：4 个下拉走一处，不绑 4 套）。
  * ⚠️ 同时只允许展开一个 —— 两个叠着会互相遮。
  * ⚠️ 点外 / Esc 关闭要自己补（不是原生 <details>，浏览器不会自动收）。 */
+/* 资料库目录树的事件委托（2026-10-20）
+   ⚠️ 一套委托管三件事，不绑 N 个 listener：
+      · 点「全部 / 未归类」→ pickFolder
+      · 点目录名 → pickFolder（点三角只展开、不筛选）
+      · 展开/收起 → 记进 localStorage
+   ⚠️ **三角和名字必须分开**：点三角是"想看看里面有什么"，点名字是"想筛这个目录"。
+      混在一起的话，想看子目录就一定会触发筛选（列表被换掉）。 */
+document.addEventListener('click', (e) => {
+  const t = e.target
+  if (!t || !t.closest) return
+
+  // 虚拟根（全部 / 未归类）
+  const root = t.closest('.treeroot')
+  if (root) {
+    e.preventDefault()
+    pickFolder(root.dataset.path || '')
+    return
+  }
+
+  // 目录节点：只有点**名字/计数**才筛选；点三角（summary 左侧）只展开
+  const summary = t.closest('.treenode > summary')
+  if (summary) {
+    const details = summary.parentElement
+    const path = details ? details.dataset.path : ''
+    // ⚠️ 三角区域宽 10px + 左边距（CSS 的 ::before）
+    const rect = summary.getBoundingClientRect()
+    const onTriangle = (e.clientX - rect.left) <= 18
+    if (onTriangle) return // 交给 <details> 自己 toggle
+    e.preventDefault()
+    if (path) pickFolder(path)
+  }
+})
+
+/* 展开态持久化：toggle 事件不冒泡 ⇒ 用捕获 */
+document.addEventListener('toggle', (e) => {
+  const d = e.target
+  if (!d || !d.dataset || d.dataset.path === undefined) return
+  if (!d.classList || !d.classList.contains('treenode')) return
+  const path = d.dataset.path
+  if (!path) return
+  if (d.open) treeExpanded.add(path)
+  else treeExpanded.delete(path)
+  saveExpanded(treeExpanded)
+}, true)
+
 document.addEventListener('click', (e) => {
   const t = e.target
   if (!t || !t.closest) return
@@ -728,6 +835,137 @@ function syncUnrefinedBtn() {
   btn.setAttribute('aria-pressed', on ? 'true' : 'false')
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   资料库目录树（2026-10-20 · 鲸鱼资料库方案 B · 内容管理）
+   ═══════════════════════════════════════════════════════════════════════════
+   ⚠️ **不存树，从 /folders 现算**（服务端 buildFolderTree）——
+      存树必然出现"树里有、记录没有"的不一致，那是最容易烂的地方。
+   ⚠️ 用 <details> 不引组件库：460 条不需要虚拟化，<details> 白送键盘可达性。 */
+
+const TREE_EXPAND_KEY = 'alf-tree-expanded'
+const TREE_COLLAPSE_KEY = 'alf-tree-collapsed'
+
+/** 已展开的目录路径（localStorage 持久化）。 */
+function loadExpanded() {
+  try {
+    const raw = localStorage.getItem(TREE_EXPAND_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(arr) ? arr : [])
+  } catch { return new Set() }
+}
+function saveExpanded(set) {
+  try { localStorage.setItem(TREE_EXPAND_KEY, JSON.stringify([...set])) } catch { /* 忽略 */ }
+}
+const treeExpanded = loadExpanded()
+
+/** 整栏是否收起（窄屏时想专注列表）。 */
+function treeCollapsed() {
+  try { return localStorage.getItem(TREE_COLLAPSE_KEY) === '1' } catch { return false }
+}
+function toggleTree() {
+  const bar = $('treebar')
+  if (!bar) return
+  const next = !bar.classList.contains('collapsed')
+  bar.classList.toggle('collapsed', next)
+  const btn = $('treeToggle')
+  if (btn) {
+    btn.textContent = next ? '»' : '«'
+    btn.title = next ? '展开目录栏' : '收起目录栏'
+  }
+  try { localStorage.setItem(TREE_COLLAPSE_KEY, next ? '1' : '0') } catch { /* 忽略 */ }
+}
+
+/** 递归渲染一个目录节点。 */
+function treeNodeHtml(n, depth) {
+  const open = treeExpanded.has(n.path)
+  const hasKids = n.children && n.children.length > 0
+  const on = state.folder === n.path
+  const cls = 'treenode' + (hasKids ? '' : ' leaf') + (on ? ' on' : '')
+  // ⚠️ <details> 的 open 由 expanded 集合决定；点击三角时同步集合（见 treeBodyHtml 的事件委托）
+  return '<details class="' + cls + '" data-path="' + esc(n.path) + '"' + (open ? ' open' : '') + '>'
+    + '<summary>'
+    + '<span class="treename" title="' + esc(n.path) + '">' + esc(n.name) + '</span>'
+    + '<span class="treecount">' + n.count + '</span>'
+    + '</summary>'
+    + (hasKids ? '<div class="treechildren">' + n.children.map((c) => treeNodeHtml(c, depth + 1)).join('') + '</div>' : '')
+    + '</details>'
+}
+
+/** 渲染整棵树（含「全部」和「未归类」两个虚拟根）。 */
+function renderTree(tree, total) {
+  const box = $('folderTree')
+  if (!box) return
+
+  const allOn = !state.folder
+  const unrefOn = state.folder === '__none__'
+  // 「未归类」= folder 为空的记录。它不是真目录，是**筛选条件**。
+  const noneCount = (state.allItems || []).filter((r) => !String(r.folder || '').trim()).length
+
+  let html = '<div class="treeroot' + (allOn ? ' on' : '') + '" data-path="">'
+    + '<span class="treename">全部</span><span class="treecount">' + total + '</span></div>'
+    + '<div class="treeroot' + (unrefOn ? ' on' : '') + '" data-path="__none__"'
+    + ' title="没有归到任何目录的记录">'
+    + '<span class="treename">未归类</span><span class="treecount">' + noneCount + '</span></div>'
+
+  if (tree && tree.length) {
+    html += '<div class="treesep"></div>' + tree.map((n) => treeNodeHtml(n, 0)).join('')
+  } else {
+    html += '<div class="treeempty">还没有目录<br>点上方 ＋ 新建</div>'
+  }
+
+  box.innerHTML = html
+}
+
+/** 拉目录树。 */
+async function loadTree() {
+  try {
+    const r = await api(API + '/folders')
+    renderTree(r.tree || [], typeof r.total === 'number' ? r.total : 0)
+  } catch (e) {
+    const box = $('folderTree')
+    if (box) box.innerHTML = '<div class="treeempty">目录读取失败<br>' + esc(e && e.message ? e.message : String(e)) + '</div>'
+  }
+}
+
+/**
+ * 点目录 ⇒ 筛列表。
+ * ⚠️ `__none__` 是**虚拟节点**（未归类），不是真目录 —— 它映射成 folder='' 且"有筛选"。
+ *    如果直接传 folder=''，服务端会当成"不筛"（空 = 不筛），那就永远筛不出东西。
+ *    ⇒ 用 state.folderUnfiled 这个独立开关。
+ */
+function pickFolder(path) {
+  const p = String(path || '')
+  if (p === '__none__') {
+    state.folder = ''
+    state.folderUnfiled = true
+  } else {
+    state.folder = p
+    state.folderUnfiled = false
+  }
+  state.page = 1
+  reload()
+  loadTree()
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* 忽略 */ }
+}
+
+/** 新建目录（在当前选中目录下建子目录）。 */
+function openNewFolder() {
+  const base = state.folder && state.folder !== '__none__' ? state.folder : ''
+  const name = prompt('新建目录' + (base ? '（在「' + base + '」下）' : '') + '：\n用 / 可以一次建多层，如 工作/蜜雪', '')
+  if (name === null) return
+  const clean = String(name).trim()
+  if (!clean) return
+  const full = base ? base + '/' + clean : clean
+  // ⚠️ 新建 = 把一条记录移进去？不行 —— 空目录在这里**不存在**（树是从记录算的）。
+  //    ⇒ 新建目录必须有载体。做法：建目录时**不落盘**，只在展开态里记一下，
+  //      然后提示用户"把记录拖进去"。
+  treeExpanded.add(full)
+  saveExpanded(treeExpanded)
+  // 刷新树：此时目录还没记录，所以树里不会有它 —— 必须给用户明确提示
+  toast('目录「' + full + '」已创建。把记录拖进去（或选中记录点「移到目录」）后它才会出现在树里。')
+  loadTree()
+}
+
 async function reload() {
   state.loading = true
   state.loadError = ''
@@ -739,12 +977,23 @@ async function reload() {
     //    可能被截断 ⇒ 本地搜会漏。这是唯一不能下放本地的维度。
     const q = $('q').value.trim(); if (q) p.set('q', q)
     const rf = $('fRefine').value; if (rf) p.set('refine', rf)
+    // 资料库目录（2026-10-20）：
+    // ⚠️ 只传**真目录**。空串在服务端语义里是"不筛"，所以「未归类」不能用空串表达
+    //    —— 它走 folderUnfiled 这个本地开关（见下面）。
+    if (state.folder) p.set('folder', state.folder)
     // ⚠️ 多选维度**不拼进 URL**（宿主单值相等，拼不了多个）——
     //    拉全量之后在本地用 mfMatch 过滤。见 MF 那段注释。
     state.allItems = await api(API + '?' + p)
+    // ⚠️「未归类」只能**本地**过滤：它是"folder 为空"这个条件，
+    //    而空串在服务端是"不筛" —— 没法用参数表达。
+    if (state.folderUnfiled) {
+      state.allItems = state.allItems.filter((r) => !String(r.folder || '').trim())
+    }
     state.items = state.allItems.filter(mfMatch)
     mfRenderAll()
     renderFilterChips()
+    // 目录树跟着刷新（计数/选中态必须与列表一致）
+    loadTree()
     state.page = 1
   } catch (e) {
     // ⚠️ 失败**不能**只改 DOM 就完事：`state.items` 也得清掉，
@@ -782,6 +1031,10 @@ async function loadMeta() {
   const warn = $('missBar')
   if (warn) { warn.style.display = miss ? 'flex' : 'none'; if (warn.querySelector('b')) warn.querySelector('b').textContent = miss }
 }
+
+// 资料库目录树首次加载（2026-10-20）
+if (treeCollapsed()) { const tb = $('treebar'); if (tb) tb.classList.add('collapsed') }
+loadTree()
 // 撤销式 toast：消息 + [撤销] 按钮，几秒后消失
 let undoHandle = null
 function undoToast(msg, undoFn) {
