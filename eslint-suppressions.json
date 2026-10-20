@@ -123,6 +123,9 @@
     "max-lines": {
       "count": 1
     },
+    "no-control-regex": {
+      "count": 1
+    },
     "no-unused-vars": {
       "count": 3
     },
