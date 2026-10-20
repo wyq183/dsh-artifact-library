@@ -36,6 +36,9 @@
     },
     "no-useless-assignment": {
       "count": 4
+    },
+    "no-useless-escape": {
+      "count": 1
     }
   },
   "lib/http.js": {
@@ -179,6 +182,11 @@
   "test/page-multi.test.mjs": {
     "preserve-caught-error": {
       "count": 1
+    }
+  },
+  "test/project-tag.test.mjs": {
+    "no-regex-spaces": {
+      "count": 3
     }
   },
   "test/refine-toggle.test.mjs": {

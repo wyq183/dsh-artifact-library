@@ -209,7 +209,14 @@ td:hover .refined{opacity:1;color:var(--fg)}
 .mfname{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mfct{flex:none;color:var(--dim);font-variant-numeric:tabular-nums;font-size:12px}
 .mfempty{padding:6px 8px;color:var(--dim);font-size:12px}
-.mfclear{display:block;width:100%;margin-top:4px;border:0;border-top:1px solid var(--line);background:transparent;color:var(--dim);font:inherit;font-size:12px;line-height:20px;padding:6px;cursor:pointer;text-align:center;border-radius:0 0 6px 6px}
+/* 「清空」置顶（2026-10-20 依琪：最下面不好操作）
+   ⚠️ sticky + 不透明底色：滚动时选项从底下穿过，透明会文字重叠。
+   ⚠️ 与侧栏（lib/client.js 的 __rpmclear）**同一套做法** —— 两处不一致
+      会让用户学到的规律是假的。 */
+.mfclear{position:sticky;top:0;z-index:2;display:block;width:100%;margin:0 0 4px;border:0;
+  border-bottom:1px solid var(--line);background:var(--panel);color:var(--dim);font:inherit;
+  font-size:12px;line-height:20px;padding:6px;cursor:pointer;text-align:center;border-radius:6px 6px 0 0}
+
 .mfclear:hover{color:var(--acc);background:var(--panel2)}
 
 /* 项目标签（2026-10-20）——「项目也作为标签的一种，强绑定，最优先显示」
@@ -641,12 +648,15 @@ function mfRender(key) {
       `<span class="mflab">${esc(MF[key].label)}</span><span class="mfval">${esc(summary)}</span><span class="mfcar">▾</span>` +
     '</button>' +
     '<div class="mflist">' +
+      // ⚠️ 2026-10-20 依琪：「清空塞在最下面不好操作，要么置顶浮在上面，要么固定第一个」
+      //    ⇒ 清空按钮**放在选项之前**，CSS 做 sticky（滚动时一直浮着）。
+      //    与侧栏 `__rpmclear` 同一套做法 —— 两处行为不一致，用户学到的规律就是假的。
+      (picked.length ? `<button type="button" class="mfclear" data-k="${key}">清空「${esc(MF[key].label)}」</button>` : '') +
       (opts.length ? opts.map((o) =>
         `<label class="mfopt${picked.indexOf(o.value) >= 0 ? ' mfopt--on' : ''}">` +
         `<input type="checkbox" class="mfck" data-k="${key}" value="${esc(o.value)}"${picked.indexOf(o.value) >= 0 ? ' checked' : ''}>` +
         `<span class="mfname">${esc(mfLabelOf(key, o.value))}</span><span class="mfct">${o.count}</span></label>`
       ).join('') : '<div class="mfempty">没有可选项</div>') +
-      (picked.length ? `<button type="button" class="mfclear" data-k="${key}">清空「${esc(MF[key].label)}」</button>` : '') +
     '</div>'
 }
 

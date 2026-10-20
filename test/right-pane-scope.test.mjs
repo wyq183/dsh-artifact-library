@@ -395,24 +395,34 @@ check('G2 ★★ 不许按**固定个数**折叠（依琪：「给标签更多�
     '★ 上限 ' + (m ? m[1] : '?') + ' < 真库最大标签数 13 ⇒ 正常数据也会被折叠')
 })
 check('G3 ★ 悬停能看到**全部**标签（裁切是视觉的，信息不许丢）', () => {
-  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 1100)
+  const at = SRC.indexOf('function rpTagCell(')
+  const fn = SRC.slice(at, at + 1800)
   // ⚠️ title 现在挂在**容器**上（不是 +N 上）—— 因为正常情况下不折叠了，
   //    被裁掉的标签也要能通过悬停看到。
-  assert(/title: tags\.join/.test(fn), '★ 容器没给 title —— 被 CSS 裁掉的标签看不到了')
+  // ⚠️ 2026-10-20：项目并入后 title 来自 `allNames`（= 项目 + 标签），
+  //    不再是 `tags.join`。判据改成"容器有 title 且含 join"，不锁死变量名。
+  assert(/title:\s*allNames\.join|title:\s*tags\.join/.test(fn),
+    '★ 容器没给 title —— 被 CSS 裁掉的标签看不到了')
   // 防御性 +N 的文案也必须自解释（依琪就是没看懂裸的 "+5"）
   assert(/还有 " \+ String\(rest\) \+ " 个标签/.test(fn),
     '★ +N 文案没自解释 —— 用户看不懂 "+5" 是什么')
 })
 check('G4 ★ 用既有 `tagChips`（受管表颜色），不自己拼', () => {
-  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 900)
+  const at = SRC.indexOf('function rpTagCell(')
+  const fn = SRC.slice(at, at + 1800)
   assert(fn.indexOf('tagChips(h,') >= 0,
     '★ 没用 tagChips —— 颜色/字重会与预览区不一致（那是规则层的事）')
 })
 
 check('G5 ★ 没标签时返回 `null`（行内空间宝贵，不占位）', () => {
-  const fn = SRC.slice(SRC.indexOf('function rpTagCell('), SRC.indexOf('function rpTagCell(') + 900)
-  assert(/if \(!tags\.length\) return null/.test(fn),
-    '★ 没标签时没返回 null —— 会占掉一段宽度')
+  const at = SRC.indexOf('function rpTagCell(')
+  const fn = SRC.slice(at, at + 1800)
+  // ⚠️ 2026-10-20：项目并入后，"有项目没标签"**不能**返回 null
+  //    （否则项目会看不见）⇒ 判据必须是 `!tags.length && !proj`。
+  assert(/if \(!tags\.length && !proj\) return null/.test(fn),
+    '★ 判据不对 —— 有项目没标签时返回 null 会让项目看不见')
+  assert(!/if \(!tags\.length\) return null/.test(fn),
+    '★ 还在用只看 tags 的旧判据 —— 只有项目的行会整格消失')
 })
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -483,7 +493,8 @@ check('H4 ★ 畸形输入不抛（响应可能是任意形状）', () => {
 check('H5 ★★ 行内与预览**走同一个出口**（防再次漂移）', () => {
   // ⚠️ 这个 bug 的本质就是"两处各写一份"。
   //    ⇒ 判据：两处都调 rpManagedTags。
-  assert(/rpTagCell\(h, rec, rpManagedTags\(managed\)\)/.test(SRC),
+  // ⚠️ 2026-10-19 加了第 4 个参数（onPick = 标签可点）⇒ 正则不能锁死参数个数。
+  assert(/rpTagCell\(h, rec, rpManagedTags\(managed\)/.test(SRC),
     '★ 行内没走 rpManagedTags')
   assert(/var managedTags = rpManagedTags\(props\.managed\)/.test(SRC),
     '★ 预览没走 rpManagedTags')
@@ -537,9 +548,14 @@ check('I3 ★★ 行必须是 **5 个格**（勾选 + 4 列），多一个少一
 })
 
 check('I4 ★ 标签格**再包一层**（rpTagCell 返回两个兄弟，不包会占两格）', () => {
-  // `rpTagCell` 返回 [chips, +N] 两个兄弟节点 —— 直接放进行里就是**两格**。
-  assert(/h\("span", \{ className: NS \+ "__rptagcell" \},\s*\n\s*rpTagCell\(h, rec,/.test(SRC),
-    '★ 标签格没包 —— rpTagCell 的两个兄弟会各占一格，把后面挤歪')
+  // `rpTagCell` 返回 [项目, chips, +N] 多个兄弟节点 —— 直接放进行里就是**多格**。
+  // ⚠️ 判据不能锁死"调用紧跟在下一行"：中间可以夹注释（2026-10-20 就夹了），
+  //    所以用一段**窗口**找"包了一层 + 里面调了 rpTagCell"这个结构。
+  const at = SRC.indexOf('NS + "__rptagcell" }')
+  assert(at > 0, '找不到 __rptagcell 这一格')
+  const win = SRC.slice(at, at + 500)
+  assert(/rpTagCell\(h, rec,/.test(win),
+    '★ 标签格没包 —— rpTagCell 的多个兄弟会各占一格，把后面挤歪')
 })
 
 check('I5 ★ 表头有**列间分隔线**（依琪：「连同分割线」）', () => {
