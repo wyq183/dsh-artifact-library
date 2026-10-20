@@ -145,9 +145,44 @@ check('B5 改动视图把「还没观察到」与「真失败」分开（不是�
 })
 
 check('B6 标签芯片真的接在卡片上，且走受管表', () => {
-  assert(/tagChipsHtml\(r\.tags\)/.test(html), '卡片上没有调用 tagChipsHtml —— 组件写了没接上')
+  // ⚠️ 2026-10-20：渲染入口从 `tagChipsHtml(r.tags)` 换成了 `tagChipsHtmlForRecord(r)` ——
+  //    因为**项目要作为第一个标签**（依琪：「项目也作为标签的一种，强绑定，最优先显示」），
+  //    只传 `r.tags` 拿不到 `r.project`。
+  //    这条守的不变量没变：**组件写了必须真的接上**（不是只定义不调用）。
+  assert(/tagChipsHtmlForRecord\(r\)/.test(html),
+    '卡片/行上没有调用标签渲染函数 —— 组件写了没接上')
+  assert(!/tagChipsHtml\(r\.tags\)/.test(html),
+    '还在用只传 tags 的旧入口 —— 那样项目不会出现在标签里')
   assert(/\/managed-tags/.test(html), '没有拉受管标签表 —— 所有标签都会是素文本')
   assert(/function normTag\(/.test(html), '没有归一化函数 —— 受管表里的大小写/分隔符差异会对不上')
+})
+
+check('B8 ★★ 项目必须并进标签列表的**第一个**，且只出现一次', () => {
+  // 依琪：「把项目也作为标签的一种，但是是强绑定同一个项目的，然后最优先显示」
+  const at = html.indexOf('function mergeProjectTag(')
+  assert(at > 0, '没有 mergeProjectTag —— 项目没有并进标签')
+  const body = html.slice(at, html.indexOf('\n}', at) + 2)
+  // ① 项目排在前面（items 在前，rest 是去掉同名后的标签）
+  assert(/items:\s*\[\s*\{\s*name:\s*proj/.test(body), '★ 项目没有作为第一项')
+  // ② 必须**去重**：项目名可能恰好也是标签（同名会出现两次，看起来像 bug）
+  assert(/normTag\(proj\)/.test(body) && /filter\(/.test(body),
+    '★ 没按归一化去重 —— 项目名与标签同名时会出现两次')
+  // ③ 渲染函数里项目必须先 push
+  const at2 = html.indexOf('function tagChipsHtmlForRecord(')
+  const body2 = html.slice(at2, at2 + 1200)
+  const iProj = body2.indexOf('tagproj')
+  const iTag = body2.indexOf('tagchip tagclick')
+  assert(iProj > 0 && iTag > 0 && iProj < iTag, '★ 项目标签没有排在普通标签之前')
+})
+
+check('B9 ★★ 点项目标签必须筛**项目**（不是筛标签）', () => {
+  // ⚠️ 项目名不一定是标签 ⇒ 点项目却走 tag= 会**搜不到东西**
+  assert(/function filterByProject\(/.test(html), '没有 filterByProject')
+  assert(/filterByProject\(this\.dataset\.proj\)/.test(html),
+    '★ 项目标签的点击没走 filterByProject')
+  const at = html.indexOf('function filterByProject(')
+  const body = html.slice(at, at + 700)
+  assert(/MF\.project\.picked/.test(body), '★ filterByProject 没有真的去设项目筛选')
 })
 
 check('B7 受管表加载完必须**重渲染**（否则首屏全是素文本）', () => {

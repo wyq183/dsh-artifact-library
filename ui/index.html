@@ -212,6 +212,21 @@ td:hover .refined{opacity:1;color:var(--fg)}
 .mfclear{display:block;width:100%;margin-top:4px;border:0;border-top:1px solid var(--line);background:transparent;color:var(--dim);font:inherit;font-size:12px;line-height:20px;padding:6px;cursor:pointer;text-align:center;border-radius:0 0 6px 6px}
 .mfclear:hover{color:var(--acc);background:var(--panel2)}
 
+/* 项目标签（2026-10-20）——「项目也作为标签的一种，强绑定，最优先显示」
+   ⚠️ 视觉必须与普通标签**明显不同**，否则用户不知道它是"唯一的、绑定的"：
+      · 实心描边 + 加粗（比普通标签重）
+      · 📁 前缀（一眼认出是项目）
+      · 用 accent 色（与"可选标签"的灰/彩色区分开）
+   ⚠️ 它**不可多选**（一条记录只有一个项目），但点击仍然有效（按项目筛）。 */
+.tagproj{cursor:pointer;font:inherit;display:inline-flex;align-items:center;gap:4px;
+  border:1px solid var(--acc);border-radius:999px;padding:1px 9px;line-height:16px;
+  background:color-mix(in srgb, var(--acc) 14%, transparent);
+  color:var(--acc);font-weight:600;font-size:12px;white-space:nowrap;transition:.12s}
+.tagproj:hover{background:color-mix(in srgb, var(--acc) 24%, transparent)}
+.tagproj:active{transform:scale(.97)}
+.tagproj:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+/* 列表里的项目标签压小一点（与 listtags 里的普通标签同尺寸） */
+.listtags .tagproj{font-size:11px;line-height:15px;padding:0 6px}
 .tagclick{cursor:pointer;font:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:999px;color:var(--fg);padding:1px 9px;line-height:16px;transition:.12s}
 .tagclick:hover{border-color:var(--acc);color:var(--acc)}
 .tagclick:active{transform:scale(.97)}
@@ -826,6 +841,70 @@ function normTag(t) {
   return String(t || '').toLowerCase().replace(/[\s\u00b7\u30fb\u2027\u2219\u22c5\u2010\u2011\u2012\u2013\u2014\u2015\-_]+/gu, '')
 }
 
+/**
+ * 把「项目」并进标签列表的**第一个**（2026-10-20 · 依琪：项目作为一种标签，强绑定，最优先）。
+ *
+ * ⚠️ 只在**渲染层**合并 —— `project` 字段与 `tags` 数组都不动：
+ *    `project` 有 41 处业务在用（筛选/语义搜索/精炼/项目合并/概览），
+ *    把它塞进 `tags` 会让"哪些标签是项目"不可判定，所有 `r.project === x` 全要改写。
+ *
+ * ⚠️ 去重：项目名**可能恰好也是标签**（例：项目「三角洲口琴工作台」+ 同名标签）。
+ *    不去重的话同一个词会出现两次，一个带📁一个不带 —— 看起来像 bug。
+ *
+ * @param {object} r 记录
+ * @returns {{items: Array<{name:string, isProject:boolean}>, rest: Array<string>}}
+ */
+function mergeProjectTag(r) {
+  const proj = String(r && r.project ? r.project : '')
+  const tags = Array.isArray(r && r.tags) ? r.tags : []
+  if (!proj) return { items: [], rest: tags }
+  // ⚠️ 用**归一化**比较（与 normTag 同口径）—— 项目名与标签只差大小写/分隔符时也算重复
+  const pk = normTag(proj)
+  const rest = tags.filter((t) => normTag(t) !== pk)
+  return { items: [{ name: proj, isProject: true }], rest: rest }
+}
+
+/**
+ * 渲染标签（含**最优先的项目标签**）。
+ *
+ * @param {object} r 记录（要 `project` + `tags`）
+ * @param {object} [opts] { compact?: boolean }
+ */
+function tagChipsHtmlForRecord(r, opts) {
+  const o = opts || {}
+  const merged = mergeProjectTag(r)
+  const table = Array.isArray(managedTags) ? managedTags : []
+  const byKey = new Map(table.map((m) => [normTag(m.tag), m]))
+  const out = []
+
+  // ① 项目标签（最优先，视觉上不同，点它筛**项目**不是标签）
+  for (const it of merged.items) {
+    out.push('<button type="button" class="tagproj tagclick"'
+      + ' data-proj="' + esc(it.name) + '"'
+      + ' onclick="event.stopPropagation();filterByProject(this.dataset.proj)"'
+      + ' title="按项目「' + esc(it.name) + '」筛选（项目是强绑定的，一条记录只属于一个项目）">'
+      + '📁 ' + esc(it.name) + '</button>')
+  }
+
+  // ② 普通标签
+  for (const t of merged.rest) {
+    const m = byKey.get(normTag(t))
+    const click = ' onclick="event.stopPropagation();filterByTag(this.dataset.tag)"'
+    const data = ' data-tag="' + esc(t) + '"'
+    if (!m) {
+      out.push('<button type="button" class="tagfree tagclick"' + data + click
+        + ' title="按标签「' + esc(t) + '」筛选">' + esc(t) + '</button>')
+      continue
+    }
+    const cls = 'tagchip tagclick' + (m.color ? ' c-' + esc(m.color) : '') + (m.weight === 'bold' ? ' bold' : '')
+    out.push('<button type="button" class="' + cls + '"' + data + click
+      + ' title="按标签「' + esc(m.tag) + '」筛选">' + esc(t) + '</button>')
+  }
+
+  if (!out.length) return ''
+  return '<div class="tagchips">' + out.join('') + '</div>'
+}
+
 function tagChipsHtml(tags) {
   if (!tags || !tags.length) return ''
   const table = Array.isArray(managedTags) ? managedTags : []
@@ -929,6 +1008,29 @@ function tagChipsHtml(tags) {
     reload()
   }
   
+/**
+ * 点**项目**标签 ⇒ 按项目筛选（2026-10-20）。
+ *
+ * ⚠️ 与 `filterByTag` 是**两条路**，不能复用：
+ *    项目筛的是 `project=` 参数，标签筛的是 `tag=`。
+ *    如果点项目却走标签筛选，**搜不到东西**（项目名不一定是标签）。
+ * ⚠️ 项目是**强绑定单选**（一条记录只有一个项目）⇒ 直接覆盖，不是 toggle 追加。
+ *    再点同一个 = 取消（保持与标签一致的交互手感）。
+ */
+function filterByProject(name) {
+  const p = String(name || '')
+  if (!p) return
+  const cur = MF.project.picked
+  const same = cur.length === 1 && cur[0] === p
+  MF.project.picked.length = 0
+  if (!same) MF.project.picked.push(p)
+  mfRender('project')
+  if (state.view !== 'list') state.view = 'list'
+  syncViewButtons()
+  reload()
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* 忽略 */ }
+}
+
 function filterByTag(tag) {
   const name = String(tag || '')
   if (!name) return
@@ -965,7 +1067,7 @@ function cardHtml(r) {
         <span>${fmtSize(r.size_bytes)}</span>
       </div>
       ${starsHtml(r)}
-      ${tagChipsHtml(r.tags)}
+      ${tagChipsHtmlForRecord(r)}
       ${r.notes ? `<div class="notes-line" title="${esc(r.notes)}">📝 ${esc(r.notes)}</div>` : ''}
       ${r.references && r.references.length ? `<div class="notes-line" title="${esc(refNames(r.references).join(', '))}">📚 资料: ${esc(refNames(r.references).join(', '))}</div>` : ''}
       <div class="card-actions">
@@ -994,8 +1096,11 @@ function cardHtml(r) {
     // key / 表头 / 默认 px / 最小 px
     { key: 'ico', label: '', w: 64, min: 48 },
     { key: 'name', label: '产物', w: 340, min: 160 },
-    { key: 'project', label: '项目', w: 130, min: 70 },
-    { key: 'tags', label: '标签', w: 200, min: 80 },
+    // ⚠️ 2026-10-20：项目不再是独立列 —— 它已经是**标签列里的第一个**
+    //    （依琪：「项目也作为标签的一种，强绑定，最优先显示」）。
+    //    保留独立列 = 同一信息显示两次（截图里左边「本地生图环境」+ 右边「📁 本地生图环境」）。
+    //    ⇒ 删掉这一列，把宽度并给标签（标签现在要放项目 + 标签）。
+    { key: 'tags', label: '标签', w: 330, min: 120 },
     { key: 'stars', label: '星级', w: 92, min: 60 },
     { key: 'size', label: '大小', w: 76, min: 50 },
     { key: 'date', label: '登记时间', w: 96, min: 70 },
@@ -1162,8 +1267,7 @@ function listHtml(r) {
   return `<tr>
     <td class="pvico">${r.mime_type.startsWith('image/') && r.exists ? `<img class="mini-thumb" src="${API}/${r.id}/file" loading="lazy">` : `<span class="pvtype">${typeIcon(r.artifact_type)}</span>`}</td>
     <td><b>${esc(r.title)}</b>${refineBadge(r)}<br><span style="color:var(--dim);font-size:11px">${esc(r.path)}</span></td>
-    <td>${esc(r.project || '—')}</td>
-    <td class="listtags">${tagChipsHtml(r.tags)}</td>
+    <td class="listtags">${tagChipsHtmlForRecord(r)}</td>
     <td>${starsHtml(r)}</td>
     <td>${fmtSize(r.size_bytes)}</td>
     <td>${fmtDate(r.created_at)}</td>
