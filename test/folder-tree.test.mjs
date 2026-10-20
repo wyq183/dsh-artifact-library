@@ -165,18 +165,23 @@ check('C4 ★ `#content` 的 id 不许改（render() 往它里面写）', () => 
 // ══════════════════════════════════════════════════════════════════════════
 
 check('D1 ★★ 树的 count 必须含子孙（父节点显示"工作 (12)"要算上子目录）', () => {
-  const m = /function buildFolderTree\(items\) \{[\s\S]*?\n\}/.exec(storeJs)
-  assert(m, '抠不出 buildFolderTree')
+  // ⚠️ 2026-10-20：签名加了第二个参数 `declared`（空目录名单），
+  //    判据要跟上 —— 但守的不变量没变：**count 含子孙**。
+  const m = /export function buildFolderTree\(items, declared\) \{[\s\S]*?\n\}/.exec(storeJs)
+  assert(m, '抠不出 buildFolderTree（签名是否变了？）')
   const box = { String, Array, Object, Math, RegExp }
   vm.createContext(box)
   // 需要 normalizeFolder
   const nf = /export function normalizeFolder\(raw\) \{[\s\S]*?\n\}/.exec(storeJs)
-  vm.runInContext(nf[0].replace('export ', '') + '\n' + m[0] + '\n;this.f=buildFolderTree;', box)
+  assert(nf, '抠不出 normalizeFolder')
+  vm.runInContext(
+    nf[0].replace('export ', '') + '\n' + m[0].replace('export ', '')
+    + '\n;this.f=buildFolderTree;', box)
   const r = box.f([
     { folder: '工作' },
     { folder: '工作/蜜雪' },
     { folder: '工作/蜜雪' },
-  ])
+  ], [])
   const gz = r.tree.filter((n) => n.name === '工作')[0]
   assert(gz, '找不到「工作」节点')
   assert(gz.count === 3, '★ count=' + gz.count + '（应为 3：自己 1 + 子 2）')

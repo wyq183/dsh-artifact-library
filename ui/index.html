@@ -345,6 +345,7 @@ body[data-card="l"] .thumb{height:200px}
   <button class="primary" onclick="refineSelected()">⚡ 立即精化所选</button>
   <button onclick="batchTrash()">🗑️ 批量回收</button>
   <button onclick="batchProject()">📁 批量改项目</button>
+  <button onclick="batchFolder()" title="把选中的记录移到资料库某个目录">📂 移到目录</button>
   <button onclick="batchTags()">🏷️ 批量加标签</button>
   <button onclick="selectAllPending()">全选待精化</button>
   <button onclick="clearSel()">清除选择</button>
@@ -557,7 +558,7 @@ body[data-card="l"] .thumb{height:200px}
 
 <script>
 const API = '/ext/artifacts'
-let state = { view: 'card', trash: false, items: [], allItems: [], categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
+let state = { view: 'card', trash: false, items: [], allItems: [], folder: '', folderUnfiled: false, categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
   // ⭐ 2026-10-14 新增（档 1d）：文件浏览 / 文件搜索 / 会话改动
   //    这三块原来是**主面板**的能力，面板删了 ⇒ 搬到网页版（依琪：「允许你做成网页版本展示全部内容」）
   files: { dir: '', entries: [], total: 0, truncated: false, error: '', loading: false },
@@ -585,7 +586,14 @@ async function api(url, opts = {}) {
   const ctl = new AbortController()
   const timer = setTimeout(() => ctl.abort(), opts.timeoutMs || API_TIMEOUT_MS)
   try {
-    const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts, signal: ctl.signal })
+    // ⚠️ 必须带 `x-dsh-artifacts: 1`：宿主用它挡 CSRF。
+    //    自定义头会触发预检，恶意页面发不出来 —— 所以这是**安全必需**，不是可选项。
+    //    GET 不需要（宿主只检查写操作），但统一带上无害。
+    const r = await fetch(url, {
+      ...opts,
+      headers: { 'Content-Type': 'application/json', 'x-dsh-artifacts': '1', ...(opts.headers || {}) },
+      signal: ctl.signal,
+    })
     if (!r.ok) {
       const j = await r.json().catch(() => ({}))
       // ⚠️ 宿主的理由原样带出来（403 out-of-scope 的文案在这里）
@@ -896,8 +904,13 @@ function renderTree(tree, total) {
   const box = $('folderTree')
   if (!box) return
 
-  const allOn = !state.folder
-  const unrefOn = state.folder === '__none__'
+  // ⚠️⚠️ 真机 bug：原来写的是 `state.folder === '__none__'`，
+  //    但 `pickFolder` 实际设的是 `folder=''` + `folderUnfiled=true`
+  //    —— 两边对不上 ⇒ 「未归类」永远不亮、「全部」永远亮着。
+  //    用户看到的就是"点了没反应"（其实列表已经筛过了，477 → 460）。
+  //    ⇒ 统一成**一个判据**，两处都调它，不许各写一套。
+  const allOn = !state.folder && !state.folderUnfiled
+  const unrefOn = state.folderUnfiled === true
   // 「未归类」= folder 为空的记录。它不是真目录，是**筛选条件**。
   const noneCount = (state.allItems || []).filter((r) => !String(r.folder || '').trim()).length
 
@@ -959,11 +972,24 @@ function openNewFolder() {
   // ⚠️ 新建 = 把一条记录移进去？不行 —— 空目录在这里**不存在**（树是从记录算的）。
   //    ⇒ 新建目录必须有载体。做法：建目录时**不落盘**，只在展开态里记一下，
   //      然后提示用户"把记录拖进去"。
-  treeExpanded.add(full)
-  saveExpanded(treeExpanded)
-  // 刷新树：此时目录还没记录，所以树里不会有它 —— 必须给用户明确提示
-  toast('目录「' + full + '」已创建。把记录拖进去（或选中记录点「移到目录」）后它才会出现在树里。')
-  loadTree()
+  // ⚠️⚠️ 真机 bug：原来只往"展开态"里塞了一下，**根本没落盘** ——
+  //    树是从记录现算的，空目录没有记录 ⇒ 算不出来 ⇒ 用户看到"输入完就没了"。
+  //    ⇒ 必须调 /folders/add 把目录**声明**记进 meta.folders。
+  api(API + '/folders/add', { method: 'POST', body: JSON.stringify({ path: full }) })
+    .then((r) => {
+      if (!r || r.ok === false) {
+        toast('建目录失败：' + ((r && r.error) || '未知原因'))
+        return
+      }
+      treeExpanded.add(full)
+      // 父级也要展开，否则新目录藏在折叠的父目录里看不见
+      const parts = full.split('/')
+      for (let i = 1; i < parts.length; i += 1) treeExpanded.add(parts.slice(0, i).join('/'))
+      saveExpanded(treeExpanded)
+      loadTree()
+      toast('已建目录「' + full + '」。把记录移进去：选中记录 →「移到目录」')
+    })
+    .catch((e) => toast('建目录失败：' + (e && e.message ? e.message : String(e))))
 }
 
 async function reload() {
@@ -2490,6 +2516,44 @@ async function batchProject() {
   if (project === null) return
   for (const id of ids) await api(API + '/' + id, { method: 'PATCH', body: JSON.stringify({ project }) })
   toast(`📁 已把 ${ids.length} 条归入「${project}」`); state.selected.clear(); updateSelBar(); reload()
+}
+
+/**
+ * 把选中的记录移到资料库目录（2026-10-20）。
+ *
+ * ⚠️ 逐条调 `/folders/set`，**不用批量接口**：宿主没有批量设置 folder 的端点，
+ *    而批量接口一旦中途失败，会留下"改了一半"的状态（与 moveFolder 的教训同源）。
+ * ⚠️ 失败要**逐条报**，不能只报总数 —— 用户需要知道哪几条没成功。
+ */
+async function batchFolder() {
+  const ids = [...state.selected]
+  if (!ids.length) return toast('请先勾选条目')
+  const cur = state.folder && state.folder !== '__none__' ? state.folder : ''
+  const input = prompt('把这些条目移到哪个目录？\n用 / 分层，如 工作/蜜雪；留空 = 移回根（未归类）', cur)
+  if (input === null) return
+  const target = String(input).trim()
+  let ok = 0
+  const failed = []
+  for (const id of ids) {
+    try {
+      const r = await api(API + '/folders/set', {
+        method: 'POST',
+        body: JSON.stringify({ id, folder: target }),
+      })
+      if (r && r.ok !== false) ok += 1
+      else failed.push(id + '：' + ((r && r.error) || '未知'))
+    } catch (e) {
+      failed.push(id + '：' + (e && e.message ? e.message : String(e)))
+    }
+  }
+  clearSel()
+  await reload()
+  loadTree()
+  if (failed.length) {
+    toast('移动 ' + ok + ' 条成功，' + failed.length + ' 条失败（' + failed[0] + '）')
+  } else {
+    toast('已把 ' + ok + ' 条移到「' + (target || '根') + '」')
+  }
 }
 async function batchTags() {
   const ids = [...state.selected]; if (!ids.length) return toast('请先勾选条目')
