@@ -116,7 +116,10 @@ check('D1 ★★ 列表视图**有标签列**（第一版只在卡片里有）',
   // ⚠️ 2026-10-19 第 3 步：表头从写死改成由 `COLS` 动态生成（为了可拖列宽）⇒
   //    不能再找 `<th>标签</th>` 字面量。判据改成：COLS 里有 tags 列 + 表头确实由它生成。
   assert(/key: 'tags', label: '标签'/.test(js), '★ COLS 里没有「标签」列')
-  assert(/COLS\.map\(\(c, i\) =>\s*\n?\s*'<th class="pvth">'/.test(js),
+  // ⚠️ 2026-10-22：`COLS.map` 的回调从"直接返回字符串"改成了**带函数体**的形式
+  //    （第一列是勾选列，要单独渲染）⇒ 判据不能锁死成 `=> '<th...'`。
+  //    守的不变量没变：**表头确实由 COLS 生成**（不是写死的）。
+  assert(/COLS\.map\(\(c, i\) =>/.test(js) && /'<th class="pvth">'/.test(js),
     '★ 表头不是由 COLS 生成的')
   assert(/class="listtags"/.test(JS), '★ 行里没有标签格')
 })

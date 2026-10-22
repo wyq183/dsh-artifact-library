@@ -172,7 +172,20 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
         压到很窄 ⇒ 每个标签都被迫换行，一行撑成 7 行高（截图里看得清清楚楚）。
         ⇒ 必须给 `<td>` 一个**明确宽度**（`width` 而不是 `max-width`），
           表格才会真的给它那么宽。 */
-  .listtags{width:200px}
+  /* 勾选列（2026-10-22）
+   ⚠️ 主人原话：「没有看到勾选功能，我都找不到，说明根本不够直观」
+      ⇒ 勾选框**常驻显示**，不做 hover 才出现（那样等于没有）。
+   ⚠️ 格子要能**整格点击**：40px 的列里小方块只有 14px，
+      不包 label 的话点中率极低 —— 这是"够不够直观"的关键细节。 */
+.pvsel{width:40px;text-align:center;padding:0}
+.pvthsel{width:40px;text-align:center}
+.selwrap{display:flex;align-items:center;justify-content:center;width:100%;height:100%;
+  min-height:28px;cursor:pointer}
+.selwrap input[type=checkbox]{width:16px;height:16px;margin:0;cursor:pointer;accent-color:var(--acc)}
+/* 选中行整行高亮 —— 勾了哪几条必须一眼看见 */
+.pvtable tbody tr.rowon{background:color-mix(in srgb, var(--acc) 12%, transparent)}
+.pvtable tbody tr.rowon:hover{background:color-mix(in srgb, var(--acc) 18%, transparent)}
+.listtags{width:200px}
   .listtags .tagchips{margin:0;gap:3px;flex-wrap:wrap}
   .listtags .tagchip,.listtags .tagfree{font-size:11px;line-height:15px;padding:0 6px;white-space:nowrap}
   /* ── 多选下拉（2026-10-19 第 4 步 · 与侧栏同一视觉语言）───────────── */
@@ -309,7 +322,18 @@ body[data-card="l"] .thumb{height:200px}
   .treenode>summary:hover{background:var(--panel2)}
   .treename{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .treecount{flex:none;color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
-  /* 叶子（没有子目录的）不显示三角 */
+
+  /* 目录删除按钮（2026-10-22）
+     ⚠️ **常驻**（不是 hover 才出现）—— 主人刚说过"我都找不到"，
+        hover 才出现等于不存在。但常驻要**很淡**，否则一排 ✕ 太吵。 */
+  .treedel{flex:none;border:0;background:transparent;color:var(--dim);font:inherit;
+    font-size:12px;line-height:16px;padding:0 3px;border-radius:4px;cursor:pointer;
+    opacity:.35;transition:.12s}
+  .treenode>summary:hover .treedel{opacity:1}
+  .treedel:hover{color:var(--danger,#f87171);background:var(--panel2)}
+  .treedel:focus-visible{opacity:1;outline:2px solid var(--acc);outline-offset:0}
+  /* 触屏没有 hover —— 直接给足对比度 */
+  @media (hover: none){.treedel{opacity:.8}}  /* 叶子（没有子目录的）不显示三角 */
   .treenode.leaf>summary::before{content:""}
   /* 当前选中的目录 */
   .treenode.on>summary{background:var(--panel2);box-shadow:inset 2px 0 0 var(--acc)}
@@ -320,6 +344,22 @@ body[data-card="l"] .thumb{height:200px}
   .treeroot:hover{background:var(--panel2)}
   .treeroot.on{background:var(--panel2);box-shadow:inset 2px 0 0 var(--acc)}
   .treeroot.on .treename{color:var(--acc);font-weight:600}
+  /* ── 投放模式（勾选后点目录 = 移进去）────────────────────────────────
+     ⚠️ 主人：「选择了咋进资料库我也没看到」
+        ⇒ 提示条必须在**树上**，而且是**醒目的**（不是灰字小提示）。
+     ⚠️ 目录要有"可放置"的视觉暗示，否则用户不知道点它会移动。 */
+  .treedrop{display:flex;align-items:flex-start;gap:6px;padding:8px 10px;margin:0 4px 6px;
+    border:1px solid var(--acc);border-radius:8px;background:color-mix(in srgb, var(--acc) 12%, transparent)}
+  .treedroptxt{flex:1 1 auto;min-width:0;font-size:12px;line-height:17px;color:var(--fg)}
+  .treedroptxt b{color:var(--acc);font-size:13px}
+  .treedrophint{color:var(--dim);font-size:12px}
+  .treedropx{flex:none;border:1px solid var(--line);background:var(--panel);color:var(--dim);
+    font:inherit;font-size:12px;line-height:18px;padding:0 6px;border-radius:6px;cursor:pointer}
+  .treedropx:hover{border-color:var(--acc);color:var(--acc)}
+  /* 可放置的目录：虚线框 + hover 变实线（"这里能放"的暗示） */
+  .treenode.dropok>summary{outline:1px dashed color-mix(in srgb, var(--acc) 45%, transparent);outline-offset:-1px;border-radius:6px}
+  .treenode.dropok>summary:hover{outline-style:solid;background:color-mix(in srgb, var(--acc) 14%, transparent)}
+  .treeroot[data-drop]:hover{outline:1px dashed var(--acc);outline-offset:-1px;background:color-mix(in srgb, var(--acc) 10%, transparent)}
   .treechildren{padding-left:14px}
 </style>
 </head>
@@ -755,6 +795,16 @@ document.addEventListener('click', (e) => {
     return
   }
 
+  // ⚠️ 删除按钮要在 summary 的点击处理**之前**判断并 return，
+  //    否则点 ✕ 会先触发"筛选这个目录"（列表被换掉，用户莫名其妙）。
+  const del = t.closest('.treedel')
+  if (del) {
+    e.preventDefault()
+    e.stopPropagation()
+    deleteFolder(del.dataset.del || '')
+    return
+  }
+
   // 目录节点：只有点**名字/计数**才筛选；点三角（summary 左侧）只展开
   const summary = t.closest('.treenode > summary')
   if (summary) {
@@ -888,12 +938,22 @@ function treeNodeHtml(n, depth) {
   const open = treeExpanded.has(n.path)
   const hasKids = n.children && n.children.length > 0
   const on = state.folder === n.path
-  const cls = 'treenode' + (hasKids ? '' : ' leaf') + (on ? ' on' : '')
+  // ⚠️ 投放模式下：目录加 `dropok` 类（虚线框 + 可点），选中态不再显示
+  //    （因为此时点它是"移进去"，不是"筛选"，显示"当前筛选"会误导）
+  const dropMode = state.selected.size > 0
+  const cls = 'treenode' + (hasKids ? '' : ' leaf')
+    + (on && !dropMode ? ' on' : '') + (dropMode ? ' dropok' : '')
   // ⚠️ <details> 的 open 由 expanded 集合决定；点击三角时同步集合（见 treeBodyHtml 的事件委托）
+  // ⚠️ 删除按钮**常驻**（不是 hover 才出现）—— 主人刚说过
+  //    「没有看到勾选功能，我都找不到，说明根本不够直观」，
+  //    hover 才出现 = 不知道它存在 = 永远找不到。
+  //    常驻但**很淡**（opacity .35），hover 才变明显 —— 既看得见又不吵。
   return '<details class="' + cls + '" data-path="' + esc(n.path) + '"' + (open ? ' open' : '') + '>'
     + '<summary>'
     + '<span class="treename" title="' + esc(n.path) + '">' + esc(n.name) + '</span>'
     + '<span class="treecount">' + n.count + '</span>'
+    + '<button type="button" class="treedel" data-del="' + esc(n.path) + '"'
+    + ' title="删除这个目录（里面的记录会移到上一级，不会删记录）">✕</button>'
     + '</summary>'
     + (hasKids ? '<div class="treechildren">' + n.children.map((c) => treeNodeHtml(c, depth + 1)).join('') + '</div>' : '')
     + '</details>'
@@ -903,6 +963,8 @@ function treeNodeHtml(n, depth) {
 function renderTree(tree, total) {
   const box = $('folderTree')
   if (!box) return
+  // 存一份给 countInFolder 用（删目录时要显示"里面有几条"）
+  lastTree = { tree: tree || [], total: total || 0 }
 
   // ⚠️⚠️ 真机 bug：原来写的是 `state.folder === '__none__'`，
   //    但 `pickFolder` 实际设的是 `folder=''` + `folderUnfiled=true`
@@ -914,10 +976,23 @@ function renderTree(tree, total) {
   // 「未归类」= folder 为空的记录。它不是真目录，是**筛选条件**。
   const noneCount = (state.allItems || []).filter((r) => !String(r.folder || '').trim()).length
 
-  let html = '<div class="treeroot' + (allOn ? ' on' : '') + '" data-path="">'
+  // ⚠️ 勾选了记录 ⇒ 树进入「投放模式」：点目录 = 把选中的移进去。
+  //    主人原话：「选择了咋进资料库我也没看到」—— 提示必须**放在树上**，
+  //    不能只藏在顶部按钮里（他就是在那里找不到的）。
+  const selN = state.selected.size
+  const dropMode = selN > 0
+  let html = ''
+  if (dropMode) {
+    html += '<div class="treedrop">'
+      + '<div class="treedroptxt">已选 <b>' + selN + '</b> 条<br><span class="treedrophint">点下面的目录移进去</span></div>'
+      + '<button type="button" class="treedropx" onclick="clearSel()" title="取消选择，回到普通筛选模式">取消选择</button>'
+      + '</div>'
+  }
+  html += '<div class="treeroot' + (allOn && !dropMode ? ' on' : '') + '" data-path=""'
+    + (dropMode ? ' data-drop="1" title="把选中的移到这里（未归类）"' : '') + '>'
     + '<span class="treename">全部</span><span class="treecount">' + total + '</span></div>'
-    + '<div class="treeroot' + (unrefOn ? ' on' : '') + '" data-path="__none__"'
-    + ' title="没有归到任何目录的记录">'
+    + '<div class="treeroot' + (unrefOn && !dropMode ? ' on' : '') + '" data-path="__none__"'
+    + (dropMode ? ' data-drop="1" title="把选中的移出目录（变成未归类）"' : ' title="没有归到任何目录的记录"') + '>'
     + '<span class="treename">未归类</span><span class="treecount">' + noneCount + '</span></div>'
 
   if (tree && tree.length) {
@@ -948,6 +1023,15 @@ async function loadTree() {
  */
 function pickFolder(path) {
   const p = String(path || '')
+
+  // ⚠️ 有勾选 ⇒ **把选中的移进这个目录**（主人：「选择了咋进资料库我也没看到」）
+  //    没勾选 ⇒ 普通筛选。
+  //    这是两种模式共用同一个手势，所以**视觉上必须区分**（见 renderTree 的投放提示条）。
+  if (state.selected.size > 0) {
+    moveSelectedToFolder(p)
+    return
+  }
+
   if (p === '__none__') {
     state.folder = ''
     state.folderUnfiled = true
@@ -961,7 +1045,126 @@ function pickFolder(path) {
   try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* 忽略 */ }
 }
 
+/**
+ * 把勾选的记录移到目录（点目录时触发）。
+ *
+ * ⚠️ 只**一次**确认（说清"N 条 → X"）——
+ *    这是批量改归属，不是删除，代价没到"要手打名字"的程度。
+ *    （删目录要两次确认，那个是不可逆的；这个可撤销、且文件不动。）
+ */
+async function moveSelectedToFolder(targetPath) {
+  const ids = [...state.selected]
+  if (!ids.length) return
+  const t = String(targetPath || '')
+  // `__none__` = 移出目录（folder 设成空）
+  const target = t === '__none__' ? '' : t
+  const label = target || '根目录（未归类）'
+  if (!confirm('把选中的 ' + ids.length + ' 条移到「' + label + '」？\n\n（记录不会丢，文件不动，只是换归类位置）')) return
+
+  let ok = 0
+  const failed = []
+  for (const id of ids) {
+    try {
+      const r = await api(API + '/folders/set', {
+        method: 'POST',
+        body: JSON.stringify({ id, folder: target }),
+      })
+      if (r && r.ok !== false) ok += 1
+      else failed.push(id + '：' + ((r && r.error) || '未知'))
+    } catch (e) {
+      failed.push(id + '：' + (e && e.message ? e.message : String(e)))
+    }
+  }
+  state.selected.clear()
+  updateSelBar()
+  await reload()
+  loadTree()
+  if (failed.length) {
+    toast('移了 ' + ok + ' 条，' + failed.length + ' 条失败（' + failed[0] + '）')
+  } else {
+    toast('已把 ' + ok + ' 条移到「' + label + '」')
+  }
+}
+
 /** 新建目录（在当前选中目录下建子目录）。 */
+/**
+ * 删除目录（2026-10-22 · 主人：「资料库只能添加新目录如何删除？」）
+ *
+ * ⚠️ 删之前必须**说清楚后果**：
+ *    「里面的 N 条会移到「父目录」」—— 不说的话用户以为记录会被删掉，不敢点。
+ * ⚠️ 记录**不删**，只换位置。这是"整理结构"不是"删东西"。
+ */
+async function deleteFolder(path) {
+  const p = String(path || '')
+  if (!p) return toast('不能删除根目录')
+  // 这个目录下有多少条（含子目录）—— 用现成的树数据算
+  const cnt = countInFolder(p)
+  const segs = p.split('/')
+  segs.pop()
+  const parent = segs.join('/') || '根目录'
+  const msg = cnt > 0
+    ? '删除目录「' + p + '」？\n\n里面的 ' + cnt + ' 条记录会移到「' + parent + '」，\n**记录本身不会删**，文件一个字节都不动。\n\n子目录也会一起删掉。'
+    : '删除目录「' + p + '」？\n\n（这个目录是空的，子目录会一起删掉）'
+  // ── 第一次确认：说清后果 ──
+  if (!confirm(msg)) return
+
+  // ── 第二次确认：**手打目录名** ──
+  // ⚠️ 不能再用 confirm —— 同一个弹窗连点两次 = 用户条件反射点确定，等于没有确认。
+  //    要用户**打一个字**，这是防手滑的标准做法（GitHub 删仓库同套路）。
+  // ⚠️ 只要求打**最后一段**（「工作/蜜雪/调研」→ 打「调研」）：
+  //    全名太长，太苛刻会让用户干脆不用这个功能。
+  const leaf = p.split('/').pop()
+  const typed = prompt(
+    '⚠️ 最后确认（第 2/2 步）\n\n'
+    + '要删除的目录：' + p + '\n'
+    + (cnt > 0 ? cnt + ' 条记录会移到「' + parent + '」（记录不删）\n' : '')
+    + '\n请输入目录名「' + leaf + '」来确认删除：',
+    '',
+  )
+  if (typed === null) return
+  if (String(typed).trim() !== leaf) {
+    return toast('取消删除：输入的不是「' + leaf + '」')
+  }
+  try {
+    const r = await api(API + '/folders/remove', {
+      method: 'POST',
+      body: JSON.stringify({ path: p }),
+    })
+    if (!r || r.ok === false) return toast('删除失败：' + ((r && r.error) || '未知原因'))
+    // 如果当前正筛着这个目录，清掉筛选（否则列表会空着，看起来像库坏了）
+    if (state.folder === p || state.folder.indexOf(p + '/') === 0) {
+      state.folder = ''
+      state.folderUnfiled = false
+    }
+    await reload()
+    loadTree()
+    undoToast('已删除目录「' + p + '」' + (r.moved ? '，' + r.moved + ' 条记录已移到「' + (r.parent || '根目录') + '」' : ''), async () => {
+      await api(API + '/folders/remove-undo', { method: 'POST' })
+      reload()
+      loadTree()
+    })
+  } catch (e) {
+    toast('删除失败：' + (e && e.message ? e.message : String(e)))
+  }
+}
+
+/** 数一个目录下有多少条（含子目录）。用最后一次拉到的树数据。 */
+let lastTree = { tree: [], total: 0 }
+function countInFolder(path) {
+  const p = String(path || '')
+  if (!p) return lastTree.total || 0
+  function find(nodes) {
+    for (const n of nodes) {
+      if (n.path === p) return n.count
+      const hit = find(n.children || [])
+      if (hit !== undefined) return hit
+    }
+    return undefined
+  }
+  const v = find(lastTree.tree || [])
+  return typeof v === 'number' ? v : 0
+}
+
 function openNewFolder() {
   const base = state.folder && state.folder !== '__none__' ? state.folder : ''
   const name = prompt('新建目录' + (base ? '（在「' + base + '」下）' : '') + '：\n用 / 可以一次建多层，如 工作/蜜雪', '')
@@ -1383,6 +1586,10 @@ function cardHtml(r) {
    */
   const COLS = [
     // key / 表头 / 默认 px / 最小 px
+    // ⚠️ 2026-10-22 主人：「没有看到勾选功能，我都找不到，说明根本不够直观」
+    //    原来勾选框**只在卡片视图**有，列表视图根本没有 ⇒ 加一列**常驻**勾选框。
+    //    常驻而不是 hover 显示：hover 才出现 = 不知道它存在 = 永远找不到。
+    { key: 'sel', label: '', w: 40, min: 36 },
     { key: 'ico', label: '', w: 64, min: 48 },
     { key: 'name', label: '产物', w: 340, min: 160 },
     // ⚠️ 2026-10-20：项目不再是独立列 —— 它已经是**标签列里的第一个**
@@ -1553,7 +1760,13 @@ function refineBadge(r) {
 }
 
 function listHtml(r) {
-  return `<tr>
+  const on = state.selected.has(r.id)
+  // ⚠️ 勾选框要**包在 <label> 里**：点小方块本身很难点中（40px 列里只有 14px），
+  //    包一层之后整个格子都能点。这是"够不够直观"的关键细节。
+  return `<tr class="${on ? 'rowon' : ''}">
+    <td class="pvsel"><label class="selwrap" title="勾选这一条（可批量操作）">
+      <input type="checkbox" class="alf-sel" data-id="${esc(r.id)}" ${on ? 'checked' : ''}
+        onchange="toggleSel('${r.id}', this.checked)"></label></td>
     <td class="pvico">${r.mime_type.startsWith('image/') && r.exists ? `<img class="mini-thumb" src="${API}/${r.id}/file" loading="lazy">` : `<span class="pvtype">${typeIcon(r.artifact_type)}</span>`}</td>
     <td><b>${esc(r.title)}</b>${refineBadge(r)}<br><span style="color:var(--dim);font-size:11px">${esc(r.path)}</span></td>
     <td class="listtags">${tagChipsHtmlForRecord(r)}</td>
@@ -1617,7 +1830,7 @@ function render() {
     return
   }
   // 分页：每页 pageSize 条，末尾「加载更多」
-  const visible = state.items.slice(0, state.page * state.pageSize)
+  const visible = visibleItems()
   const more = state.items.length > visible.length
   const moreBtn = more ? `<div style="text-align:center;margin:18px 0"><button onclick="loadMore()" style="padding:8px 24px">加载更多（还剩 ${state.items.length - visible.length} 条）</button></div>` : `<div class="hint" style="text-align:center;margin:14px 0">共 ${state.items.length} 条</div>`
   if (state.view === 'list') {
@@ -1631,8 +1844,23 @@ function render() {
         COLS.map((c) => '<col data-k="' + c.key + '" style="width:' + (colW[c.key] || c.w) + 'px">').join('') +
         '<col>' +
         '</colgroup>'
-      const headCells = COLS.map((c, i) =>
-        '<th class="pvth">' + esc(c.label) + gripHtml(c, i === COLS.length - 1) + '</th>').join('')
+      // ⚠️ 第一列是勾选列：表头放**全选**框（选了部分时显示半选态）。
+      //    没有全选的话，勾 60 条要点 60 次 —— 那才叫不直观。
+      const allSel = state.items.length > 0 && state.items.every((r) => state.selected.has(r.id))
+      const someSel = state.selected.size > 0 && !allSel
+      const headCells = COLS.map((c, i) => {
+        if (c.key === 'sel') {
+          return '<th class="pvth pvthsel">'
+            + '<label class="selwrap" title="全选 / 取消全选（当前列表）">'
+            + '<input type="checkbox" class="alf-sel" id="selAll"'
+            + (allSel ? ' checked' : '')
+            // ⚠️ indeterminate 只能**用 JS 设**（HTML 属性设不了）—— 见 render() 末尾
+            + (someSel ? ' data-indeterminate="1"' : '')
+            + ' onchange="toggleSelAll(this.checked)"></label>'
+            + '</th>'
+        }
+        return '<th class="pvth">' + esc(c.label) + gripHtml(c, i === COLS.length - 1) + '</th>'
+      }).join('')
       c.innerHTML = '<table role="grid" class="pvtable" aria-rowcount="' + state.items.length + '" style="--row-h:' + rowH + 'px">'
         + colgroup
         + '<thead><tr>' + headCells + '</tr>'
@@ -1654,6 +1882,11 @@ function render() {
   } else {
     c.innerHTML = `<div class="cards">${visible.map(cardHtml).join('')}</div>${moreBtn}`
   }
+
+  // ⚠️ 重画之后必须**再设一次**全选框状态：
+  //    render() 新建了 DOM，旧节点上的 checked/indeterminate 全丢了。
+  //    真机实测：全选后 sel=60/rowon=60 都对，但 checked=false —— 就是这个。
+  updateSelBar()
 }
 
 /** 清空全部筛选（含 `artifact_type` —— 漏一个就会「清空后仍被卡着」）。 */
@@ -2345,9 +2578,80 @@ function closeModal(id) { $(id).classList.remove('open') }
 async function openFolder(id) { try { await api(API + '/' + id + '/open', { method: 'POST' }); toast('📂 已在文件管理器中打开') } catch (e) { toast('❌ ' + e.message) } }
 
 // === 选择 + 立即精化 ===
-function toggleSel(id, on) { on ? state.selected.add(id) : state.selected.delete(id); updateSelBar() }
-function updateSelBar() { const n = state.selected.size; $('selBar').style.display = n ? 'flex' : 'none'; $('selCount').textContent = n }
-function clearSel() { state.selected.clear(); updateSelBar(); render() }
+/**
+ * 全选 / 取消全选（**当前列表**，不是全库）。
+ *
+ * ⚠️ 范围必须是 `state.items`（筛后可见的），不是 `state.allItems`（全库）——
+ *    用户点全选时想的是"把眼前这些全勾上"，把库里的全勾上会吓到他
+ *    （而且批量操作会误伤没看见的条目）。
+ */
+function toggleSelAll(on) {
+  // ⚠️ 只勾**看得见**的那些（visibleItems）——
+  //    真机实测过：用 state.items 会勾 469 条，但屏幕只有 60 行，
+  //    用户会以为"我只看到 60 条，怎么选了 469"。
+  //    这是直觉问题：**看到几行就是几行**。
+  const vis = visibleItems()
+  if (on) {
+    for (const r of vis) state.selected.add(r.id)
+  } else {
+    // 取消全选只清掉**可见的**（看不见的不该被偷偷清掉）
+    for (const r of vis) state.selected.delete(r.id)
+  }
+  updateSelBar()
+  render()
+  // 如果还有看不见的被选中，明确说一声（不让用户猜）
+  const extra = state.selected.size - vis.filter((r) => state.selected.has(r.id)).length
+  if (on && extra > 0) {
+    toast('已选 ' + state.selected.size + ' 条（含之前勾的 ' + extra + ' 条）')
+  }
+}
+
+/**
+ * 当前**看得见**的那些条目（分页之后）。
+ *
+ * ⚠️ 全选和渲染必须用**同一个口径** —— 否则会出现"我看到 60 行，
+ *    点全选却选了 469 条"（真机实测过：selCount=469 / rowon=60）。
+ *    用户看到几行就以为是几行，这是直觉问题，不是技术问题。
+ */
+function visibleItems() {
+  return state.items.slice(0, state.page * state.pageSize)
+}
+
+function toggleSel(id, on) {
+  on ? state.selected.add(id) : state.selected.delete(id)
+  // ⚠️ 必须**当场**改行高亮：不重绘的话勾了没反应（真机实测 rowon=0）。
+  //    但也不能整页 render() —— 那样会丢焦点、闪一下、滚动位置可能跳。
+  //    ⇒ 只改那一行的 class（O(1)，不碰其它 DOM）。
+  const box = document.querySelector('.pvsel input[data-id="' + CSS.escape(String(id)) + '"]')
+  const tr = box ? box.closest('tr') : null
+  if (tr) tr.classList.toggle('rowon', !!on)
+  updateSelBar()
+  // ⚠️ 勾选状态变了 ⇒ 树的"投放模式"要跟着变（提示条出现/消失、目录变可放置）
+  //    不刷的话用户勾了却看不到"点目录移进去"的提示 —— 那正是主人卡住的地方。
+  if (typeof loadTree === 'function') loadTree()
+}
+function updateSelBar() {
+  const n = state.selected.size
+  $('selBar').style.display = n ? 'flex' : 'none'
+  $('selCount').textContent = n
+  // ⚠️ 半选态只能**用 JS 设**（`indeterminate` 没有 HTML 属性）。
+  //    必须在每次重画后重新设 —— DOM 重建会丢掉它。
+  const all = $('selAll')
+  if (all) {
+    // ⚠️ 与 toggleSelAll 同口径（可见的），否则"全选"的勾态会和实际不符
+    const vis = visibleItems()
+    const picked = vis.filter((r) => state.selected.has(r.id)).length
+    all.checked = vis.length > 0 && picked === vis.length
+    all.indeterminate = picked > 0 && picked < vis.length
+  }
+}
+function clearSel() {
+  state.selected.clear()
+  updateSelBar()
+  render()
+  // 退出投放模式 ⇒ 树要回到普通筛选状态
+  if (typeof loadTree === 'function') loadTree()
+}
 function selectAllPending() { state.items.filter((r) => r.needsRefine).forEach((r) => state.selected.add(r.id)); updateSelBar(); render() }
 async function refineSelected() {
   const ids = [...state.selected]
