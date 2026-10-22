@@ -47,18 +47,55 @@ fs.mkdirSync(WORK, { recursive: true })
 
 // ── 0. 找浏览器 ───────────────────────────────────────────────────────────
 function findBrowser() {
+  // ⚠️ 2026-10-22 修：CI 的 ubuntu-latest **默认不装** Chrome/Chromium 到 /usr/bin，
+  //    原来这里只认那三个路径 ⇒ findBrowser() 返回 null ⇒ exit 2 ⇒ CI 11 秒全红。
+  //    ⇒ 补上「Chrome for Testing」和 setup-chrome 装到的位置，
+  //      并允许用环境变量直接指定（CI 里由 workflow 传进来最稳）。
+  const fromEnv = process.env.RENDER_VERIFY_BROWSER || process.env.CHROME_PATH || ''
+  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv
+
   const cands = [
+    // ── Windows ──
     path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
     path.join(process.env['ProgramFiles'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
     path.join(process.env['ProgramFiles(x86)'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    path.join(process.env['ProgramFiles'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    // ── Linux：发行版包管理器装的 ──
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+    // ── Linux：Chrome for Testing / 系统级安装（CI 常见）──
+    '/opt/google/chrome/chrome',
+    // ── macOS ──
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
   ]
-  for (const c of cands) { if (c && fs.existsSync(c)) return c }
+  for (const c of cands) {
+    if (!c) continue
+    try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c } catch { /* 忽略 */ }
+  }
+
+  // ── 最后一招：在 PATH 里找（不引依赖）──
+  const names = process.platform === 'win32'
+    ? ['chrome.exe', 'msedge.exe']
+    : ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']
+  const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean)
+  for (const n of names) {
+    for (const d of dirs) {
+      const p = path.join(d, n)
+      try { if (fs.existsSync(p) && fs.statSync(p).isFile()) return p } catch { /* 忽略 */ }
+    }
+  }
   return null
 }
 const BROWSER = findBrowser()
 if (!BROWSER) {
   console.error('🔴 找不到 Chrome/Edge —— 本脚本需要一个真浏览器（这正是它的意义所在）。')
+  console.error('   → 用环境变量指定：RENDER_VERIFY_BROWSER=/path/to/chrome')
+  console.error('   → 或在 CI 里先装一个（见 .github/workflows/ci.yml 的 setup-chrome 步骤）')
   process.exit(2)
 }
 

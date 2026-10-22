@@ -85,11 +85,22 @@ jobs:
         run: npm run check
 
       # UI 布局改动的证据（真 Chrome 量几何）
-      # ⚠️ ubuntu runner 上有没有 Chrome？**我没验过。**
-      #    如果这一步红了且原因是"找不到浏览器"，那是**环境问题不是代码问题** ——
-      #    在 runner 上装一个（`browser-actions/setup-chrome`）或者把它挪到单独 job。
+      #
+      # ⚠️ 2026-10-22 实证：**ubuntu-latest 默认不装 Chrome/Chromium 到 /usr/bin**
+      #    ⇒ findBrowser() 返回 null ⇒ exit 2 ⇒ CI 11 秒全红（三个 job 都是）。
+      #    这不是代码问题，是环境问题。
+      #    （这段注释原本就写着"我没验过" —— 写对了，但没人去验。）
+      - name: Setup Chrome (for render:verify)
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+        id: setup-chrome
+
       - name: Render geometry (UI layout evidence)
         run: npm run render:verify
+        env:
+          # setup-chrome 会把装好的路径输出到 steps.setup-chrome.outputs.chrome-path
+          RENDER_VERIFY_BROWSER: ${{ steps.setup-chrome.outputs.chrome-path }}
 
   # ── 兼容矩阵：观察用，**不阻断** ─────────────────────────────────────────
   compat:
