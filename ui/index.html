@@ -41,9 +41,19 @@ body{background:var(--bg);color:var(--fg);font:14px/1.6 "Segoe UI","Microsoft Ya
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:.15s}
   .card:hover{border-color:var(--acc);transform:translateY(-2px)}
-  .thumb{height:130px;background:var(--panel2);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer}
+  /* ⚠️ 基础规则**不设 height**：高度由 body[data-card=...] 唯一决定。
+   （原来这里写死 130px，与四级尺寸规则并存 —— 两个来源，迟早出错） */
+.thumb{background:var(--panel2);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer}
   .thumb img{width:100%;height:100%;object-fit:cover}
-  .thumb .ico{font-size:34px;opacity:.5}
+  /* ⚠️ 图标必须**跟着卡片尺寸变** ——
+   原来固定 34px，超大卡片（400px 高）里那个图标只有中间一小点，
+   看起来空荡荡（主人截图就是这个）。
+   ⚠️ 用 em 而不是 px：让 ico 相对 .thumb 的字号缩放，一处定义全跟着变。 */
+.thumb .ico{opacity:.5}
+body[data-card="s"] .thumb .ico{font-size:28px}
+body[data-card="m"] .thumb .ico{font-size:56px}
+body[data-card="l"] .thumb .ico{font-size:96px}
+body[data-card="xl"] .thumb .ico{font-size:160px}
   .card-body{padding:12px;display:flex;flex-direction:column;gap:6px;flex:1}
   .card-title{font-weight:600;word-break:break-all}
   .card-summary{color:var(--dim);font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -278,9 +288,28 @@ body[data-density="compact"] .card-body{padding:8px 10px}
 body[data-density="compact"] .card-summary{display:none}
 body[data-density="compact"] .card-actions button{padding:3px 7px;font-size:11px}
 body[data-density="compact"] td,body[data-density="compact"] th{padding:3px 8px}
-body[data-card="s"] .thumb{height:84px}
-body[data-card="m"] .thumb{height:130px}
-body[data-card="l"] .thumb{height:200px}
+/* ══ 卡片尺寸（2026-10-22 改四级，照 Windows 文件管理）═══════════════════
+   ⚠️ 主人批评：「你这个改变不仅小，而且并没有放大多少图片」
+      原来 84/130/200px —— 只差 2.4 倍，而且**只改高度不改宽度**：
+      卡片宽度不变 ⇒ 列数不变 ⇒ "大"看起来还是那么大。
+   ⚠️ 现在**高度 + 最小列宽一起变**：
+      小 80px/160px · 中 160px/240px · 大 260px/340px · 超大 400px/480px
+      一屏列数大约 8 → 5 → 3 → 2，这才叫"一层一层方便找图"。 */
+body[data-card="s"] .thumb{height:80px}
+body[data-card="m"] .thumb{height:160px}
+body[data-card="l"] .thumb{height:260px}
+body[data-card="xl"] .thumb{height:400px}
+
+body[data-card="s"] .cards{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+body[data-card="m"] .cards{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+body[data-card="l"] .cards{grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
+body[data-card="xl"] .cards{grid-template-columns:repeat(auto-fill,minmax(480px,1fr))}
+/* 超大时：摘要收起（找图场景看图比看字重要），但**标题要更大** ——
+   不然一张 480px 宽的卡片里挤着 13px 的标题，比例失调。 */
+body[data-card="xl"] .card-summary{display:none}
+body[data-card="xl"] .card-title{font-size:15px;line-height:22px}
+body[data-card="xl"] .card-meta{font-size:12px}
+body[data-card="l"] .card-title{font-size:14px}
 /* ── 骨架屏（2026-10-14 从主面板的 SkeletonRows 搬来 · ui-spec §11.5）──
    ⚠️ 只在**真的在加载**时显示；加载完必须撤掉（不许留个假骨架骗人）。 */
 @keyframes alfshimmer{0%{opacity:.45}50%{opacity:.9}100%{opacity:.45}}
@@ -345,23 +374,77 @@ body[data-card="l"] .thumb{height:200px}
   .treeroot.on{background:var(--panel2);box-shadow:inset 2px 0 0 var(--acc)}
   .treeroot.on .treename{color:var(--acc);font-weight:600}
   .treechildren{padding-left:14px}
+
+  /* ══ 分类条（第 2 层 · 数据源）══════════════════════════════════════════
+     主人：「「项目」和「文件」「改动」其实是不同的数据源，不是同一种"视图"」
+     ⚠️ 与「列表/卡片」（视图）分开：这一条换的是**看什么东西**。
+     视觉上做成 tab 条（下划线），与视图按钮（方框）区分开。 */
+  .catbar{display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin:0 0 12px;
+    border-bottom:1px solid var(--line);padding-bottom:0}
+  .catbtn{position:relative;border:0;background:transparent;color:var(--dim);
+    font:inherit;font-size:13px;line-height:20px;padding:8px 12px;cursor:pointer;
+    border-radius:6px 6px 0 0;white-space:nowrap;transition:.12s}
+  .catbtn:hover{color:var(--fg);background:var(--panel2)}
+  .catbtn.active{color:var(--acc);font-weight:600}
+  /* 选中态：底部一条强调色线（tab 的通用语言） */
+  .catbtn.active::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;
+    height:2px;background:var(--acc);border-radius:1px}
+  .catbtn:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}
+
+  /* ══ 更多菜单（header 的 ⋯）═══════════════════════════════════════════ */
+  .menubtn{border:1px solid var(--line);background:var(--panel);color:var(--fg);
+    font:inherit;font-size:16px;line-height:20px;padding:4px 10px;border-radius:8px;
+    cursor:pointer;letter-spacing:1px}
+  .menubtn:hover{border-color:var(--acc);color:var(--acc)}
+  .menubtn[aria-expanded="true"]{border-color:var(--acc);color:var(--acc);background:var(--panel2)}
+  .moremenu{position:absolute;top:64px;right:20px;z-index:60;min-width:200px;
+    border:1px solid var(--line);border-radius:var(--radius);padding:6px;
+    background:var(--panel);box-shadow:0 12px 32px rgba(0,0,0,.45)}
+  .moremenu button{display:block;width:100%;text-align:left;border:0;background:transparent;
+    color:var(--fg);font:inherit;font-size:13px;line-height:20px;padding:8px 10px;
+    border-radius:6px;cursor:pointer}
+  .moremenu button:hover{background:var(--panel2);color:var(--acc)}
+  .moresep{height:1px;background:var(--line);margin:6px 4px}
+
+  /* ══ 显示设置菜单（⚙ 显示）════════════════════════════════════════════ */
+  .dispbtn{border:1px solid var(--line);background:var(--panel);color:var(--dim);
+    font:inherit;font-size:13px;line-height:20px;padding:6px 10px;border-radius:8px;cursor:pointer}
+  .dispbtn:hover{border-color:var(--acc);color:var(--acc)}
+  .dispbtn[aria-expanded="true"]{border-color:var(--acc);color:var(--acc);background:var(--panel2)}
+  .dispmenu{position:absolute;z-index:60;margin-top:36px;min-width:250px;
+    border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;
+    background:var(--panel);box-shadow:0 12px 32px rgba(0,0,0,.45)}
+  .dispgroup + .dispgroup{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+  .displabel{font-size:12px;color:var(--dim);margin-bottom:6px}
+  .disphint{color:var(--dim);opacity:.8}
+  /* ⚠️ 列表视图下尺寸组灰掉 —— 原来按钮常驻但点了没反应（主人批评的） */
+  .dispgroup.disabled{opacity:.4;pointer-events:none}
 </style>
 </head>
 <body>
+<!-- ══ 第 1 层：品牌 + 统计 + 高频操作（2026-10-22 重构）═══════════════════
+     原来 10 个按钮平铺（含三个重复的"精化"），现在只留 2 个：
+       · ＋ 登记产物  ← 唯一高频写操作
+       · ⋯           ← 其余低频的都收进来
+     ⚠️ 精化只保留**一个**入口：点它把没精化的精化掉。
+        勾选了条目时，改用下面 selBar 里的「精化所选」。 -->
 <header>
   <h1>🐋 产物库 <span class="dot">· DeepSeek Harness</span></h1>
   <div class="stats" id="stats"></div>
   <div class="grow"></div>
   <button class="primary" onclick="openRegister()">＋ 登记产物</button>
-  <button onclick="openImport()">📥 导入文件夹</button>
-  <button onclick="location.href=API+'/export'">📦 导出备份</button>
-  <button onclick="refineProject()" title="精化当前所选项目下所有待精化条目">⚡ 精化项目</button>
-  <button onclick="refineFolder()" title="精化所有文件夹导入的待精化条目">⚡ 精化文件夹</button>
-  <button class="primary" onclick="openRefineModal()" title="新开/复用精化会话，可临时指定模型，立即精化全部待精化条目">🚀 立即精炼</button>
-  <button onclick="openSemantic()" title="用一句话描述找产出/资料">🔍 语义搜索</button>
-  <button onclick="openCleanupSuggest()" title="看看库里有啥值得整理的">🧹 整理建议</button>
-  <button onclick="openSettings()">⚙️ 设置</button>
-  <button class="ghost" id="trashBtn" onclick="toggleTrash()">🗑️ 回收站</button>
+  <button class="menubtn" id="moreBtn" onclick="toggleMore(event)" aria-expanded="false" title="更多操作">⋯</button>
+  <div class="moremenu" id="moreMenu" style="display:none">
+    <button onclick="openImport()">📥 导入文件夹</button>
+    <button onclick="location.href=API+'/export'">📦 导出备份</button>
+    <div class="moresep"></div>
+    <button onclick="openRefineModal()" title="把还没精化的条目交给 AI 补全">⚡ 精化未处理</button>
+    <button onclick="openSemantic()" title="用一句话描述找产出/资料">🔍 语义搜索</button>
+    <button onclick="openCleanupSuggest()" title="看看库里有啥值得整理的">🧹 整理建议</button>
+    <div class="moresep"></div>
+    <button onclick="openSettings()">⚙️ 设置</button>
+    <button class="ghost" id="trashBtn" onclick="toggleTrash()">🗑️ 回收站</button>
+  </div>
 </header>
 
 <!-- 「添加资料」模式的状态条（2026-10-22 · 主人定的流程）
@@ -385,6 +468,18 @@ body[data-card="l"] .thumb{height:200px}
   <button onclick="batchTags()">🏷️ 批量加标签</button>
   <button onclick="selectAllPending()">全选待精化</button>
   <button onclick="clearSel()">清除选择</button>
+</div>
+
+<!-- ══ 第 2 层：分类（**数据源**，不是视图）══════════════════════════════════
+     主人：「「项目」和「文件」「改动」其实是不同的数据源，不是同一种"视图"」
+     ⇒ 单独一层，与「列表/卡片」（视图）分开。
+     这五个看的是**不同的东西**；列表/卡片看的是**同一个东西的不同呈现**。 -->
+<div class="catbar" id="catBar">
+  <button class="catbtn" data-cat="all" onclick="setCat('all')">📦 全部产物</button>
+  <button class="catbtn" data-cat="ref" onclick="setCat('ref')">📚 资料</button>
+  <button class="catbtn" data-cat="project" onclick="setCat('project')">📁 按项目</button>
+  <button class="catbtn" data-cat="files" onclick="setCat('files')">🗂️ 文件浏览</button>
+  <button class="catbtn" data-cat="changes" onclick="setCat('changes')">🕒 最近改动</button>
 </div>
 
 <div id="filterBar" class="filterbar" style="display:none"></div>
@@ -416,24 +511,33 @@ body[data-card="l"] .thumb{height:200px}
     <option value="name_asc">名称 A→Z</option>
   </select>
   <div class="sep"></div>
-  <div class="view-switch">
-    <button data-v="list" onclick="setView('list')">列表</button>
-    <button data-v="card" class="active" onclick="setView('card')">卡片</button>
-    <button data-v="project" onclick="setView('project')">项目</button>
-    <button data-v="files" onclick="setView('files')">文件</button>
-    <button data-v="changes" onclick="setView('changes')">改动</button>
+  <!-- ══ 第 3 层：视图（**呈现方式**，不是数据源）══════════════════════════
+       ⚠️ 只留 列表 / 卡片 —— 这两个才是"同一个东西的两种看法"。
+          项目/文件/改动 已移到上面的分类条。 -->
+  <div class="view-switch" title="怎么显示（同一个东西的两种看法）">
+    <button data-v="list" onclick="setView('list')">☰ 列表</button>
+    <button data-v="card" onclick="setView('card')">⊞ 卡片</button>
   </div>
-  <div class="sep"></div>
-  <!-- ⭐ 2026-10-14 从主面板 ViewControl 搬来的**实质**：密度 + 卡片尺寸。
-       列选择没搬 —— 本页表格列固定，不需要。 -->
-  <div class="view-switch" title="显示密度（只影响本页观感，不写进产物库设置）">
-    <button id="denCozy" onclick="setDensity('cozy')">舒适</button>
-    <button id="denCompact" onclick="setDensity('compact')">紧凑</button>
-  </div>
-  <div class="view-switch" title="卡片缩略图尺寸">
-    <button id="cardS" onclick="setCardSize('s')">小</button>
-    <button id="cardM" onclick="setCardSize('m')">中</button>
-    <button id="cardL" onclick="setCardSize('l')">大</button>
+  <!-- 显示设置：密度 + 尺寸。收进一个弹出层（原来 5 个按钮常驻，太占地方） -->
+  <button type="button" class="dispbtn" id="dispBtn" onclick="toggleDisp(event)" aria-expanded="false"
+    title="显示设置：密度、卡片大小">⚙ 显示</button>
+  <div class="dispmenu" id="dispMenu" style="display:none">
+    <div class="dispgroup">
+      <div class="displabel">密度</div>
+      <div class="view-switch">
+        <button id="denCozy" onclick="setDensity('cozy')">舒适</button>
+        <button id="denCompact" onclick="setDensity('compact')">紧凑</button>
+      </div>
+    </div>
+    <div class="dispgroup" id="sizeGroup">
+      <div class="displabel">卡片大小 <span class="disphint">（只在卡片视图有效）</span></div>
+      <div class="view-switch">
+        <button id="cardS" onclick="setCardSize('s')" title="小：一屏看最多">小</button>
+        <button id="cardM" onclick="setCardSize('m')" title="中">中</button>
+        <button id="cardL" onclick="setCardSize('l')" title="大">大</button>
+        <button id="cardXL" onclick="setCardSize('xl')" title="超大：一眼看清图">超大</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -597,7 +701,7 @@ body[data-card="l"] .thumb{height:200px}
 
 <script>
 const API = '/ext/artifacts'
-let state = { view: 'card', trash: false, items: [], allItems: [], folder: '', folderUnfiled: false, picking: null, categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
+let state = { cat: 'all', view: 'card', trash: false, items: [], allItems: [], folder: '', folderUnfiled: false, picking: null, categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
   // ⭐ 2026-10-14 新增（档 1d）：文件浏览 / 文件搜索 / 会话改动
   //    这三块原来是**主面板**的能力，面板删了 ⇒ 搬到网页版（依琪：「允许你做成网页版本展示全部内容」）
   files: { dir: '', entries: [], total: 0, truncated: false, error: '', loading: false },
@@ -1310,7 +1414,13 @@ async function reload() {
     if (state.folderUnfiled) {
       state.allItems = state.allItems.filter((r) => !String(r.folder || '').trim())
     }
+    // ⚠️ 「资料」分类 = kind:reference。它与用户手选的「类别」多选是**两回事**：
+    //    分类是"我要看资料那一类"，MF.kind 是"我手动筛"。叠加会让人困惑，
+    //    所以分类优先 —— 切到「资料」时清掉手选的 kind（见 setCat）。
     state.items = state.allItems.filter(mfMatch)
+    if (state.cat === 'ref') {
+      state.items = state.items.filter((r) => r.kind === 'reference')
+    }
     mfRenderAll()
     renderFilterChips()
     // 目录树跟着刷新（计数/选中态必须与列表一致）
@@ -1365,7 +1475,53 @@ function undoToast(msg, undoFn) {
   clearTimeout(undoHandle)
   undoHandle = setTimeout(() => t.classList.remove('show'), 6000)
 }
-function setView(v) { state.view = v; syncViewButtons(); render() }
+/**
+ * 切换**分类**（数据源）：产物 / 资料 / 项目 / 文件 / 改动。
+ *
+ * ⚠️ 与 setView（列表/卡片）**不是一回事**：
+ *    分类换的是"看什么东西"，视图换的是"怎么看这个东西"。
+ *    原来混在一起是概念错误（主人指出的）。
+ */
+function setCat(c) {
+  const v = String(c || 'all')
+  state.cat = v
+  // ⚠️ 分类与 kind 筛选会打架：
+  //    「资料」分类 = kind:reference，所以切过去要**清掉手动的 kind 筛选**，
+  //    否则两个条件叠加会出现空列表（用户看不出原因）。
+  if (v === 'ref') {
+    MF.kind.picked.length = 0
+    mfRender('kind')
+  }
+  state.page = 1
+  syncCatButtons()
+  render()
+  // 三个分类都从同一份数据算，但「文件」「改动」需要重新拉
+  if (v === 'files' || v === 'changes') reload()
+}
+
+/** 同步分类按钮的选中态。 */
+function syncCatButtons() {
+  const cat = state.cat || 'all'
+  for (const b of document.querySelectorAll('.catbtn')) {
+    b.classList.toggle('active', b.dataset.cat === cat)
+  }
+}
+
+/**
+ * 切换**视图**（列表 / 卡片）。
+ * ⚠️ 只有这两个是"视图"—— 项目/文件/改动已经移到分类了。
+ * ⚠️ 兼容旧调用：传进来 project/files/changes 时自动转成**分类**，不许静默失效。
+ */
+function setView(v) {
+  const t = String(v || 'list')
+  if (t === 'project' || t === 'files' || t === 'changes') {
+    setCat(t)
+    return
+  }
+  state.view = t
+  syncViewButtons()
+  render()
+}
 /** 视图按钮的选中态（单独一个函数：偏好按钮也共用这套视觉）。 */
 function syncViewButtons() {
   document.querySelectorAll('.view-switch button[data-v]').forEach((b) => b.classList.toggle('active', b.dataset.v === state.view))
@@ -1379,6 +1535,61 @@ function syncPrefButtons() {
     if (el) el.classList.toggle('active', on)
   }
 }
+/* ══ 两个弹出菜单（2026-10-22 重构）═══════════════════════════════════════
+     ⚠️ 用**受控开关**而不是 <details>：<details> 不会"点外关闭"，
+        而菜单必须点外关闭（否则挡住了下面还关不掉）。
+     ⚠️ 两个菜单**互斥**：开一个要关另一个。 */
+
+function closeMenus() {
+  const a = $('moreMenu'); const b = $('dispMenu')
+  if (a) a.style.display = 'none'
+  if (b) b.style.display = 'none'
+  const ba = $('moreBtn'); const bb = $('dispBtn')
+  if (ba) ba.setAttribute('aria-expanded', 'false')
+  if (bb) bb.setAttribute('aria-expanded', 'false')
+}
+
+function toggleMore(ev) {
+  if (ev) ev.stopPropagation()
+  const m = $('moreMenu')
+  if (!m) return
+  const willOpen = m.style.display === 'none'
+  closeMenus()
+  if (willOpen) {
+    m.style.display = 'block'
+    $('moreBtn').setAttribute('aria-expanded', 'true')
+  }
+}
+
+function toggleDisp(ev) {
+  if (ev) ev.stopPropagation()
+  const m = $('dispMenu')
+  if (!m) return
+  const willOpen = m.style.display === 'none'
+  closeMenus()
+  if (willOpen) {
+    m.style.display = 'block'
+    $('dispBtn').setAttribute('aria-expanded', 'true')
+    // ⚠️ 尺寸只在卡片视图有意义 —— 列表视图下灰掉并说明原因。
+    //    （原来三个按钮常驻但在列表视图点了完全没反应，主人就是批评这个）
+    const g = $('sizeGroup')
+    if (g) {
+      const isCard = state.view === 'card'
+      g.classList.toggle('disabled', !isCard)
+      g.title = isCard ? '' : '当前是列表视图，卡片大小不影响列表'
+    }
+  }
+}
+
+/** 点外关闭（挂一次，管两个菜单）。 */
+document.addEventListener('click', (ev) => {
+  const t = ev.target
+  if (!t || !t.closest) return
+  if (t.closest('#moreMenu') || t.closest('#moreBtn')) return
+  if (t.closest('#dispMenu') || t.closest('#dispBtn')) return
+  closeMenus()
+})
+
 function toggleTrash() { state.trash = !state.trash; $('trashBar').style.display = state.trash ? 'flex' : 'none'; $('trashBtn').classList.toggle('primary', state.trash); reload() }
 async function emptyTrash() { if (!confirm('永久删除回收站内全部产物？')) return; const ids = state.items.map((r) => r.id); for (const id of ids) await api(API + '/' + id, { method: 'DELETE' }); toast('回收站已清空'); reload() }
 
@@ -1883,10 +2094,12 @@ function render() {
   requestAnimationFrame(applyCols)
   const c = $('content')
 
-  // ⭐ 2026-10-14：文件 / 改动两个视图**不吃 state.items**（数据源不同）
+  // ⭐ 2026-10-14：文件 / 改动两个**数据源**不吃 state.items
   //    ⇒ 必须在「空库」那条兜底**之前**分流，否则空库时它们永远显示"库是空的"。
-  if (state.view === 'files') { renderFiles(); return }
-  if (state.view === 'changes') { renderChanges(); return }
+  // ⚠️ 2026-10-22：这两个从 `state.view` 移到 **`state.cat`** ——
+  //    它们是**分类（数据源）**，不是视图（列表/卡片才是视图）。
+  if (state.cat === 'files') { renderFiles(); return }
+  if (state.cat === 'changes') { renderChanges(); return }
 
   // ⚠️ 加载失败**单独一支**（不许和"库是空的"共用一句 —— 那是两件事）
   if (state.loadError) {
@@ -1966,7 +2179,7 @@ function render() {
         // 行高把手：**横跨整张表**的一根线，放在表格下方 ——
         // ⚠️ 不放在表头里：表头是 th，塞一根横线会破坏列布局。
         + moreBtn
-  } else if (state.view === 'project') {
+  } else if (state.cat === 'project') {
     const groups = {}
     for (const r of visible) (groups[r.project || '(未分类)'] = groups[r.project || '(未分类)'] || []).push(r)
     c.innerHTML = Object.entries(groups).map(([p, items]) =>
@@ -1975,6 +2188,7 @@ function render() {
     c.innerHTML = `<div class="cards">${visible.map(cardHtml).join('')}</div>${moreBtn}`
   }
 
+  syncCatButtons()
   // ⚠️ 重画之后必须**再设一次**全选框状态：
   //    render() 新建了 DOM，旧节点上的 checked/indeterminate 全丢了。
   //    真机实测：全选后 sel=60/rowon=60 都对，但 checked=false —— 就是这个。
@@ -2423,7 +2637,21 @@ function applyPrefs() {
   try { localStorage.setItem('alf-ui-prefs', JSON.stringify(uiPrefs)) } catch { /* 存不上不影响用 */ }
 }
 function setDensity(v) { uiPrefs.density = v; applyPrefs(); syncPrefButtons(); render() }
-function setCardSize(v) { uiPrefs.card = v; applyPrefs(); syncPrefButtons(); render() }
+/**
+ * 卡片尺寸（2026-10-22 改成四级，照 Windows 文件管理）。
+ *
+ * ⚠️ 主人批评：「你这个改变不仅小，而且并没有放大多少图片」
+ *    原来 84/130/200px —— 只差 2.4 倍，而且**只改高度不改宽度**
+ *    （卡片列数不变，所以"大"也没大到哪去）。
+ * ⇒ 现在四级，**高度 + 列宽一起变**：小 80 / 中 160 / 大 260 / 超大 400。
+ */
+function setCardSize(v) {
+  const ok = ['s', 'm', 'l', 'xl']
+  uiPrefs.card = ok.indexOf(v) >= 0 ? v : 'm'
+  applyPrefs()
+  syncPrefButtons()
+  render()
+}
 
 /* ── 记住上次浏览的目录 ────────────────────────────────────────────────────
  * 2026-10-14 从主面板的 `rememberDir` 搬来。⚠️ 只记**成功打开过**的目录
@@ -2986,7 +3214,7 @@ async function batchTags() {
 // === 快捷键 ===
 document.addEventListener('keydown', (e) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')
-  if (e.key === 'Escape') { closeLb(); closeModal('regModal'); closeModal('editModal'); closeModal('importModal'); closeModal('settingsModal'); closeModal('refineModal'); closeModal('semanticModal'); closeModal('cleanupModal'); return }
+  if (e.key === 'Escape') { closeMenus(); closeLb(); closeModal('regModal'); closeModal('editModal'); closeModal('importModal'); closeModal('settingsModal'); closeModal('refineModal'); closeModal('semanticModal'); closeModal('cleanupModal'); return }
   if (typing) return
   if (e.key === '/') { e.preventDefault(); $('q').focus(); return }
   if (e.key === 'n' || e.key === 'N') { openRegister(); return }
@@ -2997,6 +3225,7 @@ document.addEventListener('keydown', (e) => {
 })
 applyPrefs()
 syncPrefButtons()
+syncCatButtons()
 ;(async () => {
   try {
     await Promise.all([loadMeta(), refreshRefIndex(), loadManagedTags(), reload()])

@@ -95,17 +95,28 @@ check('★ A3 反向对照：故意造一个语法错 → A2 的判据必须红'
 // ══════════════════════════════════════════════════════════════════════════
 console.log('\n── [B] 档 1d 搬过来的能力 ──')
 
-check('B1 两个新视图按钮在（文件 / 改动）', () => {
-  assert(/data-v="files"/.test(html), '没有「文件」视图按钮')
-  assert(/data-v="changes"/.test(html), '没有「改动」视图按钮')
-  // 旧的三个也还在（没被误删）
-  for (const v of ['list', 'card', 'project']) {
-    assert(new RegExp('data-v="' + v + '"').test(html), '原有视图按钮 ' + v + ' 不见了')
+check('B1 五个入口都在（分类条 + 视图），且分属两层', () => {
+  // ⚠️ 2026-10-22 主人纠正：「「项目」和「文件」「改动」其实是不同的数据源，
+  //    不是同一种"视图"」
+  //    ⇒ 它们从 `.view-switch[data-v]` 移到了 `.catbar .catbtn[data-cat]`。
+  //    守的不变量没变：**这五个入口必须都存在**（不许因为重构就弄丢）。
+  for (const c of ['all', 'ref', 'project', 'files', 'changes']) {
+    assert(new RegExp('data-cat="' + c + '"').test(html),
+      '★ 分类入口 ' + c + ' 不见了')
+  }
+  // 视图只剩列表/卡片（真正的"同一个东西的两种看法"）
+  for (const v of ['list', 'card']) {
+    assert(new RegExp('data-v="' + v + '"').test(html), '★ 视图按钮 ' + v + ' 不见了')
+  }
+  // ⚠️ 反向断言：项目/文件/改动**不许**再作为视图出现（那是概念错误）
+  for (const v of ['project', 'files', 'changes']) {
+    assert(!new RegExp('data-v="' + v + '"').test(html),
+      '★ ' + v + ' 又变回"视图"了 —— 它是数据源（分类），不是视图')
   }
 })
 
-check('B2 `render()` 必须在「空库」兜底**之前**分流两个新视图', () => {
-  // ⚠️ 这是**顺序**断言：文件/改动视图不吃 `state.items`，
+check('B2 `render()` 必须在「空库」兜底**之前**分流两个**数据源**', () => {
+  // ⚠️ 这是**顺序**断言：文件/改动不吃 `state.items`，
   //    若排在空库兜底之后，空库时它们永远显示"库是空的"。
   const r = html.indexOf('function render()')
   assert(r > 0, '找不到 render()')
@@ -114,14 +125,17 @@ check('B2 `render()` 必须在「空库」兜底**之前**分流两个新视图'
   //    ⇒ 窗口改成到**下一个顶层函数**为止，不靠固定字数。
   const nextFn = html.indexOf('\nfunction ', r + 20)
   const body = html.slice(r, nextFn > r ? nextFn : r + 4000)
-  const filesAt = body.indexOf("state.view === 'files'")
+  // ⚠️ 2026-10-22：这两个从 `state.view` 移到 **`state.cat`** ——
+  //    它们是**分类（数据源）**，不是视图（列表/卡片才是视图）。
+  //    守的不变量没变：**必须在空库兜底之前分流**。
+  const filesAt = body.indexOf("state.cat === 'files'")
   const emptyAt = body.indexOf('if (!state.items.length)')
   assert(filesAt > 0, 'render() 里没有 files 分支')
   assert(emptyAt > 0, 'render() 里没有空库兜底（判据前提失效）')
   assert(filesAt < emptyAt,
-    '★ 文件视图的分流排在空库兜底**之后** —— 空库时它会显示"库是空的"（永远进不去）')
-  const chAt = body.indexOf("state.view === 'changes'")
-  assert(chAt > 0 && chAt < emptyAt, '★ 改动视图同样必须在空库兜底之前')
+    '★ 文件数据源的分流排在空库兜底**之后** —— 空库时它会显示"库是空的"（永远进不去）')
+  const chAt = body.indexOf("state.cat === 'changes'")
+  assert(chAt > 0 && chAt < emptyAt, '★ 改动数据源同样必须在空库兜底之前')
 })
 
 check('B3 文件视图的两个数据源都在（浏览 + 搜索）', () => {
