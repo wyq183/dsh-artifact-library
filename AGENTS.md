@@ -1,4 +1,4 @@
-# AGENTS.md · 产物库插件
+# AGENTS.md · 知识库插件
 
 > ## ⚠️ 开工第一件事：读 [`RULES.md`](RULES.md)
 >
@@ -56,11 +56,11 @@ codegraph context <任务>   # 为任务取上下文
 |:--|:--|:--|
 | `RULES.md` | **规则。唯一来源。** | 开工必读 |
 | `lib/index.js` | 宿主侧入口（组装根） | **不热载，要重启 DSH** |
-| `lib/client.js` | 客户端插件（**浏览器 bundle**） | **热载**；**顶层零 import**；9414 行，只许变小 |
+| `lib/client.js` | 客户端插件（**浏览器 bundle**） | **热载**；**顶层零 import**；**只许变小**（上限见 `test/client-size.test.mjs`） |
 | `lib/store.js` `tools.js` `http.js` `settings.js` | 应用层 | 依赖方向见 `RULES.md` §3 |
 | `lib/categories.js` `tags.js` `project-merge.js` `tag-styles.js` | 领域层（叶子） | **只许 import node 内置** |
 | `lib/index/` | 文件索引子系统 | 不许反向 import 上层 |
-| `test/` | 30 个 `*.test.mjs` + `_strip-comments.mjs`（共享工具） | glob 必须写 `test/*.test.mjs` |
+| `test/` | `*.test.mjs` + `_strip-comments.mjs`（共享工具） | glob 必须写 `test/*.test.mjs`；**个数不写在这**（会变，见 `docs/ACCEPTANCE-DIVISION.md`） |
 | `tools/` | 门禁脚本（`assert-ran` / `pre-commit` / `doc-stale` / `render-verify`） | |
 | `ui/index.html` | **兜底管理页，不是主界面** | ⚠️ 拿它截图 = 事实性错误 |
 | `scratch/` | 实验脚本 | 不进测试套件 |
