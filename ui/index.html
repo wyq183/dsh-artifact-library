@@ -410,6 +410,52 @@ body[data-card="l"] .card-title{font-size:14px}
   .projback:hover{border-color:var(--acc);color:var(--acc)}
   .projcrumbname{font-size:14px;font-weight:600;color:var(--fg)}
   .projcrumbcount{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+  /* ══ 知识库（2026-10-22）══════════════════════════════════════════════ */
+  .knbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 12px}
+  .knbar input.grow{flex:1 1 260px;min-width:180px}
+  .kntypes{display:flex;gap:4px;flex-wrap:wrap}
+  .knchip{border:1px solid var(--line);background:var(--panel);color:var(--dim);
+    font:inherit;font-size:12px;line-height:18px;padding:4px 10px;border-radius:999px;cursor:pointer}
+  .knchip:hover{border-color:var(--acc);color:var(--acc)}
+  .knchip.on{border-color:var(--acc);color:var(--acc);background:color-mix(in srgb, var(--acc) 12%, transparent);font-weight:600}
+
+  .knlist{display:flex;flex-direction:column;gap:10px}
+  .knitem{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:12px 14px}
+  .knitem:hover{border-color:color-mix(in srgb, var(--acc) 45%, transparent)}
+  .knhead{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px}
+  .kntitle{font-size:14px;font-weight:600;line-height:20px;color:var(--fg);flex:1 1 auto;min-width:0}
+  .knbadge{flex:none;font-size:11px;line-height:16px;padding:2px 8px;border-radius:999px;
+    border:1px solid var(--line);white-space:nowrap;font-weight:600}
+  .kn-pitfall{color:var(--warn, #e0a800);border-color:color-mix(in srgb, var(--warn, #e0a800) 50%, transparent)}
+  .kn-experience{color:var(--acc);border-color:color-mix(in srgb, var(--acc) 50%, transparent)}
+  .kn-decision{color:var(--acc2, #8b5cf6);border-color:color-mix(in srgb, var(--acc2, #8b5cf6) 50%, transparent)}
+  .knbody{font-size:13px;line-height:20px;color:var(--dim);white-space:pre-wrap;word-break:break-word;
+    max-height:140px;overflow:hidden}
+  .knfoot{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .kntags{display:flex;flex-wrap:wrap;gap:4px}
+  .kntag{font-size:11px;line-height:16px;padding:1px 7px;border-radius:999px;
+    background:var(--panel2);color:var(--dim)}
+  .knbtn{border:1px solid var(--line);background:transparent;color:var(--dim);
+    font:inherit;font-size:12px;line-height:18px;padding:2px 9px;border-radius:6px;cursor:pointer}
+  .knbtn:hover{border-color:var(--acc);color:var(--acc)}
+  .kndel:hover{border-color:var(--danger, #e5484d);color:var(--danger, #e5484d)}
+
+  /* 弹窗 */
+  .knmodal{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.55);padding:20px}
+  .knmodalbox{width:min(680px,100%);max-height:90vh;display:flex;flex-direction:column;
+    border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);
+    box-shadow:0 24px 64px rgba(0,0,0,.5);overflow:hidden}
+  .knmodalhead{padding:14px 16px;border-bottom:1px solid var(--line);font-size:14px;font-weight:600}
+  .knmodalb{padding:14px 16px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+  .knfield{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--dim)}
+  .knfield > span{font-weight:600}
+  .knfield input,.knfield select,.knfield textarea{font:inherit;font-size:13px;padding:7px 10px;
+    border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--fg);width:100%}
+  .knfield textarea{resize:vertical;line-height:20px;font-family:inherit}
+  .knmodalfoot{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
+  .knerr{color:var(--danger, #e5484d);font-size:12px}
+
   .catbtn:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}
 
   /* ══ 更多菜单（header 的 ⋯）═══════════════════════════════════════════ */
@@ -504,6 +550,9 @@ body[data-card="l"] .card-title{font-size:14px}
   <button class="catbtn" data-cat="project" onclick="setCat('project')">📁 按项目</button>
   <button class="catbtn" data-cat="changes" onclick="setCat('changes')">🕒 最近改动</button>
   <button class="catbtn" data-cat="files" onclick="setCat('files')">🔍 全盘搜索</button>
+  <!-- 知识条目（2026-10-22）—— 主人要的「正儿八经的资料」：
+       每个项目的经验、踩过的坑、技术决策。**不是文件**，是短条目。 -->
+  <button class="catbtn" data-cat="knowledge" onclick="setCat('knowledge')">📚 知识</button>
 </div>
 
 <div id="filterBar" class="filterbar" style="display:none"></div>
@@ -725,7 +774,7 @@ body[data-card="l"] .card-title{font-size:14px}
 
 <script>
 const API = '/ext/artifacts'
-let state = { cat: 'all', view: 'card', projectOpen: '', trash: false, items: [], allItems: [], folder: '', folderUnfiled: false, picking: null, categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
+let state = { cat: 'all', view: 'card', projectOpen: '', knItems: [], knTree: [], knStats: null, knFilter: { project: '', type: '', q: '' }, trash: false, items: [], allItems: [], folder: '', folderUnfiled: false, picking: null, categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
   // ⭐ 2026-10-14 新增（档 1d）：文件浏览 / 文件搜索 / 会话改动
   //    这三块原来是**主面板**的能力，面板删了 ⇒ 搬到网页版（依琪：「允许你做成网页版本展示全部内容」）
   files: { dir: '', entries: [], total: 0, truncated: false, error: '', loading: false },
@@ -1515,6 +1564,251 @@ function closeProject() {
   render()
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * 知识库（2026-10-22）
+ * ══════════════════════════════════════════════════════════════════════════
+ * 主人：「把每个项目的经验遇到的坑存放在这的资料」
+ *
+ * ⚠️ 与产物**完全独立**：
+ *    产物 = 磁盘上有文件；知识 = 一条经验/一个坑/一次决策，**没有文件**。
+ *    ⇒ 不显示大小、类型、缩略图；不参与文件的批量操作。
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+const KN_TYPES = [
+  { key: 'pitfall', label: '坑', icon: '⚠️' },
+  { key: 'experience', label: '经验', icon: '💡' },
+  { key: 'decision', label: '决策', icon: '📌' },
+]
+
+function knTypeMeta(t) {
+  return KN_TYPES.find((x) => x.key === t) || { key: t, label: t, icon: '·' }
+}
+
+/** 拉知识条目（带筛选）。 */
+async function loadKnowledge() {
+  const f = state.knFilter
+  const qs = new URLSearchParams()
+  if (f.project) qs.set('project', f.project)
+  if (f.type) qs.set('type', f.type)
+  if (f.q) qs.set('q', f.q)
+  try {
+    const r = await fetch(API + '/knowledge?' + qs.toString(), { headers: { 'x-dsh-artifacts': '1' } })
+    const j = await r.json()
+    if (j && j.ok) {
+      state.knItems = j.items || []
+      state.knTree = j.tree || []
+      state.knStats = j.stats || null
+    } else {
+      state.knItems = []
+      state.knError = (j && j.error) || '加载失败'
+    }
+  } catch (e) {
+    state.knItems = []
+    state.knError = e && e.message ? e.message : String(e)
+  }
+  render()
+}
+
+/** 知识条目列表页。 */
+function renderKnowledge() {
+  const c = $('content')
+  if (!c) return
+
+  // 顶部：搜索 + 类型筛选 + 新建
+  const f = state.knFilter
+  const typeBtns = '<div class="kntypes">'
+    + '<button type="button" class="knchip' + (!f.type ? ' on' : '') + '" onclick="knSetType(\'\')">全部</button>'
+    + KN_TYPES.map((t) => '<button type="button" class="knchip' + (f.type === t.key ? ' on' : '') + '" onclick="knSetType(\'' + t.key + '\')">' + t.icon + ' ' + t.label + '</button>').join('')
+    + '</div>'
+
+  const bar = '<div class="knbar">'
+    + '<input class="grow" id="knq" placeholder="搜索知识条目（标题 / 正文 / 标签）" value="' + esc(f.q || '') + '"'
+    + ' onkeydown="if(event.key===\'Enter\'){knSetQ(this.value)}">'
+    + typeBtns
+    + '<button type="button" class="primary" onclick="knOpenNew()">＋ 记一条</button>'
+    + '</div>'
+
+  // 面包屑：正在看哪个项目
+  const crumb = f.project
+    ? '<div class="projcrumb"><button type="button" class="projback" onclick="knSetProject(\'\')">← 全部项目</button>'
+      + '<span class="projcrumbname">📁 ' + esc(f.project) + '</span>'
+      + '<span class="projcrumbcount">' + state.knItems.length + ' 条</span></div>'
+    : ''
+
+  if (state.knError) {
+    c.innerHTML = bar + '<div class="empty">⚠️ 加载失败：' + esc(state.knError) + '</div>'
+    return
+  }
+
+  // 没选项目时：显示项目分组（像文件夹一样点进去）
+  if (!f.project) {
+    const tree = state.knTree || []
+    if (!tree.length) {
+      c.innerHTML = bar + '<div class="empty">知识库还是空的。<br><br>'
+        + '<span class="hint">记下第一个坑、第一条经验，或者一次技术决策 —— 下次就不用重新踩一遍。</span><br><br>'
+        + '<button type="button" class="primary" onclick="knOpenNew()">＋ 记第一条</button></div>'
+      return
+    }
+    const cards = tree.map((g) => {
+      const label = g.project || '（未归项目）'
+      const types = KN_TYPES.filter((t) => g.types[t.key]).map((t) => t.icon + g.types[t.key]).join(' ')
+      return '<button type="button" class="projcard" onclick="knSetProject(' + JSON.stringify(g.project).replace(/"/g, '&quot;') + ')">'
+        + '<span class="projicon" aria-hidden="true">📁</span>'
+        + '<span class="projname" title="' + esc(label) + '">' + esc(label) + '</span>'
+        + '<span class="projcount">' + g.count + ' 条' + (types ? ' · ' + types : '') + '</span>'
+        + '</button>'
+    }).join('')
+    const st = state.knStats || { total: 0 }
+    c.innerHTML = bar + '<div class="hint" style="margin:8px 0 12px">共 ' + st.total + ' 条知识，分布在 ' + tree.length + ' 个项目</div>'
+      + '<div class="projgrid">' + cards + '</div>'
+    return
+  }
+
+  // 选了项目：显示条目列表
+  const items = state.knItems || []
+  if (!items.length) {
+    c.innerHTML = bar + crumb + '<div class="empty">这个项目下还没有知识条目。<br><br>'
+      + '<button type="button" class="primary" onclick="knOpenNew()">＋ 记一条</button></div>'
+    return
+  }
+  c.innerHTML = bar + crumb + '<div class="knlist">' + items.map(knItemHtml).join('') + '</div>'
+}
+
+/** 一条知识的卡片。 */
+function knItemHtml(x) {
+  const t = knTypeMeta(x.type)
+  const tags = (x.tags || []).length
+    ? '<span class="kntags">' + x.tags.map((g) => '<span class="kntag">' + esc(g) + '</span>').join('') + '</span>'
+    : ''
+  const body = x.body
+    ? '<div class="knbody">' + esc(String(x.body).slice(0, 400)) + (String(x.body).length > 400 ? '…' : '') + '</div>'
+    : ''
+  return '<div class="knitem" data-knid="' + esc(x.id) + '">'
+    + '<div class="knhead">'
+    + '<span class="knbadge kn-' + esc(x.type) + '">' + t.icon + ' ' + t.label + '</span>'
+    + '<span class="kntitle">' + esc(x.title) + '</span>'
+    + '</div>'
+    + body
+    + '<div class="knfoot">'
+    + tags
+    + '<span class="grow"></span>'
+    + '<button type="button" class="knbtn" onclick="knEdit(\'' + esc(x.id) + '\')">编辑</button>'
+    + '<button type="button" class="knbtn kndel" onclick="knDelete(\'' + esc(x.id) + '\')">删除</button>'
+    + '</div>'
+    + '</div>'
+}
+
+function knSetType(t) { state.knFilter.type = t; loadKnowledge() }
+function knSetProject(p) { state.knFilter.project = p; loadKnowledge() }
+function knSetQ(q) { state.knFilter.q = String(q || ''); loadKnowledge() }
+
+/** 新建 / 编辑弹窗。 */
+function knOpenNew() {
+  knOpenForm(null)
+}
+
+function knEdit(id) {
+  const rec = (state.knItems || []).find((x) => x.id === id)
+  if (rec) knOpenForm(rec)
+}
+
+function knOpenForm(rec) {
+  const isEdit = !!rec
+  const v = rec || { type: 'pitfall', title: '', body: '', project: state.knFilter.project || '', tags: [], refs: [] }
+  // 项目候选：知识库已有 + 产物库已有
+  const projSet = new Set()
+  for (const g of (state.knTree || [])) if (g.project) projSet.add(g.project)
+  for (const p of ((state.categories && state.categories.projects) || [])) if (p) projSet.add(p)
+  const projOpts = [...projSet].sort().map((p) => '<option value="' + esc(p) + '"' + (p === v.project ? ' selected' : '') + '>' + esc(p) + '</option>').join('')
+
+  const html = '<div class="knmodal" id="knModal">'
+    + '<div class="knmodalbox">'
+    + '<div class="knmodalhead">' + (isEdit ? '编辑知识' : '记一条知识') + '</div>'
+    + '<div class="knmodalb"">'
+    + '<label class="knfield"><span>类型</span>'
+    + '<select id="knType">' + KN_TYPES.map((t) => '<option value="' + t.key + '"' + (v.type === t.key ? ' selected' : '') + '>' + t.icon + ' ' + t.label + '</option>').join('') + '</select></label>'
+    + '<label class="knfield"><span>项目</span>'
+    + '<input id="knProject" list="knProjList" value="' + esc(v.project || '') + '" placeholder="选已有项目，或输入新名字">'
+    + '<datalist id="knProjList">' + projOpts + '</datalist></label>'
+    + '<label class="knfield"><span>标题</span>'
+    + '<input id="knTitle" value="' + esc(v.title || '') + '" placeholder="一句话说清是什么（必填）"></label>'
+    + '<label class="knfield"><span>正文</span>'
+    + '<textarea id="knBody" rows="10" placeholder="现象 / 原因 / 怎么解决的。可以贴代码。">' + esc(v.body || '') + '</textarea></label>'
+    + '<label class="knfield"><span>标签</span>'
+    + '<input id="knTags" value="' + esc((v.tags || []).join(', ')) + '" placeholder="逗号分隔，可不填"></label>'
+    + '</div>'
+    + '<div class="knmodalfoot">'
+    + '<span class="knerr" id="knErr"></span>'
+    + '<span class="grow"></span>'
+    + '<button type="button" onclick="knCloseForm()">取消</button>'
+    + '<button type="button" class="primary" onclick="knSave(' + (isEdit ? "'" + esc(v.id) + "'" : 'null') + ')">' + (isEdit ? '保存' : '记下') + '</button>'
+    + '</div>'
+    + '</div></div>'
+
+  const host = document.createElement('div')
+  host.innerHTML = html
+  document.body.appendChild(host.firstChild)
+  const el = document.getElementById('knTitle')
+  if (el) el.focus()
+}
+
+function knCloseForm() {
+  const m = document.getElementById('knModal')
+  if (m) m.remove()
+}
+
+async function knSave(id) {
+  const type = ($('knType') || {}).value
+  const title = (($('knTitle') || {}).value || '').trim()
+  const body = ($('knBody') || {}).value || ''
+  const project = (($('knProject') || {}).value || '').trim()
+  const tagsRaw = ($('knTags') || {}).value || ''
+  const tags = tagsRaw.split(',').map((x) => x.trim()).filter(Boolean)
+  const errEl = $('knErr')
+
+  if (!title) { if (errEl) errEl.textContent = '标题不能为空'; return }
+  if (!type) { if (errEl) errEl.textContent = '要选类型'; return }
+
+  const payload = { type, title, body, project, tags }
+  try {
+    const url = id ? API + '/knowledge/' + encodeURIComponent(id) : API + '/knowledge'
+    const r = await fetch(url, {
+      method: id ? 'PATCH' : 'POST',
+      headers: { 'content-type': 'application/json', 'x-dsh-artifacts': '1' },
+      body: JSON.stringify(payload),
+    })
+    const j = await r.json()
+    if (j && j.ok) {
+      knCloseForm()
+      await loadKnowledge()
+      toast(id ? '已保存' : '已记下')
+    } else if (errEl) {
+      errEl.textContent = (j && j.error) || '保存失败'
+    }
+  } catch (e) {
+    if (errEl) errEl.textContent = e && e.message ? e.message : String(e)
+  }
+}
+
+async function knDelete(id) {
+  const rec = (state.knItems || []).find((x) => x.id === id)
+  const name = rec ? rec.title : id
+  // ⚠️ 两次确认：知识条目删了就没了（不像产物有回收站）
+  if (!window.confirm('确定删除这条知识？\n\n「' + name + '」\n\n删了就找不回来了。')) return
+  if (!window.confirm('再确认一次：真的要删掉「' + name + '」？')) return
+  try {
+    const r = await fetch(API + '/knowledge/' + encodeURIComponent(id), {
+      method: 'DELETE',
+      headers: { 'x-dsh-artifacts': '1' },
+    })
+    const j = await r.json()
+    if (j && j.ok) { await loadKnowledge(); toast('已删除') }
+    else toast((j && j.error) || '删除失败')
+  } catch (e) {
+    toast('删除失败：' + (e && e.message ? e.message : String(e)))
+  }
+}
+
 function setCat(c) {
   const v = String(c || 'all')
   const prev = state.cat
@@ -1534,6 +1828,11 @@ function setCat(c) {
   //
   // ⚠️ 「文件」「改动」是**不同的数据源**（不走 state.items），
   //    它们自己会拉数据，但也统一走 reload() —— 少一个分支就少一个坑。
+  if (v === 'knowledge') {
+    // 知识库是独立数据源，走自己的加载
+    loadKnowledge()
+    return
+  }
   if (prev !== v || v === 'files' || v === 'changes') {
     reload()
   } else {
@@ -2142,6 +2441,8 @@ function render() {
   //    它们是**分类（数据源）**，不是视图（列表/卡片才是视图）。
   if (state.cat === 'files') { renderFiles(); return }
   if (state.cat === 'changes') { renderChanges(); return }
+  // 知识条目（2026-10-22）—— 独立数据源，不吃 state.items
+  if (state.cat === 'knowledge') { renderKnowledge(); return }
 
   // ⚠️ 加载失败**单独一支**（不许和"库是空的"共用一句 —— 那是两件事）
   if (state.loadError) {
