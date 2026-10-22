@@ -271,6 +271,77 @@ check('D3 ★★ knowledge.js 语法合法', () => {
   assert(knJs.indexOf('export class KnowledgeStore') >= 0, '★ 没导出 KnowledgeStore')
 })
 
+// ══════════════════════════════════════════════════════════════════════════
+// [E] 代码能不能**跑**（不只是"写了没"）
+// ══════════════════════════════════════════════════════════════════════════
+//
+// ⭐ 这组是 2026-10-22 补的，起因是一次**真事故**：
+//
+//   我在 lib/http.js 里写了 `await readJsonBody(req)`，
+//   但**那个函数根本不存在**（实际叫 `readBody`）。
+//
+//   · 本地 49 个测试**全绿**
+//   · CI 一跑就红：`'readJsonBody' is not defined`（http.js:735 / :755）
+//
+//   为什么本地绿？因为 B5 是**字符串断言**：
+//     assert(/id === 'knowledge'/.test(httpJs))
+//   —— 证明"写了这个词"，不证明"这段代码能跑"。
+//
+//   ⚠️ 更打脸：我知识库里刚记过「有开源实现时先照抄结构，别推演 API」。
+//      旁边 20 个端点都写 `await readBody(req)`，我没看一眼。
+
+check('E1 ★★★ http.js 里不许有「调用但未定义」的函数名', () => {
+  // ⚠️ 这是**静态比对**：收集定义 vs 收集调用。
+  //    它抓不住所有运行时错误，但能抓住"拼错函数名"这一类 —— 那正是这次的 bug。
+  const src = deComment(httpJs)
+
+  const defined = new Set()
+  for (const m of src.matchAll(/^\s*(?:export\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm)) defined.add(m[1])
+  for (const m of src.matchAll(/^\s*const\s+([A-Za-z_$][\w$]*)\s*=/gm)) defined.add(m[1])
+  for (const m of src.matchAll(/^\s*let\s+([A-Za-z_$][\w$]*)\s*=/gm)) defined.add(m[1])
+  // import 进来的也算定义
+  for (const m of src.matchAll(/import\s*\{([^}]+)\}/g)) {
+    for (const part of m[1].split(',')) {
+      const n = part.trim().split(/\s+as\s+/).pop().trim()
+      if (n) defined.add(n)
+    }
+  }
+
+  // 只查 `await xxx(` 形式 —— 那是最可能被"编出来"的位置（异步辅助函数）
+  const called = new Set()
+  for (const m of src.matchAll(/await\s+([A-Za-z_$][\w$]*)\s*\(/g)) called.add(m[1])
+
+  // ⚠️ 白名单**必须小**：列进来的每个名字都在削弱这条检查。
+  //    只放真正不在本文件定义的（内置 / 从 deps 解构出来的）。
+  const builtin = new Set([
+    'Promise', 'fetch', 'import', 'require',
+  ])
+
+  const missing = [...called].filter((n) => !defined.has(n) && !builtin.has(n))
+  assert(missing.length === 0,
+    '★ 调用了未定义的函数（会 ReferenceError）：' + missing.join(', '))
+})
+
+check('E2 ★★★ knowledge 端点用的 body 读取函数必须真实存在', () => {
+  // ⚠️ 这条是 E1 的**定向版**：专门守这次踩的那个坑。
+  //    比 E1 更狠 —— 它不看"有没有定义"，只看"是不是那个正确的名字"。
+  const seg = httpJs.slice(httpJs.indexOf("id === 'knowledge'"))
+  const m = /await\s+([A-Za-z_$][\w$]*)\s*\(req\)/.exec(seg)
+  if (!m) return  // 没有 POST 分支就不用管
+  const fn = m[1]
+  // 必须在本文件里真的有 `function <fn>(` 定义
+  assert(new RegExp('function\\s+' + fn + '\\s*\\(req\\)').test(httpJs),
+    '★ knowledge 端点用了 `' + fn + '(req)`，但本文件没有这个函数定义')
+})
+
+check('E3 ★★ 知识库测试自己不许再用"只查字符串"来证明端点可用', () => {
+  // ⚠️ 元检查：B5 那种写法（只 assert 字符串存在）**不足以**证明端点能用。
+  //    这条要求 E 组必须存在 —— 防止有人把 E 组删掉退回去。
+  const self = fs.readFileSync(path.join(REPO, 'test', 'knowledge.test.mjs'), 'utf8')
+  assert(self.indexOf('E1 ★★★ http.js 里不许有') >= 0, '★ E 组不见了')
+  assert(self.indexOf('未定义的函数') >= 0, '★ E1 的判据不见了')
+})
+
 console.log('\n' + (failed === 0 ? '✅ ' : '🔴 ') + passed + ' 通过 / ' + failed + ' 失败')
 if (failed) {
   console.log('\n── 失败清单 ──')

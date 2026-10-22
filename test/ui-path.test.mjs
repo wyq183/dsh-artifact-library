@@ -6,9 +6,15 @@
  *    ⇒ 判据里必须**同时有** Windows 与 POSIX 两种 base。
  */
 import fs from 'node:fs'
+import path from 'node:path'
 import vm from 'node:vm'
+import { fileURLToPath } from 'node:url'
 
-const F = 'C:\\Users\\Administrator\\.dsh\\profiles\\desktop\\node_modules\\@dsh-external\\dsh-artifact-library\\ui\\index.html'
+// ⚠️ 2026-10-22 修：这里原来是**硬编码的 Windows 绝对路径**，
+//    CI（Linux runner）上 checkout 到 /home/runner/work/... ⇒ ENOENT ⇒ 整个 job 红。
+//    ⇒ 从本文件位置推导仓库根，任何机器/任何目录 clone 都能跑。
+const REPO = fileURLToPath(new URL('../', import.meta.url))
+const F = path.join(REPO, 'ui', 'index.html')
 const html = fs.readFileSync(F, 'utf8')
 const js = /<script>([\s\S]*?)<\/script>/.exec(html)[1]
 

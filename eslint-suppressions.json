@@ -174,6 +174,11 @@
       "count": 1
     }
   },
+  "test/knowledge.test.mjs": {
+    "preserve-caught-error": {
+      "count": 1
+    }
+  },
   "test/managed-tags.test.mjs": {
     "no-useless-assignment": {
       "count": 1
