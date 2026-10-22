@@ -148,53 +148,86 @@ check('A5 ★★ render 之后要重设全选框状态（新 DOM 会丢 checked�
 // [B] 「勾选后怎么进资料库」（主人的第 ③ 条）
 // ══════════════════════════════════════════════════════════════════════════
 
-check('B1 ★★★ 勾选后点目录 = **移进去**（不是筛选）', () => {
-  // 主人：「选择了咋进资料库我也没看到」
-  const at = html.indexOf('function pickFolder(path)')
-  assert(at > 0, '找不到 pickFolder')
-  const body = html.slice(at, at + 1200)
-  assert(/state\.selected\.size > 0/.test(body),
-    '★ pickFolder 没判断"有没有勾选" —— 勾了也只会筛选')
-  assert(/moveSelectedToFolder\(/.test(body),
-    '★ 勾选后没走移动逻辑')
-})
-
-check('B2 ★★★ 树上必须有**投放提示条**（不能只藏在顶部按钮里）', () => {
-  // ⚠️ 主人就是在顶部按钮那里找不到的。提示必须放在**他要操作的地方**（树上）。
-  const at = html.indexOf('function renderTree(')
-  assert(at > 0, '找不到 renderTree')
-  const body = html.slice(at, at + 2400)
-  assert(/treedrop/.test(body), '★ 树上没有投放提示条')
-  assert(/点下面的目录移进去|treedrophint/.test(body),
-    '★ 提示条没说"点目录移进去" —— 用户不知道下一步做什么')
-  assert(/取消选择/.test(body), '★ 提示条没有退出入口')
-})
-
-check('B3 ★★ 可放置的目录要有视觉暗示（虚线框）', () => {
-  assert(/dropok/.test(html), '没有 dropok 类')
-  const at = html.indexOf('.treenode.dropok')
-  assert(at > 0, '没有 dropok 的 CSS')
-  const seg = html.slice(at, at + 300)
-  assert(/dashed/.test(seg), '★ 没有虚线框 —— 用户不知道"这里能放"')
-})
-
-check('B4 ★★ 移动前要**一次**确认（说清 N 条 → 哪）', () => {
-  const at = html.indexOf('async function moveSelectedToFolder(')
-  assert(at > 0, '找不到 moveSelectedToFolder')
-  const body = html.slice(at, at + 1800)
-  assert(/confirm\(/.test(body), '★ 没有确认 —— 批量改归属不该无提示')
-  assert(/ids\.length/.test(body) && /label/.test(body),
-    '★ 确认文案没说清"几条 → 哪里"')
-})
-
-check('B5 ★★ 勾选状态变了，树要跟着刷新（否则提示条不出现）', () => {
-  const at = html.indexOf('function toggleSel(id, on)')
-  const body = html.slice(at, at + 900)
-  assert(/loadTree\(\)/.test(body),
-    '★ 勾选后没刷树 —— 投放提示条不会出现（那正是主人卡住的地方）')
-})
-
 // ══════════════════════════════════════════════════════════════════════════
+// [B] 「添加资料」流程（主人纠正后的正确设计）
+// ══════════════════════════════════════════════════════════════════════════
+//
+// 【主人原话】
+//   「你的逻辑有大问题，一点都不合理，你怎么把列表默认进入多选模式，
+//     正常逻辑应该是在资料库那边加一个增加资料按钮，
+//     点击后可以选择右边主文件区域选择吗？」
+//
+// 【我原来错在哪】
+//   ① 同一个点击有两种结果（点目录：有时筛选、有时移动）—— 用户无法预判
+//   ② 勾选就自动进"投放模式"—— 隐式把列表变成多选状态
+//   ③ 真正的入口（＋添加资料）根本不存在
+//
+// 【正确设计】
+//   点「＋ 添加」→ 定目标 → 显式进入选择模式 → 右边勾 → [确认加入]
+
+check('B0 ★★★ pickFolder 必须是**单一语义**（只筛选，不许因勾选而移动）', () => {
+  // ⚠️ 这是主人否掉的错误设计，必须守死不许回潮。
+  const body = deComment(fnBody(html, 'function pickFolder(path)'))
+  assert(body, '找不到 pickFolder')
+  assert(!/moveSelectedToFolder\(/.test(body),
+    '★ pickFolder 又在"勾选就移动"了 —— 主人明确否掉了这个双语义')
+  assert(!/state\.selected\.size\s*>\s*0/.test(body),
+    '★ pickFolder 又按"有没有勾选"分支 —— 同一个点击不许有两种结果')
+})
+
+check('B1 ★★★ 树上必须有「＋ 添加」入口（显式，不是靠副作用）', () => {
+  // ⚠️ 主人：入口要在**资料库那边**（树上），不是藏在顶部工具栏。
+  const head = html.slice(html.indexOf('<div class="treehead">'), html.indexOf('<div class="treehead">') + 900)
+  assert(/class="treebtn treeadd"/.test(head),
+    '★ 树头部没有「＋ 添加」按钮')
+  assert(/onclick="startPick\(\)"/.test(head),
+    '★ 按钮没绑 startPick')
+  assert(/添加/.test(head), '★ 按钮文案里没有"添加"')
+})
+
+check('B2 ★★★ 选择模式必须**显式进入**，且目标目录常驻可见', () => {
+  assert(/function startPick\(/.test(html), '没有 startPick')
+  assert(/id="pickBar"/.test(html), '没有选择模式状态条')
+  const bar = html.slice(html.indexOf('id="pickBar"'), html.indexOf('id="pickBar"') + 700)
+  assert(/id="pickTarget"/.test(bar),
+    '★ 状态条没显示目标目录 —— 用户不知道在往哪加')
+  assert(/id="pickCount"/.test(bar), '★ 没显示已选条数')
+  assert(/cancelPick\(\)/.test(bar), '★ 没有取消入口')
+})
+
+check('B3 ★★★ 选择模式下树要锁住（避免误切目录把目标搞丢）', () => {
+  // ⚠️ 目标是在进模式时定好的，中途点目录会让人以为"换目标了"
+  const body = deComment(fnBody(html, "document.addEventListener('click', (e) =>"))
+  assert(body, '找不到树的点击委托')
+  assert(/isPicking\(\)/.test(body),
+    '★ 事件委托没判断选择模式 —— 点目录会真的切走')
+  assert(/return/.test(body), '★ 拦住之后没 return')
+})
+
+check('B4 ★★ 确认加入是**唯一出口**，且失败逐条报', () => {
+  const body = deComment(fnBody(html, 'async function confirmPick('))
+  assert(body, '找不到 confirmPick')
+  assert(/folders\/set/.test(body), '★ 没调 /folders/set')
+  assert(/failed\.push/.test(body), '★ 没逐条记失败')
+  // ⚠️ 目标目录可能还不存在（用户手打的新名字）⇒ 要声明一下
+  assert(/folders\/add/.test(body),
+    '★ 没声明目标目录 —— 手打新目录名时它会因为"没有记录"而不出现在树里')
+})
+
+check('B5 ★★ 选择模式下普通批量操作栏要隐藏（语义冲突）', () => {
+  const body = deComment(fnBody(html, 'function updateSelBar()'))
+  assert(/isPicking\(\)/.test(body), '★ updateSelBar 没判断选择模式')
+  assert(/n && !picking/.test(body),
+    '★ 选择模式下还在显示普通批量操作栏 —— 勾选此刻只表示"要加入"')
+})
+
+check('B6 ★★ 旧的「投放模式」提示条必须删干净（那是错误设计的残留）', () => {
+  assert(!/treedrop/.test(html),
+    '★ 还有 treedrop（投放提示条）—— 那是被否掉的设计')
+  assert(!/dropok/.test(html),
+    '★ 还有 dropok（目录可放置虚线框）')
+})
+
 // [C] 数字口径必须一致（真机截图暴露）
 // ══════════════════════════════════════════════════════════════════════════
 

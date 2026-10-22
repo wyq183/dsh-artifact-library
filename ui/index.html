@@ -344,22 +344,6 @@ body[data-card="l"] .thumb{height:200px}
   .treeroot:hover{background:var(--panel2)}
   .treeroot.on{background:var(--panel2);box-shadow:inset 2px 0 0 var(--acc)}
   .treeroot.on .treename{color:var(--acc);font-weight:600}
-  /* ── 投放模式（勾选后点目录 = 移进去）────────────────────────────────
-     ⚠️ 主人：「选择了咋进资料库我也没看到」
-        ⇒ 提示条必须在**树上**，而且是**醒目的**（不是灰字小提示）。
-     ⚠️ 目录要有"可放置"的视觉暗示，否则用户不知道点它会移动。 */
-  .treedrop{display:flex;align-items:flex-start;gap:6px;padding:8px 10px;margin:0 4px 6px;
-    border:1px solid var(--acc);border-radius:8px;background:color-mix(in srgb, var(--acc) 12%, transparent)}
-  .treedroptxt{flex:1 1 auto;min-width:0;font-size:12px;line-height:17px;color:var(--fg)}
-  .treedroptxt b{color:var(--acc);font-size:13px}
-  .treedrophint{color:var(--dim);font-size:12px}
-  .treedropx{flex:none;border:1px solid var(--line);background:var(--panel);color:var(--dim);
-    font:inherit;font-size:12px;line-height:18px;padding:0 6px;border-radius:6px;cursor:pointer}
-  .treedropx:hover{border-color:var(--acc);color:var(--acc)}
-  /* 可放置的目录：虚线框 + hover 变实线（"这里能放"的暗示） */
-  .treenode.dropok>summary{outline:1px dashed color-mix(in srgb, var(--acc) 45%, transparent);outline-offset:-1px;border-radius:6px}
-  .treenode.dropok>summary:hover{outline-style:solid;background:color-mix(in srgb, var(--acc) 14%, transparent)}
-  .treeroot[data-drop]:hover{outline:1px dashed var(--acc);outline-offset:-1px;background:color-mix(in srgb, var(--acc) 10%, transparent)}
   .treechildren{padding-left:14px}
 </style>
 </head>
@@ -379,6 +363,18 @@ body[data-card="l"] .thumb{height:200px}
   <button onclick="openSettings()">⚙️ 设置</button>
   <button class="ghost" id="trashBtn" onclick="toggleTrash()">🗑️ 回收站</button>
 </header>
+
+<!-- 「添加资料」模式的状态条（2026-10-22 · 主人定的流程）
+     ⚠️ 必须在最显眼的位置，且**一直显示目标目录** ——
+        用户任何时候都该知道"我正在往哪加"。 -->
+<div id="pickBar" class="pickbar" style="display:none">
+  <span class="pickbar-icon" aria-hidden="true">📥</span>
+  <span class="pickbar-text">正在添加到：<b id="pickTarget">—</b></span>
+  <span class="pickbar-count">已选 <b id="pickCount">0</b> 条</span>
+  <div class="grow"></div>
+  <button type="button" class="primary" id="pickOk" onclick="confirmPick()">确认加入</button>
+  <button type="button" onclick="cancelPick()">取消</button>
+</div>
 
 <div id="selBar" class="trash-bar" style="display:none">
   <span class="badge" style="color:var(--acc2);border-color:var(--acc2)">已选 <b id="selCount">0</b> 项</span>
@@ -456,7 +452,10 @@ body[data-card="l"] .thumb{height:200px}
   <aside class="treebar" id="treebar">
     <div class="treehead">
       <span class="treetitle">📚 资料库</span>
-      <button type="button" class="treebtn" onclick="openNewFolder()" title="新建目录">＋</button>
+      <!-- 主人定的正确入口：资料库这边一个「添加资料」按钮 -->
+      <button type="button" class="treebtn treeadd" onclick="startPick()"
+        title="往资料库里添加资料：选一个目录，然后到右边勾选文件">＋ 添加</button>
+      <button type="button" class="treebtn" onclick="openNewFolder()" title="新建目录">＋ 目录</button>
       <button type="button" class="treebtn" onclick="toggleTree()" title="收起/展开目录栏" id="treeToggle">«</button>
     </div>
     <div class="treebody" id="folderTree"><div class="treeempty">加载中…</div></div>
@@ -598,7 +597,7 @@ body[data-card="l"] .thumb{height:200px}
 
 <script>
 const API = '/ext/artifacts'
-let state = { view: 'card', trash: false, items: [], allItems: [], folder: '', folderUnfiled: false, categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
+let state = { view: 'card', trash: false, items: [], allItems: [], folder: '', folderUnfiled: false, picking: null, categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
   // ⭐ 2026-10-14 新增（档 1d）：文件浏览 / 文件搜索 / 会话改动
   //    这三块原来是**主面板**的能力，面板删了 ⇒ 搬到网页版（依琪：「允许你做成网页版本展示全部内容」）
   files: { dir: '', entries: [], total: 0, truncated: false, error: '', loading: false },
@@ -787,6 +786,18 @@ document.addEventListener('click', (e) => {
   const t = e.target
   if (!t || !t.closest) return
 
+  // ⚠️ 选择模式下**树不响应点击**：
+  //    此刻点目录会让用户以为"换目标了"，但实际上目标是在进模式时定好的。
+  //    与其让它看起来能改，不如明确不响应（并给出提示）。
+  if (isPicking()) {
+    const inTree = t.closest('.treebar')
+    if (inTree && !t.closest('.treeadd') && !t.closest('.treebtn')) {
+      e.preventDefault()
+      toast('正在添加资料，目标目录已锁定为「' + ((pickingTarget() || {}).folder || '根目录') + '」。\n要换目标请先点「取消」')
+      return
+    }
+  }
+
   // 虚拟根（全部 / 未归类）
   const root = t.closest('.treeroot')
   if (root) {
@@ -938,11 +949,7 @@ function treeNodeHtml(n, depth) {
   const open = treeExpanded.has(n.path)
   const hasKids = n.children && n.children.length > 0
   const on = state.folder === n.path
-  // ⚠️ 投放模式下：目录加 `dropok` 类（虚线框 + 可点），选中态不再显示
-  //    （因为此时点它是"移进去"，不是"筛选"，显示"当前筛选"会误导）
-  const dropMode = state.selected.size > 0
-  const cls = 'treenode' + (hasKids ? '' : ' leaf')
-    + (on && !dropMode ? ' on' : '') + (dropMode ? ' dropok' : '')
+  const cls = 'treenode' + (hasKids ? '' : ' leaf') + (on ? ' on' : '')
   // ⚠️ <details> 的 open 由 expanded 集合决定；点击三角时同步集合（见 treeBodyHtml 的事件委托）
   // ⚠️ 删除按钮**常驻**（不是 hover 才出现）—— 主人刚说过
   //    「没有看到勾选功能，我都找不到，说明根本不够直观」，
@@ -976,23 +983,13 @@ function renderTree(tree, total) {
   // 「未归类」= folder 为空的记录。它不是真目录，是**筛选条件**。
   const noneCount = (state.allItems || []).filter((r) => !String(r.folder || '').trim()).length
 
-  // ⚠️ 勾选了记录 ⇒ 树进入「投放模式」：点目录 = 把选中的移进去。
-  //    主人原话：「选择了咋进资料库我也没看到」—— 提示必须**放在树上**，
-  //    不能只藏在顶部按钮里（他就是在那里找不到的）。
-  const selN = state.selected.size
-  const dropMode = selN > 0
-  let html = ''
-  if (dropMode) {
-    html += '<div class="treedrop">'
-      + '<div class="treedroptxt">已选 <b>' + selN + '</b> 条<br><span class="treedrophint">点下面的目录移进去</span></div>'
-      + '<button type="button" class="treedropx" onclick="clearSel()" title="取消选择，回到普通筛选模式">取消选择</button>'
-      + '</div>'
-  }
-  html += '<div class="treeroot' + (allOn && !dropMode ? ' on' : '') + '" data-path=""'
-    + (dropMode ? ' data-drop="1" title="把选中的移到这里（未归类）"' : '') + '>'
+  // ⚠️ 2026-10-22：删掉上一版的「投放模式」提示条。
+  //    那是我错误设计的产物（勾选 ⇒ 点目录就移动，双语义）。
+  //    现在改为显式的「＋ 添加」流程，状态条在顶部 pickBar。
+  let html = '<div class="treeroot' + (allOn ? ' on' : '') + '" data-path="">'
     + '<span class="treename">全部</span><span class="treecount">' + total + '</span></div>'
-    + '<div class="treeroot' + (unrefOn && !dropMode ? ' on' : '') + '" data-path="__none__"'
-    + (dropMode ? ' data-drop="1" title="把选中的移出目录（变成未归类）"' : ' title="没有归到任何目录的记录"') + '>'
+    + '<div class="treeroot' + (unrefOn ? ' on' : '') + '" data-path="__none__"'
+    + ' title="没有归到任何目录的记录">'
     + '<span class="treename">未归类</span><span class="treecount">' + noneCount + '</span></div>'
 
   if (tree && tree.length) {
@@ -1002,6 +999,9 @@ function renderTree(tree, total) {
   }
 
   box.innerHTML = html
+  // 选择模式下给整个树加类（CSS 里把目录变灰 + 禁用指针）
+  const bar = $('treebar')
+  if (bar) bar.classList.toggle('picking', isPicking())
 }
 
 /** 拉目录树。 */
@@ -1024,14 +1024,11 @@ async function loadTree() {
 function pickFolder(path) {
   const p = String(path || '')
 
-  // ⚠️ 有勾选 ⇒ **把选中的移进这个目录**（主人：「选择了咋进资料库我也没看到」）
-  //    没勾选 ⇒ 普通筛选。
-  //    这是两种模式共用同一个手势，所以**视觉上必须区分**（见 renderTree 的投放提示条）。
-  if (state.selected.size > 0) {
-    moveSelectedToFolder(p)
-    return
-  }
-
+  // ⚠️⚠️ 2026-10-22 主人纠正：这里**不许**有"勾选就移动"的双语义。
+  //    「你怎么把列表默认进入多选模式」—— 同一个点击有两种结果，用户无法预判，
+  //    这是交互设计的大忌。
+  //    ⇒ 点目录**永远只做一件事：筛选**。
+  //    添加资料走显式的「＋ 添加」流程（见 startPick）。
   if (p === '__none__') {
     state.folder = ''
     state.folderUnfiled = true
@@ -1163,6 +1160,101 @@ function countInFolder(path) {
   }
   const v = find(lastTree.tree || [])
   return typeof v === 'number' ? v : 0
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   「添加资料」流程（2026-10-22 · 主人定的正确设计）
+   ═══════════════════════════════════════════════════════════════════════════
+   点「＋ 添加」→ 选目标目录 → 进入选择模式 → 右边勾文件 → 确认加入
+
+   ⚠️ 与"勾选"的关系：
+      · 勾选本身是**独立的批量操作**（批量回收/改项目/加标签），一直可用
+      · 但"加入资料库"必须**显式进入**，不能靠"勾选"这个副作用触发
+      · 选择模式下，勾选框的语义**只有一个**：要加入哪些
+   */
+
+/** 选择模式状态：null = 普通模式；{ folder } = 正在往这个目录添加 */
+function pickingTarget() { return state.picking || null }
+function isPicking() { return !!state.picking }
+
+/**
+ * 点「＋ 添加」：选目标目录 → 进入选择模式。
+ *
+ * ⚠️ 目标目录默认取**当前筛选的目录**（用户刚点过它，意图最明确）；
+ *    在「全部/未归类」下则默认根目录，并提示可以改。
+ */
+function startPick() {
+  const cur = state.folder && state.folder !== '__none__' ? state.folder : ''
+  const input = prompt(
+    '往哪个目录添加资料？\n\n'
+    + '· 留空 = 根目录（未归类）\n'
+    + '· 用 / 分层，如 工作/蜜雪\n'
+    + '· 不存在的目录会自动创建',
+    cur,
+  )
+  if (input === null) return
+  const target = String(input).trim()
+  // ⚠️ 进入前清掉旧勾选：否则用户会以为"我上次勾的也要加进去"
+  state.selected.clear()
+  state.picking = { folder: target }
+  updateSelBar()
+  render()
+  loadTree()
+  toast('已进入「添加资料」模式：在右边勾选要加进「' + (target || '根目录') + '」的文件')
+}
+
+/** 取消选择模式（清掉勾选，回到普通浏览）。 */
+function cancelPick() {
+  state.picking = null
+  state.selected.clear()
+  updateSelBar()
+  render()
+  loadTree()
+}
+
+/**
+ * 确认加入：把勾选的记录移进目标目录。
+ *
+ * ⚠️ 这是选择模式**唯一**的出口 —— 不做隐式触发。
+ * ⚠️ 失败逐条报（用户要知道哪几条没成功）。
+ */
+async function confirmPick() {
+  const t = pickingTarget()
+  if (!t) return
+  const ids = [...state.selected]
+  if (!ids.length) return toast('还没勾选任何条目')
+  const target = t.folder
+  const label = target || '根目录（未归类）'
+  if (!confirm('把勾选的 ' + ids.length + ' 条加入「' + label + '」？')) return
+
+  let ok = 0
+  const failed = []
+  for (const id of ids) {
+    try {
+      const r = await api(API + '/folders/set', {
+        method: 'POST',
+        body: JSON.stringify({ id, folder: target }),
+      })
+      if (r && r.ok !== false) ok += 1
+      else failed.push(id + '：' + ((r && r.error) || '未知'))
+    } catch (e) {
+      failed.push(id + '：' + (e && e.message ? e.message : String(e)))
+    }
+  }
+  // ⚠️ 如果目标目录还不存在（用户手打了新名字），声明一下 —— 否则空目录算不出来
+  if (target) {
+    try { await api(API + '/folders/add', { method: 'POST', body: JSON.stringify({ path: target }) }) } catch { /* 已存在就算了 */ }
+  }
+  state.picking = null
+  state.selected.clear()
+  updateSelBar()
+  await reload()
+  loadTree()
+  if (failed.length) {
+    toast('加入 ' + ok + ' 条，' + failed.length + ' 条失败（' + failed[0] + '）')
+  } else {
+    toast('已把 ' + ok + ' 条加入「' + label + '」')
+  }
 }
 
 function openNewFolder() {
@@ -2632,8 +2724,27 @@ function toggleSel(id, on) {
 }
 function updateSelBar() {
   const n = state.selected.size
-  $('selBar').style.display = n ? 'flex' : 'none'
+  // ⚠️ 选择模式下**不显示**普通批量操作栏（语义冲突：
+  //    此刻勾选的唯一含义是"要加入资料库"）。
+  const picking = isPicking()
+  $('selBar').style.display = (n && !picking) ? 'flex' : 'none'
   $('selCount').textContent = n
+
+  // ── 选择模式状态条 ──
+  const pb = $('pickBar')
+  if (pb) {
+    pb.style.display = picking ? 'flex' : 'none'
+    if (picking) {
+      const t = pickingTarget()
+      $('pickTarget').textContent = (t && t.folder) || '根目录（未归类）'
+      $('pickCount').textContent = String(n)
+      const ok = $('pickOk')
+      if (ok) {
+        ok.disabled = n === 0
+        ok.textContent = n ? '确认加入 ' + n + ' 条' : '确认加入'
+      }
+    }
+  }
   // ⚠️ 半选态只能**用 JS 设**（`indeterminate` 没有 HTML 属性）。
   //    必须在每次重画后重新设 —— DOM 重建会丢掉它。
   const all = $('selAll')

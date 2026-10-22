@@ -32,6 +32,42 @@ function check(name, fn) {
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed') }
 
+/**
+ * 抠出一个函数的完整函数体（按大括号配平，跳过字符串/注释）。
+ * ⚠️ 固定窗口 slice(at, at+N) 会在函数变长后**静默截断**，造成假红。
+ */
+function fnBodyOf(src, head) {
+  const at = src.indexOf(head)
+  if (at < 0) return ''
+  let i = at
+  let depth = 0
+  let started = false
+  while (i < src.length) {
+    const c = src[i]
+    if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i += 1; continue }
+    if (c === '/' && src[i + 1] === '*') {
+      i += 2
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i += 1
+      i += 2
+      continue
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      const q = c
+      i += 1
+      while (i < src.length) {
+        if (src[i] === '\\') { i += 2; continue }
+        if (src[i] === q) { i += 1; break }
+        i += 1
+      }
+      continue
+    }
+    if (c === '{') { depth += 1; started = true }
+    else if (c === '}') { depth -= 1; if (started && depth === 0) return src.slice(at, i + 1) }
+    i += 1
+  }
+  return src.slice(at)
+}
+
 console.log('\n═══ 勾选可发现性 + 删除目录 ═══')
 
 const html = fs.readFileSync(path.join(REPO, 'ui', 'index.html'), 'utf8')
@@ -83,9 +119,10 @@ check('A4 ★★ 表头要有全选（否则勾 60 条要点 60 次）', () => {
 })
 
 check('A5 ★★ 半选态必须用 JS 设（`indeterminate` 没有 HTML 属性）', () => {
-  const at = html.indexOf('function updateSelBar(')
-  assert(at > 0, '找不到 updateSelBar')
-  const body = html.slice(at, at + 800)
+  // ⚠️ 不能用固定窗口 `slice(at, at+800)` —— updateSelBar 变长后会被截断，
+  //    误报"没设 indeterminate"（这轮就假红过）。改用按大括号配平的完整提取。
+  const body = fnBodyOf(html, 'function updateSelBar(')
+  assert(body, '找不到 updateSelBar')
   assert(/\.indeterminate\s*=/.test(body),
     '★ 没设 indeterminate —— 选了部分时全选框看着像"没选"')
 })
