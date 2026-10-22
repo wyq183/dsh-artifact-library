@@ -104,14 +104,18 @@ check('A3 ★★ 勾选后才出现「精化所选」（不是常驻）', () => 
 // [B] 第 2 层：分类（数据源）—— 与视图分开
 // ══════════════════════════════════════════════════════════════════════════
 
-check('B1 ★★★ 分类条独立存在，且是 `data-cat`（不是 `data-v`）', () => {
+check('B1 ★★★ 分类条独立存在，且是 4 个（主人定稿）', () => {
   // 主人：「「项目」和「文件」「改动」其实是不同的数据源，不是同一种"视图"」
   assert(/class="catbar"/.test(html), '没有分类条')
   assert(/id="catBar"/.test(html), '分类条没有 id')
-  for (const c of ['all', 'ref', 'project', 'files', 'changes']) {
+  // 主人：「全部产物、项目、最近改动、全盘搜索」
+  for (const c of ['all', 'project', 'changes', 'files']) {
     assert(new RegExp('data-cat="' + c + '"').test(html),
       '★ 分类 ' + c + ' 不在分类条里')
   }
+  // 主人：「资料已经在左侧不需要单独给一个了」
+  assert(!/data-cat="ref"/.test(html),
+    '★ 「资料」分类又回来了 —— 左侧目录树已经能筛，重复了')
 })
 
 check('B2 ★★★ 项目/文件/改动**不许**再作为视图出现', () => {
@@ -149,6 +153,25 @@ check('B4 ★★★ `setCat` 与 `setView` 必须是两个函数（语义不同�
   const body = deComment(html.slice(at, j + 1))
   assert(/setCat\(/.test(body),
     '★ setView 收到旧值（project/files/changes）没转成 setCat —— 会静默失效')
+})
+
+check('B6 ★★★ setCat 必须**真的 reload**（主人：「我点了资料右侧毫无变化」）', () => {
+  // ⚠️ 真机 bug：ref 过滤写在 reload() 里，但 setCat 切分类时**只调了 render()**，
+  //    没调 reload() ⇒ state.items 没被重新筛 ⇒ 列表纹丝不动。
+  //    典型的"逻辑实现了但入口没接上"。
+  const at = html.indexOf('function setCat(')
+  assert(at > 0, '找不到 setCat')
+  let j = at
+  let d = 0
+  let st = false
+  while (j < html.length) {
+    if (html[j] === '{') { d += 1; st = true }
+    else if (html[j] === '}') { d -= 1; if (st && d === 0) break }
+    j += 1
+  }
+  const body = deComment(html.slice(at, j + 1))
+  assert(/reload\(\)/.test(body),
+    '★ setCat 没调 reload() —— 切分类时列表不会变（真机就是这个）')
 })
 
 check('B5 ★★ render() 必须按 cat 分流数据源（不是 view）', () => {

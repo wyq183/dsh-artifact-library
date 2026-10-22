@@ -475,11 +475,14 @@ body[data-card="l"] .card-title{font-size:14px}
      ⇒ 单独一层，与「列表/卡片」（视图）分开。
      这五个看的是**不同的东西**；列表/卡片看的是**同一个东西的不同呈现**。 -->
 <div class="catbar" id="catBar">
+  <!-- ⚠️ 2026-10-22 主人定稿：4 个
+       · 「资料」去掉 —— 左侧目录树已经能筛，重复了
+       · 「文件浏览」改名「全盘搜索」—— 它本来就是搜索（Everything 语法），
+         "文件浏览"是以偏概全（主人：「你啥文件浏览啊，那不是文件搜索吗」） -->
   <button class="catbtn" data-cat="all" onclick="setCat('all')">📦 全部产物</button>
-  <button class="catbtn" data-cat="ref" onclick="setCat('ref')">📚 资料</button>
   <button class="catbtn" data-cat="project" onclick="setCat('project')">📁 按项目</button>
-  <button class="catbtn" data-cat="files" onclick="setCat('files')">🗂️ 文件浏览</button>
   <button class="catbtn" data-cat="changes" onclick="setCat('changes')">🕒 最近改动</button>
+  <button class="catbtn" data-cat="files" onclick="setCat('files')">🔍 全盘搜索</button>
 </div>
 
 <div id="filterBar" class="filterbar" style="display:none"></div>
@@ -1414,13 +1417,7 @@ async function reload() {
     if (state.folderUnfiled) {
       state.allItems = state.allItems.filter((r) => !String(r.folder || '').trim())
     }
-    // ⚠️ 「资料」分类 = kind:reference。它与用户手选的「类别」多选是**两回事**：
-    //    分类是"我要看资料那一类"，MF.kind 是"我手动筛"。叠加会让人困惑，
-    //    所以分类优先 —— 切到「资料」时清掉手选的 kind（见 setCat）。
     state.items = state.allItems.filter(mfMatch)
-    if (state.cat === 'ref') {
-      state.items = state.items.filter((r) => r.kind === 'reference')
-    }
     mfRenderAll()
     renderFilterChips()
     // 目录树跟着刷新（计数/选中态必须与列表一致）
@@ -1484,19 +1481,24 @@ function undoToast(msg, undoFn) {
  */
 function setCat(c) {
   const v = String(c || 'all')
+  const prev = state.cat
   state.cat = v
-  // ⚠️ 分类与 kind 筛选会打架：
-  //    「资料」分类 = kind:reference，所以切过去要**清掉手动的 kind 筛选**，
-  //    否则两个条件叠加会出现空列表（用户看不出原因）。
-  if (v === 'ref') {
-    MF.kind.picked.length = 0
-    mfRender('kind')
-  }
   state.page = 1
   syncCatButtons()
-  render()
-  // 三个分类都从同一份数据算，但「文件」「改动」需要重新拉
-  if (v === 'files' || v === 'changes') reload()
+
+  // ⚠️⚠️ 真机 bug（主人：「我点了资料右侧毫无变化」）：
+  //    原来的 `state.cat === 'ref'` 过滤写在 **reload() 里**，
+  //    但这里切分类**只调了 render()，没调 reload()**
+  //    ⇒ state.items 没被重新筛 ⇒ 列表纹丝不动。
+  //    ⇒ **任何会改变筛选条件的分类切换，都必须 reload()**。
+  //
+  // ⚠️ 「文件」「改动」是**不同的数据源**（不走 state.items），
+  //    它们自己会拉数据，但也统一走 reload() —— 少一个分支就少一个坑。
+  if (prev !== v || v === 'files' || v === 'changes') {
+    reload()
+  } else {
+    render()
+  }
 }
 
 /** 同步分类按钮的选中态。 */

@@ -100,7 +100,9 @@ check('B1 五个入口都在（分类条 + 视图），且分属两层', () => {
   //    不是同一种"视图"」
   //    ⇒ 它们从 `.view-switch[data-v]` 移到了 `.catbar .catbtn[data-cat]`。
   //    守的不变量没变：**这五个入口必须都存在**（不许因为重构就弄丢）。
-  for (const c of ['all', 'ref', 'project', 'files', 'changes']) {
+  // ⚠️ 2026-10-22 主人定稿 4 个：「全部产物、项目、最近改动、全盘搜索」
+  //    「资料」去掉（左侧目录树已能筛）。
+  for (const c of ['all', 'project', 'changes', 'files']) {
     assert(new RegExp('data-cat="' + c + '"').test(html),
       '★ 分类入口 ' + c + ' 不见了')
   }
