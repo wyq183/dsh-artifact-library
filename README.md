@@ -1,6 +1,6 @@
 <a id="top"></a>
 
-# 🐋 dsh-artifact-library · DSH 产物库
+# 🐋 dsh-artifact-library · DSH 知识库
 
 ![Version](https://img.shields.io/badge/version-0.8.0-green)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -123,7 +123,7 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 <a id="tour-panel"></a>
 ### 🖥️ 原生面板（v0.6.0 起，推荐）
 
-左侧栏 🐋「产物库」图标 → 主区整块打开产物库面板。走的是**官方公开席位**
+左侧栏 🐋「知识库」图标 → 主区整块打开知识库面板。走的是**官方公开席位**
 （`sidebar.panellist` + `main`），**不依赖任何第三方侧栏插件**。
 
 - **原生 React 渲染**，样式全部读 DSH 设计 token（`--dsw-alias-*` / `--dsw-font-*` / `--dsw-radius-*` / `--dsw-shadow-*`），**自动跟随深浅主题**
@@ -214,7 +214,7 @@ artifact-library: store at ~/.dsh/artifact-library/artifacts.json (N records)
 <a id="usage"></a>
 ### 🕹️ 使用 Usage
 
-- **完整管理页（仍在服役）**：侧栏脚部「产物库 · 网页版」，或访问
+- **完整管理页（仍在服役）**：侧栏脚部「知识库 · 网页版」，或访问
   `<dsh web 地址>/ext/artifact-library/`（端口由运行时决定，插件会向宿主索取**绝对**地址）。
   它**暂时还不能下线** —— 下面 5 项重功能里**只有「登记产物」搬进了原生面板**，
   其余 4 项**只有这个页面能做**（后端端点都已就绪，缺的是面板里的 UI）：

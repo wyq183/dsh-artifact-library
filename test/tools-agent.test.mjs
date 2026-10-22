@@ -121,9 +121,9 @@ console.log('\n=== [2] register_artifact 重复登记不再谎报 ===')
     assert(store.items.length === 1, '记录数 ' + store.items.length)
   })
   const second = await run('register_artifact', { path: f })
-  check('★★ 重复登记 → 明说「已经在产物库里了」，**不再**说「✅ 已登记」', () => {
+  check('★★ 重复登记 → 明说「已经在知识库里了」，**不再**说「✅ 已登记」', () => {
     assert(!second.text.includes('✅ 已登记'), '★ 又在谎报登记成功了: ' + second.text)
-    assert(second.text.includes('已经在产物库里'), '应明说已在库里: ' + second.text)
+    assert(second.text.includes('已经在知识库里'), '应明说已在库里: ' + second.text)
     assert(second.text.includes('没有重复添加'), '应说明没有重复添加: ' + second.text)
     assert(store.items.length === 1, '★ 不该新建记录: ' + store.items.length)
   })
@@ -264,7 +264,7 @@ console.log('\n=== [5] artifact_read（新增，补「读内容」缺口）===')
   const outsider = makeFile('read/没登记.md', 'secret')
   const rOut = await run('artifact_read', { path: outsider })
   check('★ 未登记的路径 → 拒绝，并给出**下一步该做什么**', () => {
-    assert(rOut.text.includes('不在产物库里'), '输出: ' + rOut.text)
+    assert(rOut.text.includes('不在知识库里'), '输出: ' + rOut.text)
     assert(rOut.text.includes('register_artifact'), '应建议先登记: ' + rOut.text)
     assert(rOut.text.includes('artifact_search'), '应给出查找替代: ' + rOut.text)
   })
@@ -400,7 +400,7 @@ console.log('\n=== [N] artifact_categories（含删除的安全契约）===')
 
   const listOut = (await cats({ action: 'list' })).text
   check('list：报出分类、计数、兜底类锁定、可用图标', () => {
-    assert(/产物库分类（共 7 个/.test(listOut), listOut.slice(0, 90))
+    assert(/知识库分类（共 7 个/.test(listOut), listOut.slice(0, 90))
     assert(/document/.test(listOut) && /文档/.test(listOut), '该列出 document/文档')
     assert(/🔒/.test(listOut), '兜底类该有锁定标记')
     assert(/未分类/.test(listOut), listOut)
