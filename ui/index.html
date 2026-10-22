@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>产物库 · DeepSeek Harness</title>
+<title>知识库 · DeepSeek Harness</title>
 <style>
   :root{
     --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2a3242;
@@ -318,7 +318,7 @@ body[data-card="l"] .card-title{font-size:14px}
 .skel-card{height:190px;border-radius:var(--radius)}
 @media (prefers-reduced-motion: reduce){.skel{animation:none;opacity:.6}}
 
-  /* ══ 资料库目录树（2026-10-20 · 鲸鱼资料库）═════════════════════════════
+  /* ══ 知识库目录树（2026-10-20 · 鲸鱼知识库）═════════════════════════════
      ⚠️ 用 <details> 而不是自造展开逻辑：白送键盘可达性 + 展开动画。
      ⚠️ 460 条记录不需要虚拟化（那是给 1 万+ 节点准备的）—— 加了只会更复杂。 */
   .treebar{flex:0 0 auto;width:230px;background:var(--panel);border:1px solid var(--line);
@@ -389,6 +389,27 @@ body[data-card="l"] .card-title{font-size:14px}
   /* 选中态：底部一条强调色线（tab 的通用语言） */
   .catbtn.active::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;
     height:2px;background:var(--acc);border-radius:1px}
+  /* ── 按项目：项目文件夹网格（2026-10-22）──────────────────────────────
+     ⚠️ 主人：「按项目应该是一个个项目文件夹，然后点进去全是项目内的文件」
+        原来是同一批卡片加标题分组 —— 和「全部产物」没区别。 */
+  .projgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+  .projcard{display:flex;flex-direction:column;align-items:flex-start;gap:6px;
+    border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);
+    padding:14px 16px;cursor:pointer;text-align:left;font:inherit;color:var(--fg);transition:.12s}
+  .projcard:hover{border-color:var(--acc);background:var(--panel2);transform:translateY(-1px)}
+  .projcard:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+  .projicon{font-size:22px;line-height:1}
+  .projname{font-size:14px;font-weight:600;line-height:20px;max-width:100%;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .projcount{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+  /* 项目内的面包屑 */
+  .projcrumb{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding-bottom:10px;
+    border-bottom:1px solid var(--line)}
+  .projback{border:1px solid var(--line);background:var(--panel);color:var(--dim);
+    font:inherit;font-size:13px;line-height:20px;padding:4px 10px;border-radius:8px;cursor:pointer}
+  .projback:hover{border-color:var(--acc);color:var(--acc)}
+  .projcrumbname{font-size:14px;font-weight:600;color:var(--fg)}
+  .projcrumbcount{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
   .catbtn:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}
 
   /* ══ 更多菜单（header 的 ⋯）═══════════════════════════════════════════ */
@@ -429,7 +450,7 @@ body[data-card="l"] .card-title{font-size:14px}
      ⚠️ 精化只保留**一个**入口：点它把没精化的精化掉。
         勾选了条目时，改用下面 selBar 里的「精化所选」。 -->
 <header>
-  <h1>🐋 产物库 <span class="dot">· DeepSeek Harness</span></h1>
+  <h1>🐋 知识库 <span class="dot">· DeepSeek Harness</span></h1>
   <div class="stats" id="stats"></div>
   <div class="grow"></div>
   <button class="primary" onclick="openRegister()">＋ 登记产物</button>
@@ -464,7 +485,7 @@ body[data-card="l"] .card-title{font-size:14px}
   <button class="primary" onclick="refineSelected()">⚡ 立即精化所选</button>
   <button onclick="batchTrash()">🗑️ 批量回收</button>
   <button onclick="batchProject()">📁 批量改项目</button>
-  <button onclick="batchFolder()" title="把选中的记录移到资料库某个目录">📂 移到目录</button>
+  <button onclick="batchFolder()" title="把选中的记录移到知识库某个目录">📂 移到目录</button>
   <button onclick="batchTags()">🏷️ 批量加标签</button>
   <button onclick="selectAllPending()">全选待精化</button>
   <button onclick="clearSel()">清除选择</button>
@@ -553,15 +574,15 @@ body[data-card="l"] .card-title{font-size:14px}
   <button onclick="emptyTrash()" class="danger">清空回收站</button>
 </div>
 
-<!-- 资料库目录树（2026-10-20 · 鲸鱼资料库方案 B）
+<!-- 知识库目录树（2026-10-20 · 鲸鱼知识库方案 B）
      ⚠️ 只包 #content，不改它的 id —— render() 往它里面写，改 id 会全线崩。 -->
 <div class="layout">
   <aside class="treebar" id="treebar">
     <div class="treehead">
-      <span class="treetitle">📚 资料库</span>
-      <!-- 主人定的正确入口：资料库这边一个「添加资料」按钮 -->
+      <span class="treetitle">📚 知识库</span>
+      <!-- 主人定的正确入口：知识库这边一个「添加资料」按钮 -->
       <button type="button" class="treebtn treeadd" onclick="startPick()"
-        title="往资料库里添加资料：选一个目录，然后到右边勾选文件">＋ 添加</button>
+        title="往知识库里添加资料：选一个目录，然后到右边勾选文件">＋ 添加</button>
       <button type="button" class="treebtn" onclick="openNewFolder()" title="新建目录">＋ 目录</button>
       <button type="button" class="treebtn" onclick="toggleTree()" title="收起/展开目录栏" id="treeToggle">«</button>
     </div>
@@ -704,7 +725,7 @@ body[data-card="l"] .card-title{font-size:14px}
 
 <script>
 const API = '/ext/artifacts'
-let state = { cat: 'all', view: 'card', trash: false, items: [], allItems: [], folder: '', folderUnfiled: false, picking: null, categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
+let state = { cat: 'all', view: 'card', projectOpen: '', trash: false, items: [], allItems: [], folder: '', folderUnfiled: false, picking: null, categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
   // ⭐ 2026-10-14 新增（档 1d）：文件浏览 / 文件搜索 / 会话改动
   //    这三块原来是**主面板**的能力，面板删了 ⇒ 搬到网页版（依琪：「允许你做成网页版本展示全部内容」）
   files: { dir: '', entries: [], total: 0, truncated: false, error: '', loading: false },
@@ -882,7 +903,7 @@ function mfRenderAll() { for (const k of Object.keys(MF)) mfRender(k) }
 /* 多选下拉的交互（**事件委托**：4 个下拉走一处，不绑 4 套）。
  * ⚠️ 同时只允许展开一个 —— 两个叠着会互相遮。
  * ⚠️ 点外 / Esc 关闭要自己补（不是原生 <details>，浏览器不会自动收）。 */
-/* 资料库目录树的事件委托（2026-10-20）
+/* 知识库目录树的事件委托（2026-10-20）
    ⚠️ 一套委托管三件事，不绑 N 个 listener：
       · 点「全部 / 未归类」→ pickFolder
       · 点目录名 → pickFolder（点三角只展开、不筛选）
@@ -1012,7 +1033,7 @@ function syncUnrefinedBtn() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   资料库目录树（2026-10-20 · 鲸鱼资料库方案 B · 内容管理）
+   知识库目录树（2026-10-20 · 鲸鱼知识库方案 B · 内容管理）
    ═══════════════════════════════════════════════════════════════════════════
    ⚠️ **不存树，从 /folders 现算**（服务端 buildFolderTree）——
       存树必然出现"树里有、记录没有"的不一致，那是最容易烂的地方。
@@ -1192,7 +1213,7 @@ async function moveSelectedToFolder(targetPath) {
 
 /** 新建目录（在当前选中目录下建子目录）。 */
 /**
- * 删除目录（2026-10-22 · 主人：「资料库只能添加新目录如何删除？」）
+ * 删除目录（2026-10-22 · 主人：「知识库只能添加新目录如何删除？」）
  *
  * ⚠️ 删之前必须**说清楚后果**：
  *    「里面的 N 条会移到「父目录」」—— 不说的话用户以为记录会被删掉，不敢点。
@@ -1276,7 +1297,7 @@ function countInFolder(path) {
 
    ⚠️ 与"勾选"的关系：
       · 勾选本身是**独立的批量操作**（批量回收/改项目/加标签），一直可用
-      · 但"加入资料库"必须**显式进入**，不能靠"勾选"这个副作用触发
+      · 但"加入知识库"必须**显式进入**，不能靠"勾选"这个副作用触发
       · 选择模式下，勾选框的语义**只有一个**：要加入哪些
    */
 
@@ -1405,7 +1426,7 @@ async function reload() {
     //    可能被截断 ⇒ 本地搜会漏。这是唯一不能下放本地的维度。
     const q = $('q').value.trim(); if (q) p.set('q', q)
     const rf = $('fRefine').value; if (rf) p.set('refine', rf)
-    // 资料库目录（2026-10-20）：
+    // 知识库目录（2026-10-20）：
     // ⚠️ 只传**真目录**。空串在服务端语义里是"不筛"，所以「未归类」不能用空串表达
     //    —— 它走 folderUnfiled 这个本地开关（见下面）。
     if (state.folder) p.set('folder', state.folder)
@@ -1460,7 +1481,7 @@ async function loadMeta() {
   if (warn) { warn.style.display = miss ? 'flex' : 'none'; if (warn.querySelector('b')) warn.querySelector('b').textContent = miss }
 }
 
-// 资料库目录树首次加载（2026-10-20）
+// 知识库目录树首次加载（2026-10-20）
 if (treeCollapsed()) { const tb = $('treebar'); if (tb) tb.classList.add('collapsed') }
 loadTree()
 // 撤销式 toast：消息 + [撤销] 按钮，几秒后消失
@@ -1479,11 +1500,30 @@ function undoToast(msg, undoFn) {
  *    分类换的是"看什么东西"，视图换的是"怎么看这个东西"。
  *    原来混在一起是概念错误（主人指出的）。
  */
+/** 进入某个项目（看它的文件）。 */
+function openProject(name) {
+  state.projectOpen = String(name || '')
+  state.page = 1
+  render()
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* 忽略 */ }
+}
+
+/** 退回项目列表。 */
+function closeProject() {
+  state.projectOpen = ''
+  state.page = 1
+  render()
+}
+
 function setCat(c) {
   const v = String(c || 'all')
   const prev = state.cat
   state.cat = v
   state.page = 1
+  // ⚠️ 切到别的分类要**清掉"当前打开的项目"** ——
+  //    否则下次点「按项目」还停在上次那个项目里，
+  //    用户会以为"按项目"打开就该是某个项目（而它应该是项目列表）。
+  if (v !== 'project') state.projectOpen = ''
   syncCatButtons()
 
   // ⚠️⚠️ 真机 bug（主人：「我点了资料右侧毫无变化」）：
@@ -2182,10 +2222,62 @@ function render() {
         // ⚠️ 不放在表头里：表头是 th，塞一根横线会破坏列布局。
         + moreBtn
   } else if (state.cat === 'project') {
+    // ══ 按项目：两层（2026-10-22 重写）══════════════════════════════════
+    // ⚠️ 原来是把**同一批卡片**按项目名加标题分组 —— 和「全部产物」没区别。
+    //    现在：第一层是**项目文件夹网格**，点进去才看文件。
+    if (state.projectOpen) {
+      // ── 第二层：某个项目里的文件 ──
+      const inProj = visible.filter((r) => (r.project || '') === state.projectOpen)
+      const total = state.items.filter((r) => (r.project || '') === state.projectOpen).length
+      const head = '<div class="projcrumb">'
+        + '<button type="button" class="projback" onclick="closeProject()">← 返回项目列表</button>'
+        + '<span class="projcrumbname">📁 ' + esc(state.projectOpen) + '</span>'
+        + '<span class="projcrumbcount">' + total + ' 件</span>'
+        + '</div>'
+      const bodyHtml = inProj.length
+        ? (state.view === 'list'
+          ? '<table class="pvtable" style="--row-h:56px"><tbody>' + inProj.map(listHtml).join('') + '</tbody></table>'
+          : '<div class="cards">' + inProj.map(cardHtml).join('') + '</div>')
+        : '<div class="empty">这个项目下没有文件。</div>'
+      c.innerHTML = head + bodyHtml + moreBtn
+      syncCatButtons()
+      updateSelBar()
+      return
+    }
+
+    // ── 第一层：项目文件夹网格 ──
+    // ⚠️ 计数用 **state.items**（已过筛选），不是 allItems ——
+    //    用户筛了「只看未精炼」时，项目上的数字应该反映筛后的量。
     const groups = {}
-    for (const r of visible) (groups[r.project || '(未分类)'] = groups[r.project || '(未分类)'] || []).push(r)
-    c.innerHTML = Object.entries(groups).map(([p, items]) =>
-      `<div class="group"><h3>📁 ${esc(p)} <span class="count">${items.length} 件</span></h3><div class="cards">${items.map(cardHtml).join('')}</div></div>`).join('') + moreBtn
+    for (const r of state.items) {
+      const p = r.project || ''
+      if (!groups[p]) groups[p] = { count: 0, last: 0 }
+      groups[p].count += 1
+      const t = Number(r.updated_at) || Number(r.created_at) || 0
+      if (t > groups[p].last) groups[p].last = t
+    }
+    const names = Object.keys(groups).sort((a, b) => {
+      // 未分类永远排最后（它不是真项目）
+      if (!a) return 1
+      if (!b) return -1
+      // 其余按最近更新倒序（常用的项目浮上来）
+      return groups[b].last - groups[a].last
+    })
+    if (!names.length) {
+      c.innerHTML = '<div class="empty">没有可显示的项目。</div>'
+      syncCatButtons()
+      updateSelBar()
+      return
+    }
+    c.innerHTML = '<div class="projgrid">' + names.map((p) => {
+      const g = groups[p]
+      const label = p || '（未分类）'
+      return '<button type="button" class="projcard" onclick="openProject(' + JSON.stringify(p).replace(/"/g, '&quot;') + ')">'
+        + '<span class="projicon" aria-hidden="true">📁</span>'
+        + '<span class="projname" title="' + esc(label) + '">' + esc(label) + '</span>'
+        + '<span class="projcount">' + g.count + ' 件</span>'
+        + '</button>'
+    }).join('') + '</div>'
   } else {
     c.innerHTML = `<div class="cards">${visible.map(cardHtml).join('')}</div>${moreBtn}`
   }
@@ -2955,7 +3047,7 @@ function toggleSel(id, on) {
 function updateSelBar() {
   const n = state.selected.size
   // ⚠️ 选择模式下**不显示**普通批量操作栏（语义冲突：
-  //    此刻勾选的唯一含义是"要加入资料库"）。
+  //    此刻勾选的唯一含义是"要加入知识库"）。
   const picking = isPicking()
   $('selBar').style.display = (n && !picking) ? 'flex' : 'none'
   $('selCount').textContent = n
@@ -3164,7 +3256,7 @@ async function batchProject() {
 }
 
 /**
- * 把选中的记录移到资料库目录（2026-10-20）。
+ * 把选中的记录移到知识库目录（2026-10-20）。
  *
  * ⚠️ 逐条调 `/folders/set`，**不用批量接口**：宿主没有批量设置 folder 的端点，
  *    而批量接口一旦中途失败，会留下"改了一半"的状态（与 moveFolder 的教训同源）。
