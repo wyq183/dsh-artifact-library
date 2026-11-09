@@ -2,7 +2,7 @@
  * 老数据只读体检（Step 2 宿主侧离线验证）
  *
  * ⚠️ **为什么要有这个脚本**：宿主侧 `lib/*.js` 不热载（实测，见任务板 §七），
- *    而重启应用会杀掉依琪的会话 ⇒ 真机上**验不到** 2b/2c/2e。
+ *    而重启应用会杀掉机主的会话 ⇒ 真机上**验不到** 2b/2c/2e。
  *    所以走 `docs/ARCHITECTURE.md` §8.1 那条路：**在进程外直接跑**。
  *
  * ⚠️ **绝不动真数据**：先把 `artifacts.json` / `settings.json` **复制**到系统临时目录，
@@ -137,7 +137,7 @@ try {
       assert(b.count === manual, `${b.id}: bucket 说 ${b.count}，手动数 ${manual}`)
     }
   })
-  check('真实数据的 buckets（给依琪看的数字）', () => {
+  check('真实数据的 buckets（给机主看的数字）', () => {
     const line = c.buckets.map((b) => `${b.label}:${b.count}`).join('  ')
     console.log('    ' + line)
     assert(c.buckets.some((b) => b.count > 0), '全是 0 条？那不对')
@@ -150,7 +150,7 @@ try {
     assert(Array.isArray(s.contentKeys), 'contentKeys 缺失')
     for (const p of s.presets) assert(Array.isArray(p.contentCategories), `${p.id} 缺 contentCategories`)
   })
-  check('每个预设会新增哪些分类（给依琪看的清单）', () => {
+  check('每个预设会新增哪些分类（给机主看的清单）', () => {
     for (const p of s.presets) {
       const line = p.contentCategories.length ? p.contentCategories.map((x) => x.label).join('、') : '（不带分类）'
       console.log(`    ${(p.label || p.id).padEnd(10)} 额外带来：${line}`)

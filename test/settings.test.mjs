@@ -767,7 +767,7 @@ console.log('\n=== [7] 分类可自定义（Step 2a）===')
       }
     }
   })
-  check('★ 依琪那条：开发者预设带代码类分类（不止图片视频）', () => {
+  check('★ 机主那条：开发者预设带代码类分类（不止图片视频）', () => {
     const ids = (PRESETS.developer.content.categories || []).map((c) => c.id)
     for (const need of ['code', 'script', 'config']) {
       assert(ids.includes(need), `开发者预设缺分类 ${need}（ids: ${ids.join('/')}）`)

@@ -1,5 +1,5 @@
 /**
- * CSS token 必须是**真实存在**的（2026-10-20 依琪报「下拉栏透明」）
+ * CSS token 必须是**真实存在**的（2026-10-20 机主报「下拉栏透明」）
  * ══════════════════════════════════════════════════════════════════════════
  * 【bug】侧栏下拉弹层透明，下面的文件列表文字透上来。
  *
@@ -65,7 +65,7 @@ const ASAR_CANDIDATES = [
   process.env.DSH_ASAR_PATH || '',
   process.env.DSH_APP_ASAR || '',
   // Windows（默认安装位置）
-  'C:/Users/Administrator/AppData/Local/Programs/DeepSeek Harness/resources/app.asar',
+  'C:/Users/you/AppData/Local/Programs/DeepSeek Harness/resources/app.asar',
   path.join(process.env.LOCALAPPDATA || '', 'Programs', 'DeepSeek Harness', 'resources', 'app.asar'),
   path.join(process.env.PROGRAMFILES || '', 'DeepSeek Harness', 'resources', 'app.asar'),
   // macOS

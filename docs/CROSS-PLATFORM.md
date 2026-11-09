@@ -3,7 +3,7 @@
 > 起点：插件原来是 **Windows 专用** —— `process.platform` 判断 **0 处**，
 > 硬编码 `C:\` **126 处**，`spawn('explorer.exe', …)` **2 处**。
 > 终点：**Windows 与 Linux 都完整可用**，同一个包、同一套接口、同一套查询语法。
-> **macOS 明确不在本次范围内**（依琪 2026-10-01 拍板：先只适配 Linux + Windows）。
+> **macOS 明确不在本次范围内**（机主 2026-10-01 拍板：先只适配 Linux + Windows）。
 
 ---
 
@@ -142,7 +142,7 @@ size:>10mb · size:1kb..1mb · dm:today/week/month/YYYY-MM-DD/>… · dc: · * ?
 
 ## 三、UI：把「看着像两套」的东西合成一套
 
-依琪原话：
+机主原话：
 
 > 「**按钮太多，怎么卡片跟列表还有单独宽高大小设置的，我都以为是一起的，
 > 不简洁不直观**；顺手你可以参考对应平台的文件管理的快捷操作模式」
@@ -227,7 +227,7 @@ Ctrl+滚轮缩放 · 输入框内 Backspace 只删字不翻目录 · 行上有�
 ### 4. 真 Windows（借 WSL 互操作，Node v25.2.1）
 
 修完 Linux 不代表 Windows 没事 —— 所以把 `linux-port` 用 `git archive` 解到
-`C:\Users\Administrator\.dsh\profiles\_alf-win-verify\`（**不碰他的工作区**），
+`C:\Users\you\.dsh\profiles\_alf-win-verify\`（**不碰他的工作区**），
 用 Windows 侧的真 node 跑同一套：
 
 ```
@@ -305,10 +305,10 @@ fs.rmSync(f)          // ← 进程在这里 fastfail
 
 | 事项 | 状态 |
 |:---|:---|
-| **macOS** | 依琪拍板砍掉。代码里 `open -R` / `~/Library/Caches` / APFS 大小写都有分支，但**没有真机证据** —— 别当成已支持 |
+| **macOS** | 机主拍板砍掉。代码里 `open -R` / `~/Library/Caches` / APFS 大小写都有分支，但**没有真机证据** —— 别当成已支持 |
 | **跨平台数据迁移** | `artifacts.json` 里 `path` 是**绝对路径且当主键**，`load()` 不做路径重映射。把 Windows 的库搬到 Linux，那些 `C:\…` 记录会全部失效。现在至少**不会**把索引范围退化成 `.`（`dirsFromArtifacts` 已改形态感知），但库本身要另做重映射 |
 | **`vendor/everything/` 的死重** | 5.26 MB 的 Windows 二进制，非 Windows 用户白拿体积。要不要按平台裁剪分发是**产品决定** |
-| **`lib/index/selftest.js`** | 它整个是 Everything 专用（拉起 `es.exe`、写 ini、用 `C:\Users\Administrator\...`）。已加**显式早退**（非 Windows 直接退出并指向该跑的测试），免得产生一堆假红 |
+| **`lib/index/selftest.js`** | 它整个是 Everything 专用（拉起 `es.exe`、写 ini、用 `C:\Users\you\...`）。已加**显式早退**（非 Windows 直接退出并指向该跑的测试），免得产生一堆假红 |
 | **面板仍是两行工具栏** | 在「文件 / 目录 / 整理」这些视图下，上面那两行**产物筛选器**（搜索框/状态/项目/关键词/本会话/回收站）其实是无关的。收起它们能把三行压成一行 —— **属于设计决定，等拍板** |
 
 ---

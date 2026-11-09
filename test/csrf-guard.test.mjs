@@ -222,9 +222,9 @@ console.log('\n=== [5] R-5.1 导入根判据：路径段级，不再按名字误
     assert(checkImportRoot('C:\\Program Files (x86)').ok === false, 'Program Files (x86) 放行了')
   })
   check('★ 整个用户配置目录本身拒绝（含 AppData/凭据缓存），但其下具体目录放行', () => {
-    assert(checkImportRoot('C:\\Users\\Administrator').ok === false, '整个用户目录被放行')
-    assert(checkImportRoot('C:\\Users\\Administrator\\Documents').ok === true, 'Documents 被误拒')
-    assert(checkImportRoot('C:\\Users\\Administrator\\Desktop').ok === true, 'Desktop 被误拒')
+    assert(checkImportRoot('C:\\Users\\you').ok === false, '整个用户目录被放行')
+    assert(checkImportRoot('C:\\Users\\you\\Documents').ok === true, 'Documents 被误拒')
+    assert(checkImportRoot('C:\\Users\\you\\Desktop').ok === true, 'Desktop 被误拒')
   })
   check('★ 凭据目录**任意层级**都拒（与 isSensitivePath 同一套判据）', () => {
     assert(checkImportRoot('D:\\proj\\.ssh').ok === false, 'D:\\proj\\.ssh 放行')
@@ -240,12 +240,12 @@ console.log('\n=== [5] R-5.1 导入根判据：路径段级，不再按名字误
     }
   })
   check('★ 普通路径放行（别把护栏做成"什么都不让导"）', () => {
-    for (const p of ['C:\\proj\\作品', 'D:\\art\\2026', 'C:\\Users\\Administrator\\Documents\\项目']) {
+    for (const p of ['C:\\proj\\作品', 'D:\\art\\2026', 'C:\\Users\\you\\Documents\\项目']) {
       assert(checkImportRoot(p).ok === true, p + ' 被误拒')
     }
   })
   check('★ 拒绝理由是人话且**分类型**（用户能据此改选目录）', () => {
-    for (const [p, kind] of [['C:\\Windows', 'system'], ['D:\\x\\.ssh', 'credential'], ['C:\\Users\\Administrator', 'profile']]) {
+    for (const [p, kind] of [['C:\\Windows', 'system'], ['D:\\x\\.ssh', 'credential'], ['C:\\Users\\you', 'profile']]) {
       const v = checkImportRoot(p)
       assert(v.kind === kind, p + ' kind=' + v.kind)
       assert(typeof v.message === 'string' && v.message.length > 12, p + ' message 太短')

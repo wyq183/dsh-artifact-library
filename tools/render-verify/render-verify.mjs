@@ -2,7 +2,7 @@
  * 渲染几何验证回路（render-verify）
  * ══════════════════════════════════════════════════════════════════════════
  *
- * 为什么需要它（2026-10-09 · 依琪「开发流程出了问题」之后建的）：
+ * 为什么需要它（2026-10-09 · 机主「开发流程出了问题」之后建的）：
  *   建它的时候（2026-10-09 上午）有 **29 个**测试文件、**全绿**，
  *   却连着上线三个 UI bug（**层级 / 位置 / 尺寸**）——
  *   因为测试床是**假 React**，而假 DOM 里**根本没有布局引擎**
@@ -163,7 +163,7 @@ const TOKENS = `
 // ── 3. 场景：详情抽屉（内容刻意够高 —— 那是"flex 压缩"发作的条件）─────────
 const SCENARIOS = {
   'drawer-preview': {
-    why: '详情抽屉的预览区：视频控件在最下缘，被容器裁掉就看不见（依琪 2026-10-09 报的那个）',
+    why: '详情抽屉的预览区：视频控件在最下缘，被容器裁掉就看不见（机主 2026-10-09 报的那个）',
     targets: [
       { sel: '#theVideo', label: '视频（控件在它内部下缘）' },
       { sel: '#thePreview', label: '预览容器' },
@@ -188,7 +188,7 @@ const SCENARIOS = {
         <div class="alf__value">把平射家族的植物加强了一遍，附 11 株 SP 植物说明。这是摘要文本，用来把抽屉撑高——真机上这一块也很长。</div></div>
       <div class="alf__field"><div class="alf__label">标签</div><div class="alf__value">PvZ2 · 平射家族 · 助手 · mod</div></div>
       <div class="alf__field"><div class="alf__label">项目</div><div class="alf__value">PvZ2 Gardendless</div></div>
-      <div class="alf__field"><div class="alf__label">路径</div><div class="alf__value">C:\\Users\\Administrator\\.dsh\\alf-video\\probe.mp4</div></div>
+      <div class="alf__field"><div class="alf__label">路径</div><div class="alf__value">C:\\Users\\you\\.dsh\\alf-video\\probe.mp4</div></div>
       <div class="alf__field"><div class="alf__label">大小</div><div class="alf__value">7.1 MB</div></div>
       <div class="alf__field"><div class="alf__label">类型</div><div class="alf__value">video/mp4</div></div>
     </div>

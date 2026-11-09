@@ -273,7 +273,7 @@ try {
     'dsh-artifact-library', 'dsh-lan-connect', 'dsh-browser', 'dsh-compaction-tuner',
     'dsh-yiqi-memory', 'dsh-shield 插件安全护栏', 'DSH 扩展', 'DSH本地模型接入',
     'DSH-AE接入', 'DSH 内建机制调研', 'DSH 记忆系统调研', 'DSH 自身',
-    'DSH 环境维护', '依琪的 DSH 探索', '依琪的工作环境维护',
+    'DSH 环境维护', '机主的 DSH 探索', '机主的工作环境维护',
   ]
   const DSH_COUNTS = [27, 3, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 1, 1, 2]
   const dshEntries = DSH_NAMES.map((name, i) => ({ name, count: DSH_COUNTS[i] }))

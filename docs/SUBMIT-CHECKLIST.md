@@ -63,7 +63,7 @@ docs/screenshots/03-cards.png       卡片视图
   `docs/UI-SPEC-v1.md` / `docs/screenshots/README.md` / `lib/icons.js` / `test/ui-spec.test.mjs`）
   **一件不缺**（`git status -- lib/ docs/ test/` 实测为空）
 - **⚠️ 但仍未 push** —— GitHub 凭据失效（本地已攒 **54 个 commit**，**不会丢**）
-- **⇒ B3 现在的唯一动作是 `push`**（等依琪重新授权）
+- **⇒ B3 现在的唯一动作是 `push`**（等机主重新授权）
 
 ```sh
 git push origin master
@@ -100,7 +100,7 @@ README 渲染正常、截图能显示、Badge 不裂。
 复验命令（**提交前再跑一次**，因为 `lib/client.js` 仍在被改动）：
 
 ```powershell
-$p = "C:\Users\Administrator\.dsh\profiles\desktop\node_modules\@dsh-external\dsh-artifact-library"
+$p = "C:\Users\you\.dsh\profiles\desktop\node_modules\@dsh-external\dsh-artifact-library"
 $pj  = (Get-Content "$p\package.json" -Raw | ConvertFrom-Json).name
 $yml = ((Get-Content "$p\cordis.patch.yml" | Where-Object { $_ -match "^\s*name:\s*" } |
         Select-Object -First 1) -replace "^\s*name:\s*","").Trim().Trim("'").Trim('"')

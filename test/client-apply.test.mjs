@@ -158,7 +158,7 @@ function collectRegistrations() {
 const calls = collectRegistrations();
 
 /* ── [2] 席位注册（2026-10-14 档 1d 移植）───────────────────────────────────
- * 依琪拍板「主区面板不要了，全部转到右侧栏」「左边的都不要了」⇒
+ * 机主拍板「主区面板不要了，全部转到右侧栏」「左边的都不要了」⇒
  * `main` / `sidebar.panellist` / `sidebar.footer.action` **三个席位全删了**。
  *
  * ⇒ 原判据（「前三个席位固定」+ `main.key === panellist.id` + panellist 的 label）
@@ -174,7 +174,7 @@ check('★ 席位注册只剩 `shell.overlay`（Toast）—— 旧三席位已�
   //    `docs/DEPRECATED-TESTS.md`，而不是把断言删掉了事。
   const NAMES = calls.inject;
   assert(NAMES.indexOf('main') < 0,
-    '★ `main` 席位又注册回来了 —— 依琪 2026-10-14 拍板「主区面板不要了」，'
+    '★ `main` 席位又注册回来了 —— 机主 2026-10-14 拍板「主区面板不要了」，'
     + '如果这是有意恢复，请同步改本条与 docs/DEPRECATED-TESTS.md');
   assert(NAMES.indexOf('sidebar.panellist') < 0, '★ `sidebar.panellist` 又注册回来了（左侧栏图标已按拍板删除）');
   assert(NAMES.indexOf('sidebar.footer.action') < 0, '★ `sidebar.footer.action` 又注册回来了（左下入口已按拍板删除）');

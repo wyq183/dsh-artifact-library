@@ -138,7 +138,7 @@ check('排除路径含逗号时正确加引号', () => {
 })
 
 console.log('\n=== [4] 真实场景抽样（本机 .dsh，若存在）===')
-const realDsh = 'C:\\Users\\Administrator\\.dsh'
+const realDsh = 'C:\\Users\\you\\.dsh'
 if (fs.existsSync(realDsh)) {
   check('★ 在本机 .dsh 上能找出大量噪音目录', () => {
     const found = collectNoiseExcludes([realDsh], { maxDepth: 3 })

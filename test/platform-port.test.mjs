@@ -192,7 +192,7 @@ console.log('\n=== [3] ★★★ 启动失败不打崩宿主（回归守卫）==
     assert(typeof r.error === 'string' && r.error.length > 0, '没有错误说明')
   })
 
-  // ── ★★ 2026-10-08：`windowsHide` 让窗口**建了但不显示**（依琪报的「点了没反应」）────
+  // ── ★★ 2026-10-08：`windowsHide` 让窗口**建了但不显示**（机主报的「点了没反应」）────
   //
   // 症状：端点回 200、explorer 进程起来了、窗口也建了（标题/尺寸全对），
   //       但 `IsWindowVisible() === false` ⇒ 用户永远看不见。
@@ -214,7 +214,7 @@ console.log('\n=== [3] ★★★ 启动失败不打崩宿主（回归守卫）==
     // ① 不许出现**写死为 true** 的 windowsHide
     assert(!/windowsHide\s*:\s*true/.test(body),
       '★★ spawnSoft 里又出现了 `windowsHide: true` —— 那会让 explorer 的窗口**建了但不显示**'
-      + '（依琪报的「点了没反应、只弹一句已打开」就是这个）。'
+      + '（机主报的「点了没反应、只弹一句已打开」就是这个）。'
       + '它必须是 `options.hideWindow === true` 这种**可选**形态。')
     // ② 必须由选项驱动
     assert(/windowsHide\s*:\s*options\.hideWindow/.test(body),

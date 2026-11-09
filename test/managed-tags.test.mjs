@@ -167,7 +167,7 @@ function putManaged(handler, managedTags) {
 /* ═══ [A] 默认预设 ═══════════════════════════════════════════════════════ */
 console.log('\n=== [A] 默认预设：合法、结构不变量、且不是「随便写写」===')
 {
-  check('★ 默认预设能被规则层通过（它是依琪第一眼看到的东西，不能先坏在自己手里）', () => {
+  check('★ 默认预设能被规则层通过（它是机主第一眼看到的东西，不能先坏在自己手里）', () => {
     const r = validateManagedTagSettings(DEFAULT_MANAGED_TAGS)
     assert(r.ok === true, '默认预设没通过校验：' + JSON.stringify(r))
     // 也过一遍**模块级**直出函数（limit=null 时与上面同结果，见 [G]）

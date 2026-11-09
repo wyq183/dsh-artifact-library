@@ -68,7 +68,7 @@ function makeService(summary) {
 }
 const OFFICIAL_SUMMARY = {
   turn: 3,
-  cwd: 'C:\\Users\\Administrator\\.dsh',
+  cwd: 'C:\\Users\\you\\.dsh',
   files: [
     { path: 'a.txt', display: 'a.txt', added: 4, deleted: 1 },
     { path: 'C:\\outside\\bin.dat', display: 'C:\\outside\\bin.dat', added: 0, deleted: 0, binary: true },
