@@ -84,7 +84,7 @@ body[data-card="xl"] .thumb .ico{font-size:160px}
 .pvtable th.pvth{position:relative;overflow:visible}
 /* 行高把手：表头下方的一整行（横跨所有列）
    ⚠️ 常态显示一条细线 + 淡淡的手柄提示，hover 变蓝 ——
-      依琪已经因为"看不见分割线"抱怨过两次，不许再藏到 hover 才出现。 */
+      机主已经因为"看不见分割线"抱怨过两次，不许再藏到 hover 才出现。 */
 .rowgripr th.rowgripth{height:10px;padding:0;cursor:row-resize;background:var(--panel2);border-bottom:1px solid var(--line);position:relative}
 .rowgripr th.rowgripth::after{content:'';position:absolute;left:0;right:0;top:4px;height:2px;background:var(--line);border-radius:1px}
 .rowgripr th.rowgripth:hover::after{background:var(--acc)}
@@ -236,7 +236,7 @@ td:hover .refined{opacity:1;color:var(--fg)}
 .mfname{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mfct{flex:none;color:var(--dim);font-variant-numeric:tabular-nums;font-size:12px}
 .mfempty{padding:6px 8px;color:var(--dim);font-size:12px}
-/* 「清空」置顶（2026-10-20 依琪：最下面不好操作）
+/* 「清空」置顶（2026-10-20 机主：最下面不好操作）
    ⚠️ sticky + 不透明底色：滚动时选项从底下穿过，透明会文字重叠。
    ⚠️ 与侧栏（lib/client.js 的 __rpmclear）**同一套做法** —— 两处不一致
       会让用户学到的规律是假的。 */
@@ -776,7 +776,7 @@ body[data-card="l"] .card-title{font-size:14px}
 const API = '/ext/artifacts'
 let state = { cat: 'all', view: 'card', projectOpen: '', knItems: [], knTree: [], knStats: null, knFilter: { project: '', type: '', q: '' }, trash: false, items: [], allItems: [], folder: '', folderUnfiled: false, picking: null, categories: { projects: [], types: [], tags: [] }, stats: null, selected: new Set(), refIndex: {}, page: 1, pageSize: 60,
   // ⭐ 2026-10-14 新增（档 1d）：文件浏览 / 文件搜索 / 会话改动
-  //    这三块原来是**主面板**的能力，面板删了 ⇒ 搬到网页版（依琪：「允许你做成网页版本展示全部内容」）
+  //    这三块原来是**主面板**的能力，面板删了 ⇒ 搬到网页版（机主：「允许你做成网页版本展示全部内容」）
   files: { dir: '', entries: [], total: 0, truncated: false, error: '', loading: false },
   fileQuery: '', fileResults: null, fileSearching: false, fileChip: '',
   changes: { status: 'idle', items: [], derived: false, sessionId: '', error: '' } }
@@ -830,7 +830,7 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add
 /* ══════════════════════════════════════════════════════════════════════════
  * 多选筛选（2026-10-19 第 4 步）
  * ══════════════════════════════════════════════════════════════════════════
- * 依琪：「同样是下拉式展开多选择分类」
+ * 机主：「同样是下拉式展开多选择分类」
  *
  * ⚠️ 宿主 store.list() 是**单值相等**签名（没有 kind[]）⇒ 多选只能前端做：
  *    拉一次全量，本地过滤。与侧栏同一套语义：
@@ -934,7 +934,7 @@ function mfRender(key) {
       `<span class="mflab">${esc(MF[key].label)}</span><span class="mfval">${esc(summary)}</span><span class="mfcar">▾</span>` +
     '</button>' +
     '<div class="mflist">' +
-      // ⚠️ 2026-10-20 依琪：「清空塞在最下面不好操作，要么置顶浮在上面，要么固定第一个」
+      // ⚠️ 2026-10-20 机主：「清空塞在最下面不好操作，要么置顶浮在上面，要么固定第一个」
       //    ⇒ 清空按钮**放在选项之前**，CSS 做 sticky（滚动时一直浮着）。
       //    与侧栏 `__rpmclear` 同一套做法 —— 两处行为不一致，用户学到的规律就是假的。
       (picked.length ? `<button type="button" class="mfclear" data-k="${key}">清空「${esc(MF[key].label)}」</button>` : '') +
@@ -1978,7 +1978,7 @@ function normTag(t) {
 }
 
 /**
- * 把「项目」并进标签列表的**第一个**（2026-10-20 · 依琪：项目作为一种标签，强绑定，最优先）。
+ * 把「项目」并进标签列表的**第一个**（2026-10-20 · 机主：项目作为一种标签，强绑定，最优先）。
  *
  * ⚠️ 只在**渲染层**合并 —— `project` 字段与 `tags` 数组都不动：
  *    `project` 有 41 处业务在用（筛选/语义搜索/精炼/项目合并/概览），
@@ -2220,7 +2220,7 @@ function cardHtml(r) {
 }
 
   /* ══════════════════════════════════════════════════════════════════════
-   * 列表列宽 + 行高（2026-10-19 第 3 步 · 依琪「都使用分割线来自由控制」）
+   * 列表列宽 + 行高（2026-10-19 第 3 步 · 机主「都使用分割线来自由控制」）
    * ══════════════════════════════════════════════════════════════════════
    * ⚠️ 列模型**照抄侧栏**：每列固定 px，**尾部多一个空列吃剩余空间**。
    *    侧栏曾栽过一次：名字列用 `1fr` 时，拖任何一列都只有它在动
@@ -2237,7 +2237,7 @@ function cardHtml(r) {
     { key: 'ico', label: '', w: 64, min: 48 },
     { key: 'name', label: '产物', w: 340, min: 160 },
     // ⚠️ 2026-10-20：项目不再是独立列 —— 它已经是**标签列里的第一个**
-    //    （依琪：「项目也作为标签的一种，强绑定，最优先显示」）。
+    //    （机主：「项目也作为标签的一种，强绑定，最优先显示」）。
     //    保留独立列 = 同一信息显示两次（截图里左边「本地生图环境」+ 右边「📁 本地生图环境」）。
     //    ⇒ 删掉这一列，把宽度并给标签（标签现在要放项目 + 标签）。
     { key: 'tags', label: '标签', w: 330, min: 120 },
@@ -2384,9 +2384,9 @@ function cardHtml(r) {
   }
   
 /**
- * 精炼状态标签（2026-10-19 · 依琪：「已处理打上**已经精炼标签**就可以」）。
+ * 精炼状态标签（2026-10-19 · 机主：「已处理打上**已经精炼标签**就可以」）。
  *
- * ⚠️ **已精炼的打标签，未精炼的留白** —— 这是依琪的原话，照做。
+ * ⚠️ **已精炼的打标签，未精炼的留白** —— 这是机主的原话，照做。
  *
  * ⚠️ 但必须承认一件事（我第一版在这里自欺）：
  *    实测 **424/448 是已精炼**，所以这个标签会出现**满屏**。
